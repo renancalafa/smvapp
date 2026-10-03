@@ -1,0 +1,1218 @@
+// Fonte das regras de negócio: PROJECT.md.
+//
+// Convenções:
+// - ids UUID v7; instantes em timestamptz (UTC); datas civis em date (fuso do Group).
+// - dinheiro em centavos inteiros (Int).
+// - horários recorrentes como minuto do dia (0-1439) no fuso do Group.
+// - colunas *ByUserId nulas significam ação do SYSTEM.
+// - histórico nunca é apagado: relações usam Restrict (também as opcionais, para que
+//   uma exclusão não anule a referência); a exceção é NotificationDelivery.subscription.
+// - "CHECK (SQL)": constraint escrita à mão na migration 001 (--create-only); o Prisma
+//   não expressa CHECK.
+//
+// Integridade entre entidades:
+// - Dentro de um agregado (opção de sorteio, times da sessão, partida, panela), o banco
+//   garante a consistência com FKs compostas do tipo (filhoId, paiId) -> (id, paiId).
+// - Pertencer ao mesmo Group, GameSession ou BillingCycle entre agregados diferentes
+//   NÃO é garantido por FK. Cada model lista essas invariantes em "Invariantes (service)";
+//   os services as validam dentro da transação que grava.
+//
+// Índices únicos parciais (preview feature "partialIndexes"):
+// - O Prisma Client expõe esses índices como chaves de findUnique/upsert/connect, mas a
+//   query gerada NÃO inclui o predicado do índice. Nunca use esses inputs: consulte com
+//   findFirst e a condição completa (ex.: { gameSessionId, invalidatedAt: null }).
+//   Cada índice parcial está marcado com "PARCIAL" e com a condição a usar.
+//
+// Idempotência:
+// - IdempotentOperation é o único mecanismo de idempotência dos comandos. Colunas
+//   operationId em outras tabelas são apenas rastreabilidade.
+
+generator client {
+  provider        = "prisma-client"
+  output          = "../src/generated/prisma"
+  previewFeatures = ["partialIndexes"]
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+// ============================================================================
+// Enums
+// ============================================================================
+
+enum Weekday {
+  MONDAY
+  TUESDAY
+  WEDNESDAY
+  THURSDAY
+  FRIDAY
+  SATURDAY
+  SUNDAY
+}
+
+enum MemberRole {
+  ADMIN
+  PLAYER
+}
+
+enum PlayerModality {
+  MONTHLY
+  DAILY
+}
+
+enum MemberStatus {
+  ACTIVE
+  INACTIVE
+}
+
+enum GameSessionStatus {
+  SCHEDULED
+  OPEN
+  LOCKED
+  IN_PROGRESS
+  FINISHED
+  CANCELLED
+}
+
+enum GameSessionType {
+  NORMAL
+  BIRTHDAY_DRAFT
+}
+
+enum GameSessionOrigin {
+  AUTOMATIC
+  EXTRAORDINARY
+}
+
+enum OverflowMode {
+  FIXED_TEAMS
+  FLEXIBLE_ROTATION
+}
+
+enum RegistrationStatus {
+  PARTICIPANT
+  WAITLISTED
+  DECLINED
+  WITHDRAWN
+  REMOVED
+}
+
+enum PriorityTier {
+  MONTHLY_PRIORITY
+  GENERAL
+}
+
+enum ActionSource {
+  SELF
+  ADMIN
+  SYSTEM
+}
+
+enum AttendanceStatus {
+  PRESENT
+  ABSENT
+}
+
+enum BirthdayDraftStatus {
+  BUILDING
+  FINALIZED
+  CANCELLED
+}
+
+enum DrawStatus {
+  VOTING
+  DECIDED
+  TIED
+  INVALIDATED
+}
+
+enum DrawDecisionMethod {
+  VOTE
+  SINGLE_OPTION
+  ADMIN_RESOLUTION
+}
+
+/// Usado por DrawTeam e SessionTeam.
+enum TeamKind {
+  REGULAR
+  BIRTHDAY
+  ROTATION_POOL
+}
+
+enum SessionTeamOrigin {
+  DRAW
+  BIRTHDAY_DRAFT
+  MANUAL
+}
+
+enum MatchStatus {
+  IN_PROGRESS
+  FINISHED
+  CANCELLED
+}
+
+enum MatchPlayerRole {
+  FIELD
+  GOALKEEPER
+}
+
+enum MatchEventType {
+  GOAL
+  OWN_GOAL
+  BIG_MISS
+}
+
+enum BillingCycleStatus {
+  OPEN
+  CLOSED
+}
+
+enum ChargeType {
+  DAILY_FEE
+  MONTHLY_FEE
+}
+
+enum ChargeStatus {
+  PENDING
+  PAID
+  CANCELLED
+}
+
+enum PaymentStatus {
+  CONFIRMED
+  REVERSED
+}
+
+/// Apenas o rótulo da forma de pagamento; não há integração.
+enum PaymentMethod {
+  CASH
+  PIX
+  BANK_TRANSFER
+  OTHER
+}
+
+enum CashDirection {
+  IN
+  OUT
+}
+
+enum CashCategory {
+  DAILY_FEE
+  MONTHLY_FEE
+  FIELD_COST
+  INITIAL_BALANCE
+}
+
+enum NotificationType {
+  LIST_OPENED
+  MONTHLY_DECLINED
+  WAITLIST_PROMOTED
+  DAILY_PLAYERS_NEEDED
+  SESSION_CANCELLED
+}
+
+enum DeliveryStatus {
+  PENDING
+  SENT
+  FAILED
+  EXPIRED
+}
+
+enum ActorType {
+  USER
+  SYSTEM
+}
+
+// ============================================================================
+// Identidade, autenticação e grupo
+// ============================================================================
+
+/// Identidade global e credencial de login. Role, modalidade e nota pertencem ao GroupMember.
+/// Contas são criadas somente por ADMIN, com senha temporária individual e aleatória.
+/// CHECK (SQL): username = lower(username) e não vazio.
+model User {
+  id                 String    @id @default(uuid(7)) @db.Uuid
+  /// Armazenado normalizado (minúsculas).
+  username           String    @unique
+  name               String
+  birthDate          DateTime? @db.Date
+  /// Hash da senha (string PHC, ex.: argon2id). A senha em texto puro nunca é persistida.
+  passwordHash       String
+  /// true após criação ou redefinição pelo ADMIN; bloqueia o uso até a troca da senha.
+  mustChangePassword Boolean   @default(true)
+  disabledAt         DateTime? @db.Timestamptz(3)
+  createdByUserId    String?   @db.Uuid
+  createdAt          DateTime  @default(now()) @db.Timestamptz(3)
+  updatedAt          DateTime  @updatedAt @db.Timestamptz(3)
+
+  createdBy    User?  @relation("UserCreatedBy", fields: [createdByUserId], references: [id], onDelete: Restrict)
+  createdUsers User[] @relation("UserCreatedBy")
+
+  authSessions         AuthSession[]
+  memberships          GroupMember[]
+  pushSubscriptions    PushSubscription[]
+  notifications        Notification[]
+  auditLogs            AuditLog[]
+  idempotentOperations IdempotentOperation[]
+  groupSettingsUpdated GroupSettings[]
+  feeExemptionsUpdated GroupMember[]         @relation("FeeExemptUpdatedBy")
+  sessionsCreated      GameSession[]         @relation("GameSessionCreatedBy")
+  sessionsCancelled    GameSession[]         @relation("GameSessionCancelledBy")
+  overflowDecisions    GameSession[]         @relation("GameSessionOverflowDecidedBy")
+  manualOverrides      SessionRegistration[] @relation("RegistrationManualOverrideBy")
+  rotatingAssignments  SessionRegistration[] @relation("RegistrationRotatingSetBy")
+  attendanceMarks      SessionRegistration[] @relation("RegistrationAttendanceMarkedBy")
+  drawsCreated         Draw[]                @relation("DrawCreatedBy")
+  drawsDecided         Draw[]                @relation("DrawDecidedBy")
+  drawsInvalidated     Draw[]                @relation("DrawInvalidatedBy")
+  matchEventsCreated   MatchEvent[]          @relation("MatchEventCreatedBy")
+  matchEventsVoided    MatchEvent[]          @relation("MatchEventVoidedBy")
+  billingCyclesClosed  BillingCycle[]
+  chargesCreated       Charge[]              @relation("ChargeCreatedBy")
+  chargesCancelled     Charge[]              @relation("ChargeCancelledBy")
+  paymentsConfirmed    Payment[]             @relation("PaymentConfirmedBy")
+  paymentsReversed     Payment[]             @relation("PaymentReversedBy")
+  cashTransactions     CashTransaction[]
+}
+
+/// Sessão de login própria, referenciada por cookie HttpOnly (Secure em produção).
+/// O cookie carrega um token aleatório; o banco guarda só o hash dele.
+/// Sessão válida: revokedAt nulo, expiresAt no futuro e User sem disabledAt.
+/// A redefinição de senha pelo ADMIN revoga todas as sessões ativas do usuário.
+model AuthSession {
+  id         String    @id @default(uuid(7)) @db.Uuid
+  userId     String    @db.Uuid
+  /// Hash (ex.: SHA-256) do token do cookie. O token bruto nunca é persistido.
+  tokenHash  String    @unique
+  createdAt  DateTime  @default(now()) @db.Timestamptz(3)
+  expiresAt  DateTime  @db.Timestamptz(3)
+  lastUsedAt DateTime? @db.Timestamptz(3)
+  revokedAt  DateTime? @db.Timestamptz(3)
+  userAgent  String?
+
+  user User @relation(fields: [userId], references: [id])
+
+  @@index([userId, revokedAt])
+  @@index([expiresAt])
+}
+
+/// A pelada. Hoje existe uma única linha (seed); é a âncora do futuro SaaS.
+model Group {
+  id        String   @id @default(uuid(7)) @db.Uuid
+  name      String
+  slug      String   @unique
+  /// IANA, por exemplo America/Sao_Paulo.
+  timezone  String
+  createdAt DateTime @default(now()) @db.Timestamptz(3)
+  updatedAt DateTime @updatedAt @db.Timestamptz(3)
+
+  settings             GroupSettings?
+  members              GroupMember[]
+  seasons              Season[]
+  gameSessions         GameSession[]
+  billingCycles        BillingCycle[]
+  charges              Charge[]
+  cashTransactions     CashTransaction[]
+  notifications        Notification[]
+  auditLogs            AuditLog[]
+  idempotentOperations IdempotentOperation[]
+}
+
+/// Valores padrão usados para gerar novas sessões e ciclos. Sem @default de negócio:
+/// os valores vêm do seed ou do ADMIN. Toda alteração gera AuditLog com before/after.
+/// CHECK (SQL): minutos entre 0 e 1439; dias >= 0; contagens e duração > 0;
+/// valores em centavos >= 0; fieldPaymentDueDay entre 1 e 31.
+model GroupSettings {
+  groupId String @id @db.Uuid
+
+  // Agenda (horários em minuto do dia, fuso do Group)
+  sessionWeekday              Weekday
+  sessionStartMinute          Int
+  sessionEndMinute            Int
+  maxExtraMinutes             Int
+  /// Dias antes da sessão em que a lista abre (ex.: 3 = segunda para quinta).
+  registrationOpensDaysBefore Int
+  registrationOpensMinute     Int
+  /// Dias antes da sessão em que termina a prioridade dos mensalistas (ex.: 0 = no dia).
+  priorityDeadlineDaysBefore  Int
+  priorityDeadlineMinute      Int
+  /// Antecedência, em dias, da criação automática em relação à abertura da lista (seed: 7).
+  sessionAutoCreateLeadDays   Int
+
+  // Formato
+  maxPlayers              Int
+  teamSize                Int
+  matchDurationSec        Int
+  drawOptionsCount        Int
+  drawMinOptionDifference Int
+
+  // Financeiro
+  dailyFeeCents         Int
+  monthlyFieldCostCents Int
+  /// Se o mês não tiver o dia, vale o último dia do mês.
+  fieldPaymentDueDay    Int
+  /// ISO 4217, por exemplo BRL.
+  currency              String
+
+  // Local
+  venueName    String?
+  venueAddress String?
+
+  updatedAt       DateTime @updatedAt @db.Timestamptz(3)
+  updatedByUserId String?  @db.Uuid
+
+  group     Group @relation(fields: [groupId], references: [id])
+  updatedBy User? @relation(fields: [updatedByUserId], references: [id], onDelete: Restrict)
+}
+
+/// O jogador dentro de uma pelada. Referências de domínio apontam para cá, nunca para User.
+/// CHECK (SQL): baseRating entre 1 e 5.
+model GroupMember {
+  id                       String         @id @default(uuid(7)) @db.Uuid
+  groupId                  String         @db.Uuid
+  userId                   String         @db.Uuid
+  role                     MemberRole
+  modality                 PlayerModality
+  /// Somente ADMIN lê ou escreve.
+  baseRating               Int
+  nickname                 String?
+  status                   MemberStatus   @default(ACTIVE)
+  feeExempt                Boolean        @default(false)
+  feeExemptReason          String?
+  feeExemptUpdatedAt       DateTime?      @db.Timestamptz(3)
+  feeExemptUpdatedByUserId String?        @db.Uuid
+  createdAt                DateTime       @default(now()) @db.Timestamptz(3)
+  updatedAt                DateTime       @updatedAt @db.Timestamptz(3)
+
+  group              Group @relation(fields: [groupId], references: [id])
+  user               User  @relation(fields: [userId], references: [id])
+  feeExemptUpdatedBy User? @relation("FeeExemptUpdatedBy", fields: [feeExemptUpdatedByUserId], references: [id], onDelete: Restrict)
+
+  registrations             SessionRegistration[]
+  birthdayDraftCelebrations BirthdayDraftCelebrant[]
+  birthdayDraftPicks        BirthdayDraftPick[]
+  drawTeamSlots             DrawTeamPlayer[]
+  drawVotes                 DrawVote[]
+  sessionTeamSlots          SessionTeamPlayer[]
+  matchAppearances          MatchPlayer[]
+  matchEventsAuthored       MatchEvent[]             @relation("MatchEventAuthor")
+  matchEventsAssisted       MatchEvent[]             @relation("MatchEventAssist")
+  charges                   Charge[]
+  payments                  Payment[]
+
+  @@unique([groupId, userId])
+  @@index([groupId, status, modality])
+}
+
+// ============================================================================
+// Temporada e sessão
+// ============================================================================
+
+/// CHECK (SQL): endsOn >= startsOn.
+model Season {
+  id        String   @id @default(uuid(7)) @db.Uuid
+  groupId   String   @db.Uuid
+  name      String
+  startsOn  DateTime @db.Date
+  endsOn    DateTime @db.Date
+  createdAt DateTime @default(now()) @db.Timestamptz(3)
+
+  group        Group         @relation(fields: [groupId], references: [id])
+  gameSessions GameSession[]
+
+  @@unique([groupId, name])
+}
+
+/// Uma ocorrência da pelada, com snapshot da configuração no momento da criação.
+/// CHECK (SQL): endsAt > startsAt; status CANCELLED exige cancelledAt e cancelReason.
+/// Invariantes (service):
+/// - season.groupId = groupId e billingCycle.groupId = groupId;
+/// - scheduledFor dentro de [season.startsOn, season.endsOn] e de
+///   [billingCycle.periodStart, billingCycle.periodEnd];
+/// - billingCycle está OPEN na criação da sessão.
+model GameSession {
+  id             String            @id @default(uuid(7)) @db.Uuid
+  groupId        String            @db.Uuid
+  seasonId       String            @db.Uuid
+  billingCycleId String            @db.Uuid
+  status         GameSessionStatus @default(SCHEDULED)
+  type           GameSessionType   @default(NORMAL)
+  origin         GameSessionOrigin
+  /// Data civil da sessão no fuso do Group.
+  scheduledFor   DateTime          @db.Date
+
+  // Snapshot da configuração
+  startsAt                DateTime @db.Timestamptz(3)
+  endsAt                  DateTime @db.Timestamptz(3)
+  maxExtraMinutes         Int
+  registrationOpensAt     DateTime @db.Timestamptz(3)
+  priorityDeadlineAt      DateTime @db.Timestamptz(3)
+  maxPlayers              Int
+  teamSize                Int
+  matchDurationSec        Int
+  drawOptionsCount        Int
+  drawMinOptionDifference Int
+  dailyFeeCents           Int
+  venueName               String?
+
+  // 16 a 19 participantes após o deadline
+  overflowMode            OverflowMode?
+  overflowDecidedAt       DateTime?     @db.Timestamptz(3)
+  overflowDecidedByUserId String?       @db.Uuid
+
+  // Marcadores idempotentes dos jobs e transições
+  openedAt           DateTime? @db.Timestamptz(3)
+  priorityClosedAt   DateTime? @db.Timestamptz(3)
+  startedAt          DateTime? @db.Timestamptz(3)
+  finishedAt         DateTime? @db.Timestamptz(3)
+  chargesGeneratedAt DateTime? @db.Timestamptz(3)
+
+  // Cancelamento
+  cancelledAt       DateTime? @db.Timestamptz(3)
+  cancelledByUserId String?   @db.Uuid
+  cancelReason      String?
+
+  createdByUserId String?  @db.Uuid
+  createdAt       DateTime @default(now()) @db.Timestamptz(3)
+  updatedAt       DateTime @updatedAt @db.Timestamptz(3)
+
+  group             Group        @relation(fields: [groupId], references: [id])
+  season            Season       @relation(fields: [seasonId], references: [id])
+  billingCycle      BillingCycle @relation(fields: [billingCycleId], references: [id])
+  overflowDecidedBy User?        @relation("GameSessionOverflowDecidedBy", fields: [overflowDecidedByUserId], references: [id], onDelete: Restrict)
+  cancelledBy       User?        @relation("GameSessionCancelledBy", fields: [cancelledByUserId], references: [id], onDelete: Restrict)
+  createdBy         User?        @relation("GameSessionCreatedBy", fields: [createdByUserId], references: [id], onDelete: Restrict)
+
+  registrations    SessionRegistration[]
+  birthdayDraft    BirthdayDraft?
+  draws            Draw[]
+  teams            SessionTeam[]
+  matches          Match[]
+  charges          Charge[]
+  cashTransactions CashTransaction[]
+  auditLogs        AuditLog[]
+
+  /// PARCIAL: impede o job de recriar uma sessão automática, inclusive se cancelada.
+  /// Consultar com { groupId, scheduledFor, origin: "AUTOMATIC" }.
+  @@unique([groupId, scheduledFor], map: "GameSession_automatic_slot_key", where: { origin: "AUTOMATIC" })
+  @@index([groupId, startsAt])
+  @@index([status])
+}
+
+// ============================================================================
+// Presença
+// ============================================================================
+
+/// Uma linha por membro por sessão. O status é a alocação materializada.
+/// CHECK (SQL): status PARTICIPANT ou WAITLISTED exige queuedAt, queueSortAt e priorityTier.
+/// Invariantes (service):
+/// - member.groupId = gameSession.groupId;
+/// - a quantidade de PARTICIPANT nunca excede a capacidade efetiva da sessão, inclusive
+///   em intervenção administrativa (lock da linha da GameSession na transação);
+/// - attendance só é marcada em inscrição PARTICIPANT.
+model SessionRegistration {
+  id               String             @id @default(uuid(7)) @db.Uuid
+  gameSessionId    String             @db.Uuid
+  memberId         String             @db.Uuid
+  status           RegistrationStatus
+  /// Instante original da confirmação; nunca alterado por intervenção. Nulo em DECLINED.
+  queuedAt         DateTime?          @db.Timestamptz(3)
+  /// Posição efetiva na fila; igual a queuedAt salvo intervenção administrativa.
+  queueSortAt      DateTime?          @db.Timestamptz(3)
+  priorityTier     PriorityTier?
+  modalitySnapshot PlayerModality
+  source           ActionSource
+  respondedAt      DateTime           @db.Timestamptz(3)
+  promotedAt       DateTime?          @db.Timestamptz(3)
+  withdrawnAt      DateTime?          @db.Timestamptz(3)
+
+  // Última intervenção administrativa (histórico completo no AuditLog)
+  manualOverrideAt       DateTime? @db.Timestamptz(3)
+  manualOverrideByUserId String?   @db.Uuid
+  manualOverrideReason   String?
+
+  // Rotativos (FLEXIBLE_ROTATION)
+  isRotating          Boolean   @default(false)
+  rotatingSetByUserId String?   @db.Uuid
+  rotatingSetAt       DateTime? @db.Timestamptz(3)
+
+  // Presença real (Modo Pelada); nulo = não marcada
+  attendance               AttendanceStatus?
+  attendanceMarkedAt       DateTime?         @db.Timestamptz(3)
+  attendanceMarkedByUserId String?           @db.Uuid
+
+  createdAt DateTime @default(now()) @db.Timestamptz(3)
+  updatedAt DateTime @updatedAt @db.Timestamptz(3)
+
+  gameSession        GameSession @relation(fields: [gameSessionId], references: [id])
+  member             GroupMember @relation(fields: [memberId], references: [id])
+  manualOverrideBy   User?       @relation("RegistrationManualOverrideBy", fields: [manualOverrideByUserId], references: [id], onDelete: Restrict)
+  rotatingSetBy      User?       @relation("RegistrationRotatingSetBy", fields: [rotatingSetByUserId], references: [id], onDelete: Restrict)
+  attendanceMarkedBy User?       @relation("RegistrationAttendanceMarkedBy", fields: [attendanceMarkedByUserId], references: [id], onDelete: Restrict)
+
+  dailyFeeCharge Charge?
+
+  @@unique([gameSessionId, memberId])
+  @@index([gameSessionId, status, priorityTier, queueSortAt])
+  @@index([memberId])
+}
+
+// ============================================================================
+// Panela de Aniversário
+// ============================================================================
+
+/// CHECK (SQL): version >= 1.
+/// Invariantes (service): celebrantes e escolhidos são participantes da sessão; um
+/// membro não é celebrante e escolhido ao mesmo tempo; total da panela = teamSize.
+model BirthdayDraft {
+  id            String              @id @default(uuid(7)) @db.Uuid
+  gameSessionId String              @unique @db.Uuid
+  status        BirthdayDraftStatus @default(BUILDING)
+  /// Incrementada a cada mudança de composição; aprovações valem só para a versão atual.
+  version       Int                 @default(1)
+  finalizedAt   DateTime?           @db.Timestamptz(3)
+  createdAt     DateTime            @default(now()) @db.Timestamptz(3)
+  updatedAt     DateTime            @updatedAt @db.Timestamptz(3)
+
+  gameSession GameSession              @relation(fields: [gameSessionId], references: [id])
+  celebrants  BirthdayDraftCelebrant[]
+  picks       BirthdayDraftPick[]
+  approvals   BirthdayDraftApproval[]
+  draws       Draw[]
+}
+
+model BirthdayDraftCelebrant {
+  id              String   @id @default(uuid(7)) @db.Uuid
+  birthdayDraftId String   @db.Uuid
+  memberId        String   @db.Uuid
+  createdAt       DateTime @default(now()) @db.Timestamptz(3)
+
+  birthdayDraft BirthdayDraft           @relation(fields: [birthdayDraftId], references: [id])
+  member        GroupMember             @relation(fields: [memberId], references: [id])
+  picksMade     BirthdayDraftPick[]
+  approvals     BirthdayDraftApproval[]
+
+  @@unique([birthdayDraftId, memberId])
+}
+
+model BirthdayDraftPick {
+  id               String   @id @default(uuid(7)) @db.Uuid
+  birthdayDraftId  String   @db.Uuid
+  memberId         String   @db.Uuid
+  pickedByMemberId String   @db.Uuid
+  createdAt        DateTime @default(now()) @db.Timestamptz(3)
+
+  birthdayDraft BirthdayDraft          @relation(fields: [birthdayDraftId], references: [id])
+  member        GroupMember            @relation(fields: [memberId], references: [id])
+  /// Quem escolheu é celebrante desta mesma panela (FK composta).
+  pickedBy      BirthdayDraftCelebrant @relation(fields: [birthdayDraftId, pickedByMemberId], references: [birthdayDraftId, memberId])
+
+  @@unique([birthdayDraftId, memberId])
+  @@index([birthdayDraftId, pickedByMemberId])
+}
+
+model BirthdayDraftApproval {
+  id              String   @id @default(uuid(7)) @db.Uuid
+  birthdayDraftId String   @db.Uuid
+  memberId        String   @db.Uuid
+  version         Int
+  approvedAt      DateTime @default(now()) @db.Timestamptz(3)
+
+  birthdayDraft BirthdayDraft          @relation(fields: [birthdayDraftId], references: [id])
+  /// Só celebrantes desta mesma panela aprovam (FK composta).
+  celebrant     BirthdayDraftCelebrant @relation(fields: [birthdayDraftId, memberId], references: [birthdayDraftId, memberId])
+
+  @@unique([birthdayDraftId, memberId, version])
+}
+
+// ============================================================================
+// Sorteio e votação (imutáveis depois de criados; refação cria novo Draw)
+// ============================================================================
+
+/// CHECK (SQL): status INVALIDATED se e somente se invalidatedAt preenchido;
+/// status DECIDED exige winningOptionId e decisionMethod.
+/// Invariantes (service):
+/// - replaces.gameSessionId = gameSessionId;
+/// - birthdayDraft.gameSessionId = gameSessionId e birthdayDraftVersion = versão finalizada.
+model Draw {
+  id                   String              @id @default(uuid(7)) @db.Uuid
+  gameSessionId        String              @db.Uuid
+  sequence             Int
+  status               DrawStatus          @default(VOTING)
+  decisionMethod       DrawDecisionMethod?
+  winningOptionId      String?             @db.Uuid
+  seed                 String
+  algorithmVersion     String
+  /// Snapshot de drawMinOptionDifference.
+  minOptionDifference  Int
+  /// Distância entre as opções A e B; nula com uma única opção.
+  optionDistance       Int?
+  birthdayDraftId      String?             @db.Uuid
+  birthdayDraftVersion Int?
+  createdByUserId      String?             @db.Uuid
+  createdAt            DateTime            @default(now()) @db.Timestamptz(3)
+  votingClosedAt       DateTime?           @db.Timestamptz(3)
+  decidedAt            DateTime?           @db.Timestamptz(3)
+  decidedByUserId      String?             @db.Uuid
+  invalidatedAt        DateTime?           @db.Timestamptz(3)
+  invalidatedByUserId  String?             @db.Uuid
+  invalidationReason   String?
+  replacesDrawId       String?             @unique @db.Uuid
+
+  gameSession   GameSession    @relation(fields: [gameSessionId], references: [id])
+  /// A opção vencedora pertence a este Draw (FK composta).
+  winningOption DrawOption?    @relation("DrawWinningOption", fields: [winningOptionId, id], references: [id, drawId], onDelete: Restrict)
+  birthdayDraft BirthdayDraft? @relation(fields: [birthdayDraftId], references: [id], onDelete: Restrict)
+  createdBy     User?          @relation("DrawCreatedBy", fields: [createdByUserId], references: [id], onDelete: Restrict)
+  decidedBy     User?          @relation("DrawDecidedBy", fields: [decidedByUserId], references: [id], onDelete: Restrict)
+  invalidatedBy User?          @relation("DrawInvalidatedBy", fields: [invalidatedByUserId], references: [id], onDelete: Restrict)
+  replaces      Draw?          @relation("DrawReplacement", fields: [replacesDrawId], references: [id], onDelete: Restrict)
+  replacedBy    Draw?          @relation("DrawReplacement")
+
+  options DrawOption[] @relation("DrawOptions")
+  votes   DrawVote[]
+
+  @@unique([gameSessionId, sequence])
+  @@unique([winningOptionId, id])
+  /// PARCIAL: no máximo um sorteio ativo (não invalidado) por sessão.
+  /// Consultar com { gameSessionId, invalidatedAt: null }.
+  @@unique([gameSessionId], map: "Draw_active_per_session_key", where: { invalidatedAt: null })
+}
+
+model DrawOption {
+  id           String @id @default(uuid(7)) @db.Uuid
+  drawId       String @db.Uuid
+  /// A, B, ...
+  label        String
+  /// Somente ADMIN.
+  balanceScore Float
+
+  draw     Draw       @relation("DrawOptions", fields: [drawId], references: [id])
+  winnerOf Draw?      @relation("DrawWinningOption")
+  teams    DrawTeam[]
+  votes    DrawVote[]
+
+  @@unique([drawId, label])
+  /// Alvo das FKs compostas que garantem que a opção pertence ao Draw informado.
+  @@unique([id, drawId])
+}
+
+/// Invariante (service): no máximo um time BIRTHDAY e um ROTATION_POOL por opção, e
+/// esses blocos são idênticos em todas as opções do Draw.
+model DrawTeam {
+  id            String   @id @default(uuid(7)) @db.Uuid
+  drawOptionId  String   @db.Uuid
+  position      Int
+  name          String
+  color         String?
+  kind          TeamKind
+  /// Somente ADMIN.
+  strengthTotal Float
+
+  drawOption   DrawOption       @relation(fields: [drawOptionId], references: [id])
+  players      DrawTeamPlayer[]
+  sessionTeams SessionTeam[]
+
+  @@unique([drawOptionId, position])
+  /// Alvo da FK composta de DrawTeamPlayer.
+  @@unique([id, drawOptionId])
+}
+
+/// Um jogador aparece no máximo uma vez por opção de sorteio, somando todos os times
+/// da opção, inclusive BIRTHDAY e ROTATION_POOL.
+/// Invariante (service): o membro é PARTICIPANT da sessão do Draw.
+model DrawTeamPlayer {
+  id               String @id @default(uuid(7)) @db.Uuid
+  drawTeamId       String @db.Uuid
+  /// Cópia de drawTeam.drawOptionId, amarrada pela FK composta.
+  drawOptionId     String @db.Uuid
+  memberId         String @db.Uuid
+  /// Somente ADMIN.
+  strengthSnapshot Float
+
+  drawTeam DrawTeam    @relation(fields: [drawTeamId, drawOptionId], references: [id, drawOptionId])
+  member   GroupMember @relation(fields: [memberId], references: [id])
+
+  @@unique([drawOptionId, memberId])
+  @@index([drawTeamId])
+  @@index([memberId])
+}
+
+/// A opção votada pertence ao drawId informado (FK composta).
+/// Invariantes (service), validadas na transação do voto:
+/// - o votante é GroupMember com SessionRegistration PARTICIPANT na sessão do Draw e
+///   modalitySnapshot MONTHLY (mensalista participante confirmado);
+/// - o Draw está em VOTING.
+model DrawVote {
+  id            String   @id @default(uuid(7)) @db.Uuid
+  drawId        String   @db.Uuid
+  drawOptionId  String   @db.Uuid
+  voterMemberId String   @db.Uuid
+  createdAt     DateTime @default(now()) @db.Timestamptz(3)
+  updatedAt     DateTime @updatedAt @db.Timestamptz(3)
+
+  draw       Draw        @relation(fields: [drawId], references: [id])
+  drawOption DrawOption  @relation(fields: [drawOptionId, drawId], references: [id, drawId])
+  voter      GroupMember @relation(fields: [voterMemberId], references: [id])
+
+  @@unique([drawId, voterMemberId])
+  @@index([drawOptionId, drawId])
+  @@index([voterMemberId])
+}
+
+// ============================================================================
+// Times finais, partidas e eventos
+// ============================================================================
+
+/// Composição efetiva atual dos times da noite. Os rotativos ficam em um time de kind
+/// ROTATION_POOL. Ajustes movem SessionTeamPlayer entre times, com AuditLog.
+/// Invariantes (service):
+/// - no máximo um time BIRTHDAY e um ROTATION_POOL por sessão;
+/// - sourceDrawTeam pertence à opção vencedora de um Draw desta sessão.
+model SessionTeam {
+  id                   String            @id @default(uuid(7)) @db.Uuid
+  gameSessionId        String            @db.Uuid
+  sourceDrawTeamId     String?           @db.Uuid
+  origin               SessionTeamOrigin
+  kind                 TeamKind
+  name                 String
+  color                String?
+  /// Ordem inicial no Rei da Mesa; nula para ROTATION_POOL.
+  initialQueuePosition Int?
+  createdAt            DateTime          @default(now()) @db.Timestamptz(3)
+
+  gameSession    GameSession         @relation(fields: [gameSessionId], references: [id])
+  sourceDrawTeam DrawTeam?           @relation(fields: [sourceDrawTeamId], references: [id], onDelete: Restrict)
+  players        SessionTeamPlayer[]
+  matchesAsA     Match[]             @relation("MatchTeamA")
+  matchesAsB     Match[]             @relation("MatchTeamB")
+  penaltyWins    Match[]             @relation("MatchPenaltyWinner")
+  matchPlayers   MatchPlayer[]
+  matchEvents    MatchEvent[]
+
+  @@unique([gameSessionId, initialQueuePosition])
+  /// Alvo das FKs compostas de SessionTeamPlayer e Match.
+  @@unique([id, gameSessionId])
+}
+
+/// Um jogador pertence a no máximo um time da sessão, somando REGULAR, BIRTHDAY e
+/// ROTATION_POOL. Quem completa lacunas durante a noite aparece em MatchPlayer, não aqui.
+/// Invariante (service): o membro é PARTICIPANT da sessão.
+model SessionTeamPlayer {
+  id            String   @id @default(uuid(7)) @db.Uuid
+  sessionTeamId String   @db.Uuid
+  /// Cópia de sessionTeam.gameSessionId, amarrada pela FK composta.
+  gameSessionId String   @db.Uuid
+  memberId      String   @db.Uuid
+  createdAt     DateTime @default(now()) @db.Timestamptz(3)
+
+  sessionTeam SessionTeam @relation(fields: [sessionTeamId, gameSessionId], references: [id, gameSessionId])
+  member      GroupMember @relation(fields: [memberId], references: [id])
+
+  @@unique([gameSessionId, memberId])
+  @@index([sessionTeamId])
+  @@index([memberId])
+}
+
+/// Os times A, B e o vencedor nos pênaltis são da mesma sessão da partida (FKs compostas).
+/// CHECK (SQL): teamAId <> teamBId; penaltyWinnerTeamId nulo ou igual a teamAId/teamBId;
+/// version >= 0; pausedTotalMs >= 0.
+model Match {
+  id                  String      @id @default(uuid(7)) @db.Uuid
+  gameSessionId       String      @db.Uuid
+  sequence            Int
+  teamAId             String      @db.Uuid
+  teamBId             String      @db.Uuid
+  status              MatchStatus @default(IN_PROGRESS)
+  startedAt           DateTime    @db.Timestamptz(3)
+  pausedAt            DateTime?   @db.Timestamptz(3)
+  pausedTotalMs       Int         @default(0)
+  endedAt             DateTime?   @db.Timestamptz(3)
+  /// Snapshot de GameSession.matchDurationSec.
+  plannedDurationSec  Int
+  penaltyWinnerTeamId String?     @db.Uuid
+  /// Versionamento otimista: incrementada a cada comando aceito.
+  version             Int         @default(0)
+  createdAt           DateTime    @default(now()) @db.Timestamptz(3)
+  updatedAt           DateTime    @updatedAt @db.Timestamptz(3)
+
+  gameSession   GameSession   @relation(fields: [gameSessionId], references: [id])
+  teamA         SessionTeam   @relation("MatchTeamA", fields: [teamAId, gameSessionId], references: [id, gameSessionId])
+  teamB         SessionTeam   @relation("MatchTeamB", fields: [teamBId, gameSessionId], references: [id, gameSessionId])
+  penaltyWinner SessionTeam?  @relation("MatchPenaltyWinner", fields: [penaltyWinnerTeamId, gameSessionId], references: [id, gameSessionId], onDelete: Restrict)
+  players       MatchPlayer[]
+  events        MatchEvent[]
+
+  @@unique([gameSessionId, sequence])
+  /// PARCIAL: no máximo uma partida em andamento por sessão.
+  /// Consultar com { gameSessionId, status: "IN_PROGRESS" }.
+  @@unique([gameSessionId], map: "Match_in_progress_per_session_key", where: { status: "IN_PROGRESS" })
+  @@index([teamAId])
+  @@index([teamBId])
+}
+
+/// Quem efetivamente jogou a partida (inclui rotativos e goleiros escolhidos na hora).
+/// teamId é o lado em que o jogador atuou nesta partida, não necessariamente o seu
+/// SessionTeam (goleiro emprestado, rotativo).
+/// Invariantes (service): teamId é match.teamAId ou match.teamBId; o membro é
+/// PARTICIPANT da sessão.
+model MatchPlayer {
+  id       String          @id @default(uuid(7)) @db.Uuid
+  matchId  String          @db.Uuid
+  memberId String          @db.Uuid
+  teamId   String          @db.Uuid
+  role     MatchPlayerRole
+
+  match  Match       @relation(fields: [matchId], references: [id])
+  member GroupMember @relation(fields: [memberId], references: [id])
+  team   SessionTeam @relation(fields: [teamId], references: [id])
+
+  @@unique([matchId, memberId])
+  @@index([memberId])
+  @@index([teamId])
+}
+
+/// CHECK (SQL): assistMemberId só em GOAL e diferente de memberId; elapsedSec >= 0;
+/// voidedAt exige voidedByUserId e voidReason.
+/// Invariantes (service): teamId é match.teamAId ou match.teamBId; autor e assistente
+/// são MatchPlayer desta partida no lado teamId.
+model MatchEvent {
+  id              String         @id @default(uuid(7)) @db.Uuid
+  matchId         String         @db.Uuid
+  type            MatchEventType
+  /// Autor, obrigatório em todos os tipos.
+  memberId        String         @db.Uuid
+  /// Time do autor. Em OWN_GOAL o placar é creditado ao adversário.
+  teamId          String         @db.Uuid
+  assistMemberId  String?        @db.Uuid
+  elapsedSec      Int
+  createdByUserId String         @db.Uuid
+  /// Só rastreabilidade: NÃO implementa idempotência (ver IdempotentOperation).
+  /// Sem unique e sem FK, porque IdempotentOperation é expurgada.
+  operationId     String?        @db.Uuid
+  createdAt       DateTime       @default(now()) @db.Timestamptz(3)
+  updatedAt       DateTime       @updatedAt @db.Timestamptz(3)
+  voidedAt        DateTime?      @db.Timestamptz(3)
+  voidedByUserId  String?        @db.Uuid
+  voidReason      String?
+
+  match     Match        @relation(fields: [matchId], references: [id])
+  member    GroupMember  @relation("MatchEventAuthor", fields: [memberId], references: [id])
+  team      SessionTeam  @relation(fields: [teamId], references: [id])
+  assist    GroupMember? @relation("MatchEventAssist", fields: [assistMemberId], references: [id], onDelete: Restrict)
+  createdBy User         @relation("MatchEventCreatedBy", fields: [createdByUserId], references: [id])
+  voidedBy  User?        @relation("MatchEventVoidedBy", fields: [voidedByUserId], references: [id], onDelete: Restrict)
+
+  @@index([matchId])
+  @@index([memberId, type])
+  @@index([assistMemberId])
+  @@index([teamId])
+}
+
+// ============================================================================
+// Financeiro
+// ============================================================================
+
+/// Ciclo financeiro mensal. Valores do fechamento ficam nulos enquanto OPEN
+/// e nunca mudam depois de CLOSED.
+/// CHECK (SQL): referenceMonth no dia 1; periodEnd >= periodStart;
+/// fieldCostSnapshotCents >= 0; status CLOSED se e somente se closedAt e todos os
+/// valores congelados preenchidos; roundingDifferenceCents entre 0 e payingMonthlyCount - 1.
+/// Invariante (service): carriedFrom é do mesmo Group e é o ciclo imediatamente anterior.
+model BillingCycle {
+  id                     String             @id @default(uuid(7)) @db.Uuid
+  groupId                String             @db.Uuid
+  /// Primeiro dia do mês de referência.
+  referenceMonth         DateTime           @db.Date
+  periodStart            DateTime           @db.Date
+  periodEnd              DateTime           @db.Date
+  status                 BillingCycleStatus @default(OPEN)
+  openedAt               DateTime           @default(now()) @db.Timestamptz(3)
+  closedAt               DateTime?          @db.Timestamptz(3)
+  closedByUserId         String?            @db.Uuid
+  /// Vencimento do pagamento do campo no próprio mês de referência.
+  dueDate                DateTime           @db.Date
+  fieldCostSnapshotCents Int
+
+  // Congelados no fechamento
+  eligibleDailyRevenueCents Int?
+  carriedCreditCents        Int?
+  carriedFromCycleId        String? @unique @db.Uuid
+  amountToSplitCents        Int?
+  payingMonthlyCount        Int?
+  monthlyFeeCents           Int?
+  totalChargedCents         Int?
+  roundingDifferenceCents   Int?
+
+  createdAt DateTime @default(now()) @db.Timestamptz(3)
+  updatedAt DateTime @updatedAt @db.Timestamptz(3)
+
+  group       Group         @relation(fields: [groupId], references: [id])
+  closedBy    User?         @relation(fields: [closedByUserId], references: [id], onDelete: Restrict)
+  carriedFrom BillingCycle? @relation("BillingCycleCarriedCredit", fields: [carriedFromCycleId], references: [id], onDelete: Restrict)
+  carriedInto BillingCycle? @relation("BillingCycleCarriedCredit")
+
+  gameSessions     GameSession[]
+  charges          Charge[]
+  cashTransactions CashTransaction[]
+
+  @@unique([groupId, referenceMonth])
+  @@index([groupId, status, referenceMonth])
+}
+
+/// Obrigação de um jogador. DAILY_FEE liga-se à inscrição e à sessão;
+/// MONTHLY_FEE só ao ciclo e ao membro.
+/// CHECK (SQL): amountCents > 0; DAILY_FEE exige gameSessionId e sessionRegistrationId;
+/// MONTHLY_FEE exige ambos nulos; status CANCELLED exige cancelledAt e cancelReason.
+/// Invariantes (service):
+/// - member.groupId = groupId e billingCycle.groupId = groupId;
+/// - DAILY_FEE: sessionRegistration.gameSessionId = gameSessionId,
+///   sessionRegistration.memberId = memberId, billingCycleId = gameSession.billingCycleId;
+/// - status PAID se e somente se existe exatamente um Payment CONFIRMED desta Charge;
+/// - cancelar (PRESENT -> ABSENT) só a partir de PENDING, com reason e AuditLog;
+///   reativar (ABSENT -> PRESENT) é CANCELLED -> PENDING na MESMA linha, com AuditLog;
+///   com pagamento confirmado, o estorno vem antes.
+model Charge {
+  id                    String       @id @default(uuid(7)) @db.Uuid
+  groupId               String       @db.Uuid
+  memberId              String       @db.Uuid
+  billingCycleId        String       @db.Uuid
+  type                  ChargeType
+  gameSessionId         String?      @db.Uuid
+  /// Uma cobrança de diária por participação, para sempre: correções de presença
+  /// cancelam e reativam esta mesma linha, nunca criam outra.
+  sessionRegistrationId String?      @unique @db.Uuid
+  /// Snapshot da diária da sessão ou da mensalidade congelada do ciclo.
+  amountCents           Int
+  status                ChargeStatus @default(PENDING)
+  createdByUserId       String?      @db.Uuid
+  createdAt             DateTime     @default(now()) @db.Timestamptz(3)
+  updatedAt             DateTime     @updatedAt @db.Timestamptz(3)
+  cancelledAt           DateTime?    @db.Timestamptz(3)
+  cancelledByUserId     String?      @db.Uuid
+  cancelReason          String?
+
+  group               Group                @relation(fields: [groupId], references: [id])
+  member              GroupMember          @relation(fields: [memberId], references: [id])
+  billingCycle        BillingCycle         @relation(fields: [billingCycleId], references: [id])
+  gameSession         GameSession?         @relation(fields: [gameSessionId], references: [id], onDelete: Restrict)
+  sessionRegistration SessionRegistration? @relation(fields: [sessionRegistrationId], references: [id], onDelete: Restrict)
+  createdBy           User?                @relation("ChargeCreatedBy", fields: [createdByUserId], references: [id], onDelete: Restrict)
+  cancelledBy         User?                @relation("ChargeCancelledBy", fields: [cancelledByUserId], references: [id], onDelete: Restrict)
+
+  payments Payment[]
+
+  /// PARCIAL: uma mensalidade por mensalista pagante por ciclo.
+  /// Consultar com { billingCycleId, memberId, type: "MONTHLY_FEE" }.
+  @@unique([billingCycleId, memberId], map: "Charge_monthly_fee_per_cycle_key", where: { type: "MONTHLY_FEE" })
+  @@index([groupId, status])
+  @@index([billingCycleId, type])
+  @@index([memberId, status])
+  @@index([gameSessionId])
+}
+
+/// Pagamento integral de uma cobrança, confirmado por ADMIN. Não há pagamento parcial.
+/// Nunca apagado: estorno muda para REVERSED; correção = estorno + novo Payment com
+/// correctsPaymentId. O índice parcial garante no máximo um CONFIRMED por Charge, então
+/// o estorno precisa acontecer antes do novo registro.
+/// CHECK (SQL): amountCents > 0; status REVERSED se e somente se reversedAt,
+/// reversedByUserId e reversalReason preenchidos.
+/// Invariantes (service), na mesma transação:
+/// - amountCents = charge.amountCents e memberId = charge.memberId;
+/// - confirmar: Charge PENDING -> PAID + CashTransaction IN;
+/// - estornar: Payment -> REVERSED, Charge PAID -> PENDING + CashTransaction de estorno;
+/// - correctsPaymentId aponta para um Payment REVERSED da mesma Charge.
+model Payment {
+  id                String         @id @default(uuid(7)) @db.Uuid
+  chargeId          String         @db.Uuid
+  memberId          String         @db.Uuid
+  amountCents       Int
+  paidAt            DateTime       @db.Timestamptz(3)
+  confirmedAt       DateTime       @db.Timestamptz(3)
+  confirmedByUserId String         @db.Uuid
+  method            PaymentMethod?
+  notes             String?
+  status            PaymentStatus  @default(CONFIRMED)
+  reversedAt        DateTime?      @db.Timestamptz(3)
+  reversedByUserId  String?        @db.Uuid
+  reversalReason    String?
+  correctsPaymentId String?        @unique @db.Uuid
+  createdAt         DateTime       @default(now()) @db.Timestamptz(3)
+  updatedAt         DateTime       @updatedAt @db.Timestamptz(3)
+
+  charge      Charge      @relation(fields: [chargeId], references: [id])
+  member      GroupMember @relation(fields: [memberId], references: [id])
+  confirmedBy User        @relation("PaymentConfirmedBy", fields: [confirmedByUserId], references: [id])
+  reversedBy  User?       @relation("PaymentReversedBy", fields: [reversedByUserId], references: [id], onDelete: Restrict)
+  corrects    Payment?    @relation("PaymentCorrection", fields: [correctsPaymentId], references: [id], onDelete: Restrict)
+  correctedBy Payment?    @relation("PaymentCorrection")
+
+  cashTransactions CashTransaction[]
+
+  /// PARCIAL: no máximo um pagamento confirmado válido por cobrança.
+  /// Consultar com { chargeId, status: "CONFIRMED" }.
+  @@unique([chargeId], map: "Payment_confirmed_per_charge_key", where: { status: "CONFIRMED" })
+  @@index([chargeId])
+  @@index([memberId])
+}
+
+/// Ledger append-only do caixa. O saldo nunca é armazenado.
+/// Estorno = mesma categoria, direção oposta e reversesTransactionId.
+/// CHECK (SQL): amountCents > 0; paymentId preenchido se e somente se category é
+/// DAILY_FEE ou MONTHLY_FEE; direção natural (IN para DAILY_FEE, MONTHLY_FEE e
+/// INITIAL_BALANCE; OUT para FIELD_COST) sem reversesTransactionId e oposta com ele;
+/// reason obrigatório em INITIAL_BALANCE e em estornos; reversesTransactionId <> id.
+/// Invariantes (service):
+/// - billingCycle.groupId = groupId; payment pertence a uma Charge do mesmo Group;
+/// - o estorno tem o mesmo groupId, category, paymentId e amountCents do original;
+/// - no máximo um INITIAL_BALANCE não estornado por grupo;
+/// - atribuição de billingCycleId conforme PROJECT.md 31.6 (atrasos vão ao ciclo OPEN).
+model CashTransaction {
+  id                    String         @id @default(uuid(7)) @db.Uuid
+  groupId               String         @db.Uuid
+  /// Ciclo ao qual a movimentação foi atribuída no lançamento; nunca recalculado.
+  billingCycleId        String         @db.Uuid
+  direction             CashDirection
+  amountCents           Int
+  category              CashCategory
+  reason                String?
+  /// Data real do dinheiro.
+  occurredAt            DateTime       @db.Timestamptz(3)
+  recordedAt            DateTime       @default(now()) @db.Timestamptz(3)
+  paymentId             String?        @db.Uuid
+  gameSessionId         String?        @db.Uuid
+  reversesTransactionId String?        @unique @db.Uuid
+  method                PaymentMethod?
+  notes                 String?
+  createdByUserId       String         @db.Uuid
+
+  group        Group            @relation(fields: [groupId], references: [id])
+  billingCycle BillingCycle     @relation(fields: [billingCycleId], references: [id])
+  payment      Payment?         @relation(fields: [paymentId], references: [id], onDelete: Restrict)
+  gameSession  GameSession?     @relation(fields: [gameSessionId], references: [id], onDelete: Restrict)
+  reverses     CashTransaction? @relation("CashTransactionReversal", fields: [reversesTransactionId], references: [id], onDelete: Restrict)
+  reversedBy   CashTransaction? @relation("CashTransactionReversal")
+  createdBy    User             @relation(fields: [createdByUserId], references: [id])
+
+  /// PARCIAL: um único lançamento original por pagamento (o estorno é o segundo).
+  /// Consultar com { paymentId, reversesTransactionId: null }.
+  @@unique([paymentId], map: "CashTransaction_original_per_payment_key", where: { reversesTransactionId: null })
+  @@index([groupId, occurredAt])
+  @@index([billingCycleId, category])
+  @@index([paymentId])
+  @@index([gameSessionId])
+}
+
+// ============================================================================
+// Comandos, notificações e auditoria
+// ============================================================================
+
+/// Única fonte de idempotência dos comandos. Gravado na mesma transação do efeito;
+/// um reenvio com o mesmo operationId devolve resultJson sem repetir o efeito.
+/// Mesmo operationId com outro ator ou outro requestHash é rejeitado.
+/// Expurgado após N dias (por isso nenhuma tabela tem FK para cá).
+model IdempotentOperation {
+  operationId String   @id @db.Uuid
+  groupId     String   @db.Uuid
+  actorUserId String   @db.Uuid
+  commandType String
+  requestHash String
+  targetType  String?
+  targetId    String?
+  resultJson  Json?
+  createdAt   DateTime @default(now()) @db.Timestamptz(3)
+
+  group Group @relation(fields: [groupId], references: [id])
+  actor User  @relation(fields: [actorUserId], references: [id])
+
+  @@index([createdAt])
+}
+
+model PushSubscription {
+  id            String    @id @default(uuid(7)) @db.Uuid
+  userId        String    @db.Uuid
+  endpoint      String    @unique
+  p256dh        String
+  auth          String
+  userAgent     String?
+  lastSuccessAt DateTime? @db.Timestamptz(3)
+  createdAt     DateTime  @default(now()) @db.Timestamptz(3)
+  updatedAt     DateTime  @updatedAt @db.Timestamptz(3)
+
+  user       User                   @relation(fields: [userId], references: [id])
+  deliveries NotificationDelivery[]
+
+  @@index([userId])
+}
+
+/// Outbox de notificações e caixa de entrada in-app.
+/// Invariante (service): o destinatário é membro do Group.
+model Notification {
+  id              String           @id @default(uuid(7)) @db.Uuid
+  groupId         String           @db.Uuid
+  recipientUserId String           @db.Uuid
+  type            NotificationType
+  title           String
+  body            String
+  /// Ex.: { url, gameSessionId }.
+  data            Json?
+  dedupeKey       String           @unique
+  readAt          DateTime?        @db.Timestamptz(3)
+  createdAt       DateTime         @default(now()) @db.Timestamptz(3)
+
+  group      Group                  @relation(fields: [groupId], references: [id])
+  recipient  User                   @relation(fields: [recipientUserId], references: [id])
+  deliveries NotificationDelivery[]
+
+  @@index([recipientUserId, createdAt])
+}
+
+model NotificationDelivery {
+  id             String         @id @default(uuid(7)) @db.Uuid
+  notificationId String         @db.Uuid
+  /// Nulo depois que a inscrição expirada é removida.
+  subscriptionId String?        @db.Uuid
+  status         DeliveryStatus @default(PENDING)
+  attempts       Int            @default(0)
+  lastError      String?
+  nextAttemptAt  DateTime?      @db.Timestamptz(3)
+  sentAt         DateTime?      @db.Timestamptz(3)
+  createdAt      DateTime       @default(now()) @db.Timestamptz(3)
+  updatedAt      DateTime       @updatedAt @db.Timestamptz(3)
+
+  notification Notification      @relation(fields: [notificationId], references: [id])
+  subscription PushSubscription? @relation(fields: [subscriptionId], references: [id], onDelete: SetNull)
+
+  @@unique([notificationId, subscriptionId])
+  @@index([status, nextAttemptAt])
+}
+
+/// Append-only. action e entityType são strings tipadas no código (AuditAction, AuditEntityType).
+/// Invariante (service): gameSession, quando presente, é do mesmo Group.
+model AuditLog {
+  id            String    @id @default(uuid(7)) @db.Uuid
+  groupId       String    @db.Uuid
+  actorType     ActorType
+  actorUserId   String?   @db.Uuid
+  action        String
+  entityType    String
+  entityId      String
+  before        Json?
+  after         Json?
+  reason        String?
+  gameSessionId String?   @db.Uuid
+  /// Só rastreabilidade do comando que originou o registro.
+  operationId   String?   @db.Uuid
+  /// Ex.: { expectedVersion, newVersion }.
+  metadata      Json?
+  createdAt     DateTime  @default(now()) @db.Timestamptz(3)
+
+  group       Group        @relation(fields: [groupId], references: [id])
+  actor       User?        @relation(fields: [actorUserId], references: [id], onDelete: Restrict)
+  gameSession GameSession? @relation(fields: [gameSessionId], references: [id], onDelete: Restrict)
+
+  @@index([groupId, createdAt])
+  @@index([entityType, entityId])
+  @@index([gameSessionId])
+}
