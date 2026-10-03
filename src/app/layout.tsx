@@ -17,7 +17,11 @@ export const metadata: Metadata = {
   description: "Sistema de Gestão da Pelada",
 };
 
-export default function RootLayout({ children }: LayoutProps<"/">) {
+export default function RootLayout({
+  children,
+}: Readonly<{
+  children: React.ReactNode;
+}>) {
   return (
     <html
       lang="pt-BR"
