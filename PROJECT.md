@@ -146,7 +146,7 @@ Configuração atual:
 - Dia: quinta-feira;
 - Início: 21:00;
 - Término padrão: 22:30;
-- Pode eventualmente durar mais 30 minutos;
+- Pode eventualmente durar mais 30 minutos (tempo extra máximo configurável entre 0 e 30 minutos; padrão 30);
 - Máximo padrão: 20 jogadores;
 - Times normalmente possuem 5 jogadores;
 - Duração padrão de cada partida: 7 minutos;
@@ -332,6 +332,14 @@ O timestamp original de confirmação do jogador é preservado; a intervenção 
 
 Uma intervenção administrativa nunca pode fazer a sessão ultrapassar sua capacidade. Se a sessão estiver cheia, o ADMIN deve remover ou reposicionar outro participante como parte da mesma intervenção.
 
+### Depois do sorteio e antes da primeira partida
+
+Cancelamentos, remoções, inclusões e promoções continuam funcionando normalmente e NÃO invalidam o sorteio automaticamente. O sorteio decidido continua sendo o oficial; o ADMIN decide se a situação justifica refazê-lo (seção 17).
+
+### Depois do início das partidas
+
+Assim que a primeira partida da sessão é iniciada, o conjunto de participantes fica congelado: não há cancelamento, liberação de vaga, promoção da lista de espera, inclusão nem remoção, nem por intervenção administrativa. Quem não puder mais jogar fica indisponível (seção 24).
+
 ---
 
 # 12. Quantidade de jogadores
@@ -357,8 +365,10 @@ Quando houver entre 16 e 19 participantes, após o deadline das 14:00, o ADMIN e
 - manter os 16 a 19 participantes;
 - formar 3 times de 5;
 - os excedentes ficam como rotativos, completando lacunas conforme decisão feita durante a pelada;
-- ADMIN decide e pode ajustar quem são os rotativos;
-- o algoritmo NÃO escolhe automaticamente os rotativos.
+- ADMIN decide e pode ajustar quem são os rotativos até o sorteio;
+- o algoritmo NÃO escolhe automaticamente os rotativos;
+- depois da votação, o sorteio decidido (incluindo quem são os rotativos) é a composição oficial e NÃO é reescrito; desvios práticos durante as partidas ficam registrados em quem efetivamente jogou cada partida;
+- antes da primeira partida, se quiser outra composição oficial, o ADMIN usa a refação excepcional do sorteio (seção 17).
 
 O rodízio não precisa ser automatizado no MVP.
 
@@ -475,11 +485,48 @@ Devem ser registrados:
 - data/hora;
 - sorteio substituído;
 - novo sorteio;
-- reason opcional.
+- reason obrigatório.
+
+Toda invalidação gera AuditLog.
 
 Os votos do sorteio invalidado não são transferidos.
 
 Uma nova votação começa do zero.
+
+### Sorteio decidido é o oficial
+
+Depois que a votação decide um sorteio, ele é o sorteio oficial e normalmente não muda.
+
+Nenhuma mudança invalida um sorteio automaticamente, inclusive:
+
+- cancelamento de participante;
+- remoção, inclusão ou promoção da lista de espera;
+- indisponibilidade temporária;
+- ajuste de rotativos;
+- outras circunstâncias antes da partida.
+
+O ADMIN decide se a situação justifica refazer o sorteio. NÃO se troca um jogador dentro do sorteio já votado.
+
+### Antes da primeira partida
+
+Enquanto nenhuma partida da sessão foi iniciada, um ADMIN pode, como ação manual excepcional, invalidar o sorteio vigente, inclusive um sorteio já decidido, e realizar um novo sorteio:
+
+- reason obrigatório, ADMIN responsável e AuditLog;
+- o sorteio anterior, suas opções, times e votos são preservados como histórico e marcados como invalidados;
+- o novo sorteio referencia o sorteio invalidado, e a votação recomeça do zero;
+- a composição atual dos times da sessão pode ser substituída, porque ainda não foi usada por nenhuma partida;
+- os novos times da sessão são gerados somente a partir do novo sorteio decidido.
+
+Se o ADMIN não refizer o sorteio, a sessão começa com a composição oficial. Quem deixou de ser participante continua no sorteio oficial como registro histórico, mas não joga; quem está indisponível também não joga. Quem entrou depois do sorteio é participante sem time. As vagas em campo são cobertas por jogadores emprestados ou por participantes sem time, partida a partida (seção 24).
+
+Exemplo: João era do Time 2 no sorteio oficial e cancela. Marcos é promovido da lista de espera. O ADMIN decide não refazer o sorteio. João continua no Time 2 do sorteio oficial, mas não entra em nenhuma partida seguinte. Marcos é participante sem time e pode jogar por um lado adequado em cada partida.
+
+### Depois da primeira partida
+
+Assim que qualquer partida da sessão é iniciada (inclusive uma partida depois cancelada), a composição dos times da sessão passa a ser dado histórico.
+
+- O sistema NÃO permite invalidar o sorteio, gerar um novo sorteio nem apagar e regenerar os times da sessão.
+- Nenhum jogador novo entra na sessão. Lesões, indisponibilidades, empréstimos e outras mudanças práticas são consequência do jogo: ficam registradas na indisponibilidade do jogador, em quem efetivamente jogou cada partida e no estado da partida, sem alterar o sorteio oficial (seção 24).
 
 ---
 
@@ -583,6 +630,8 @@ Quando aplicável, armazenar:
 - reason;
 - timestamp.
 
+Sempre que uma regra exige reason (motivo ou justificativa), ele deve conter texto: vazio ou só espaços é inválido.
+
 Ações automáticas devem ser identificáveis como ações do SYSTEM.
 
 ---
@@ -648,7 +697,9 @@ Deve permitir:
 - selecionar goleiros;
 - finalizar partida;
 - registrar vencedor nos pênaltis;
-- iniciar próxima partida.
+- iniciar próxima partida;
+- marcar jogador como indisponível (lesão, saída antecipada);
+- escolher jogador emprestado para completar um time na partida.
 
 O sistema deve aplicar automaticamente as regras de Rei da Mesa para sugerir os próximos times.
 
@@ -669,6 +720,61 @@ Regras:
 2. Concorrência: cada partida possui uma versão (version). Comandos que alteram a partida informam a versão que o operador estava vendo (expectedVersion). Se a partida tiver mudado desde então, o comando é rejeitado como conflito, nada é gravado e o operador recebe o estado atual para reconciliar (descartar ou reenviar conscientemente).
 3. NÃO usar heurística baseada apenas em tempo para detectar duplicidade, pois dois gols legítimos podem ocorrer em sequência.
 4. Comandos aceitos e conflitos relevantes geram AuditLog.
+
+### Jogador indisponível e empréstimo por partida
+
+Um jogador pode ficar indisponível durante a sessão, antes ou depois da primeira partida (por exemplo, por lesão ou por ir embora mais cedo). No Rei da Mesa, a vaga dele em campo é preenchida a cada partida por um jogador emprestado de um time que não está jogando aquela partida.
+
+Exemplo:
+
+- João é do Time 2 e Marcos é do Time 3.
+- Partida 5: Time 1 × Time 2, com o Time 3 descansando. João se lesiona.
+- Marcos joga pelo Time 2 no lugar de João, só nessa partida.
+- O Time 2 vence e continua em campo. Partida 6: Time 2 × Time 3.
+- Marcos joga normalmente pelo Time 3, o time dele.
+- O Time 2 pega emprestado outro jogador de um time que está fora (Time 1 ou Time 4) para a vaga de João.
+
+Time do jogador na noite:
+
+- O sorteio decidido e os times da sessão continuam representando o time de cada jogador na noite.
+- João continua sendo do Time 2 e Marcos continua sendo do Time 3. Emprestar um jogador NÃO o transfere de time.
+- Nada disso exige novo sorteio.
+
+Indisponibilidade temporária:
+
+- Somente ADMIN marca um jogador como indisponível e, depois, como disponível de novo.
+- A indisponibilidade é temporária: o jogador pode voltar a qualquer momento e, a partir daí, joga normalmente pelo próprio time nas partidas seguintes. Pode ficar indisponível e voltar mais de uma vez na mesma sessão.
+- Marcar indisponível exige reason e registra data/hora e o administrador responsável. Marcar disponível registra data/hora e o administrador responsável. Ambos geram AuditLog.
+- As operações são idempotentes (operationId) e protegidas contra concorrência entre administradores.
+- Todo o histórico é preservado: cada período de indisponibilidade fica registrado com início, fim, responsáveis e reason, e é possível saber se o jogador estava disponível quando cada partida começou.
+- NÃO altera o time do jogador nem as partidas que ele já jogou, e NÃO altera presença real nem cobranças: as regras de PRESENT continuam determinando a cobrança de diária (seção 31.5).
+- O jogador continua participante da sessão; a indisponibilidade não libera vaga na lista nem promove ninguém da lista de espera.
+
+Conjunto de participantes fixo depois do início das partidas:
+
+- Assim que a primeira partida da sessão é iniciada, o conjunto de participantes confirmados fica congelado (em uma sessão normal de 4 times, os 20 confirmados).
+- NÃO é permitido incluir um 21º participante, promover alguém da lista de espera por causa de uma lesão, incluir um diarista de emergência nem remover ou cancelar a inscrição do jogador indisponível.
+- A vaga em campo de um jogador indisponível é coberta somente por empréstimo, entre esses mesmos participantes.
+- A presença real (PRESENT/ABSENT) continua podendo ser registrada e corrigida.
+
+Empréstimo por partida:
+
+- Em cada partida, o ADMIN escolhe quem atua por cada lado. Para a vaga de um jogador indisponível (ou que deixou de ser participante antes da primeira partida sem refação do sorteio), escolhe:
+  - um **jogador emprestado**: participante disponível que tem time no sorteio oficial e representa outro time só nessa partida; vem de um time que não está nessa partida; ou
+  - um **participante sem time**: participante que entrou depois do sorteio oficial (por exemplo, promovido da lista de espera) sem que o ADMIN refizesse o sorteio. O sorteio oficial NÃO é alterado para colocá-lo em um time.
+- As estatísticas são sempre do próprio jogador, nos dois casos.
+- O emprestado continua no próprio time e só representa o outro time naquela partida.
+- Um jogador não pode atuar pelos dois lados da mesma partida.
+- Um jogador só entra em uma partida se estiver disponível naquele momento.
+
+Estatísticas:
+
+- O emprestado é um jogador normal na partida: marca gols e gols contra, dá e recebe assistências e comete pixotadas.
+- Todas as estatísticas individuais são dele, qualquer que seja o time que representou.
+- O resultado da partida (vitória, empate, derrota) conta para ele pelo lado em que atuou.
+- Ninguém herda estatísticas de outro jogador.
+
+Nada é apagado. O histórico permite responder: o time original de João; quando e por que João ficou indisponível e quando voltou; se ele estava disponível no início de cada partida; quais partidas João jogou; o time original de Marcos; em quais partidas Marcos jogou emprestado ao Time 2; em quais jogou pelo Time 3; e todos os eventos e estatísticas de Marcos nas duas situações.
 
 ---
 
@@ -901,6 +1007,8 @@ Se futuramente o campo passar para R$ 1.000, os ciclos históricos continuam com
 
 O valor da diária é configurável por ADMIN (exemplo atual: R$ 15).
 
+O valor da diária é sempre maior que zero. No MVP não existe diarista gratuito: o diarista PRESENT segue a regra normal de cobrança (seção 31.5). Uma eventual participação gratuita será uma regra futura, desenhada separadamente.
+
 ## 31.5 Cobrança do diarista
 
 Estar confirmado na lista NÃO significa que o diarista efetivamente participou.
@@ -1002,9 +1110,30 @@ Durante o ciclo são acumulados os pagamentos CONFIRMADOS de diaristas atribuíd
 
 Fórmula:
 
-- valorParaMensalistas = custoDoCampoDoCiclo − receitasElegiveisRecebidasDeDiaristas − créditoDeArredondamentoDoCicloAnterior;
+- valorParaMensalistas = custoDoCampoDoCiclo − receitasElegiveisRecebidasDeDiaristas − créditoDoCicloAnterior, nunca menor que zero;
 - mensalistasPagantes = mensalistas ativos não isentos no momento do fechamento;
 - valorPorMensalista = valorParaMensalistas / mensalistasPagantes, arredondado PARA CIMA ao próximo centavo.
+
+O créditoDoCicloAnterior é a sobra positiva do ciclo anterior: a diferença de arredondamento ou, se o custo do campo já estava coberto, o excedente. Crédito nunca é negativo:
+
+- créditoParaOCicloSeguinte = máximo entre zero e (receitas elegíveis de diaristas + crédito herdado + total cobrado de mensalidades − custo do campo);
+- um déficit NUNCA é levado para o ciclo seguinte.
+
+Custo do campo já coberto: se as receitas elegíveis de diaristas mais o crédito herdado cobrem todo o custo do campo:
+
+- o valor a dividir entre os mensalistas é zero;
+- a previsão da mensalidade é R$ 0;
+- nenhuma cobrança de mensalidade de valor zero é criada;
+- o excedente permanece no caixa e vira crédito do ciclo seguinte.
+
+Nenhum mensalista pagante: o ciclo pode ser fechado com zero mensalistas pagantes. Na prática isso não deve acontecer, porque sem mensalistas suficientes normalmente não há pelada, mas o comportamento é determinístico:
+
+- a mensalidade individual, o total cobrado e a diferença de arredondamento são zero;
+- nenhuma cobrança de mensalidade é criada;
+- nunca há divisão por zero;
+- se o custo do campo não estiver coberto, a parte descoberta NÃO é levada ao ciclo seguinte: o crédito do ciclo seguinte é zero.
+
+A previsão da mensalidade segue as mesmas regras e nunca produz mensalidade negativa.
 
 Exemplo:
 
@@ -1022,6 +1151,11 @@ Cobranças PENDENTES não reduzem a mensalidade.
 Enquanto o ciclo está aberto, o sistema apresenta o valor como PREVISÃO dinâmica, visível para todos os usuários autenticados.
 
 No fechamento do ciclo, o valor é congelado como o valor daquele ciclo.
+
+Previsão e valores congelados são coisas diferentes:
+
+- enquanto o ciclo está ABERTO, a previsão está SEMPRE disponível para os usuários. Ela é calculada na hora a partir das receitas elegíveis confirmadas, do crédito herdado, da quantidade atual de mensalistas pagantes e do custo do campo, e muda conforme esses dados mudam. Ela não é gravada como valor do ciclo; os campos de fechamento permanecem vazios porque o resultado ainda não é final;
+- no FECHAMENTO, os valores definitivos são calculados com a mesma regra, gravados e congelados, e nunca mudam retroativamente.
 
 Divisão monetária:
 
@@ -1053,7 +1187,7 @@ Ao fechar, em uma única operação transacional e idempotente (repetir o comand
 2. determinar os mensalistas ativos não isentos;
 3. calcular a mensalidade individual;
 4. arredondar para cima conforme a regra da seção 31.9;
-5. criar uma cobrança de mensalidade para cada mensalista pagante, todas com o mesmo valor individual congelado;
+5. se a mensalidade individual for maior que zero, criar uma cobrança de mensalidade para cada mensalista pagante, todas com o mesmo valor individual congelado;
 6. registrar closedAt;
 7. mudar o status para CLOSED;
 8. gerar AuditLog.
@@ -1070,6 +1204,8 @@ Ele é registrado por ADMIN como movimentação de saída vinculada ao ciclo, co
 
 O registro é auditável e segue as mesmas regras de correção e estorno.
 
+O pagamento do campo só pode ser registrado se o saldo disponível do caixa cobrir o valor inteiro. Caso contrário, a operação é rejeitada até que exista dinheiro confirmado suficiente. O valor NUNCA é reduzido ao saldo disponível: registrar R$ 400 de um pagamento de R$ 900 mostraria o campo como pago quando não foi.
+
 Exemplo de ciclo:
 
 - diaristas: + R$ 75;
@@ -1082,6 +1218,8 @@ Exemplo de ciclo:
 É permitido lançar o saldo inicial do caixa (por exemplo, o dinheiro já existente ao começar a usar o sistema) como uma movimentação do tipo INITIAL_BALANCE.
 
 O saldo do caixa NÃO é armazenado diretamente: é sempre calculado a partir das movimentações.
+
+O saldo do caixa nunca fica negativo (piso de R$ 0). Toda saída (pagamento do campo ou estorno de uma entrada) é rejeitada se exceder o saldo disponível naquele momento. Um custo do campo não coberto nunca é representado como saldo negativo nem como crédito negativo.
 
 Somente ADMIN pode realizar o lançamento, com motivo (reason) obrigatório e AuditLog.
 
@@ -1164,7 +1302,7 @@ Não é necessário implementar toda a infraestrutura multi-tenant no MVP.
 
 8. O backend deve validar todas as regras importantes independentemente das validações do frontend.
 
-9. Sorteios anteriores nunca devem ser destruídos ao serem refeitos.
+9. Sorteios anteriores nunca devem ser destruídos ao serem refeitos. Depois da primeira partida da sessão, os times não são mais regenerados por sorteio.
 
 10. O sistema deve priorizar experiência mobile.
 
@@ -1266,3 +1404,40 @@ Antes de implementar ou alterar funcionalidades que envolvam regras da pelada:
 - Senha temporária individual e aleatória na criação e na redefinição; username nunca é senha padrão; somente o hash é armazenado (seção 2).
 - Troca obrigatória de senha no primeiro login; a redefinição pelo ADMIN revoga as sessões ativas do usuário (seção 2).
 - Sem pagamento parcial: cada cobrança tem no máximo um pagamento confirmado válido, pelo valor integral (seção 31.6).
+
+### Revisão 8 — 03/10/2026
+
+- Refazer sorteio exige reason e gera AuditLog; o sorteio invalidado, com opções, times e votos, permanece no histórico (seção 17).
+- Antes da primeira partida da sessão, o ADMIN pode invalidar inclusive um sorteio decidido; os times da sessão são substituídos pelos do novo sorteio decidido (seção 17).
+- Depois que qualquer partida da sessão é iniciada, os times passam a ser histórico: não há novo sorteio nem regeneração; mudanças de elenco são ajustes administrativos explícitos com AuditLog (seção 17).
+
+### Revisão 9 — 05/10/2026
+
+- Jogador indisponível durante a sessão (lesão, saída antecipada), marcado por ADMIN com reason, AuditLog, idempotência e controle de concorrência; não altera o time dele, partidas anteriores, presença real nem cobranças (seção 24).
+- A vaga em campo é preenchida a cada partida por um jogador emprestado de um time que não está jogando; o emprestado continua no próprio time e suas estatísticas são dele (seção 24).
+
+### Revisão 10 — 05/10/2026
+
+- Indisponibilidade temporária: o jogador pode voltar a ficar disponível a qualquer momento, mais de uma vez na mesma sessão; cada período fica no histórico com início, fim, responsáveis e reason (seção 24).
+- Depois que a primeira partida é iniciada, o conjunto de participantes fica congelado: sem 21º participante, sem promoção da lista de espera, sem diarista de emergência e sem remover o indisponível; a vaga em campo é coberta só por empréstimo entre os participantes (seções 11 e 24).
+
+### Revisão 11 — 05/10/2026
+
+- O sorteio decidido pela votação é o oficial. Nenhuma mudança antes da partida (cancelamento, remoção, promoção, indisponibilidade, ajuste de rotativos) o invalida automaticamente (seções 11, 12 e 17).
+- Antes da primeira partida, só o ADMIN, como ação manual excepcional, pode invalidar e refazer o sorteio, inclusive um já decidido, com reason e AuditLog; o sorteio anterior fica no histórico, o novo o referencia e a votação recomeça (seção 17).
+- Em FLEXIBLE_ROTATION, o sorteio votado é a composição oficial; desvios práticos nas partidas ficam em quem efetivamente jogou cada partida (seção 12).
+
+### Revisão 12 — 05/10/2026
+
+- O ciclo pode ser fechado com zero mensalistas pagantes: mensalidade, total cobrado e diferença de arredondamento zero, sem cobranças de mensalidade e sem divisão por zero (seção 31.9).
+- Custo do campo já coberto por diárias e crédito herdado: valor a dividir zero, previsão R$ 0, nenhuma cobrança de valor zero; o excedente vira crédito do ciclo seguinte (seção 31.9).
+- A previsão da mensalidade é sempre visível enquanto o ciclo está aberto e é calculada na hora; os valores de fechamento só são gravados e congelados no fechamento (seção 31.9).
+- O valor da diária é sempre maior que zero; não há diarista gratuito no MVP (seção 31.4).
+- Tempo extra máximo configurável entre 0 e 30 minutos, padrão 30 (seção 4).
+- Todo reason obrigatório precisa conter texto; vazio ou só espaços é inválido (seção 20).
+
+### Revisão 13 — 05/10/2026
+
+- Ciclo fechado com zero mensalistas pagantes e custo do campo não coberto: sem cobranças, e a parte descoberta não é levada adiante; o crédito do ciclo seguinte é zero (seção 31.9).
+- O ciclo seguinte herda só sobra positiva; um déficit nunca é levado adiante, e o crédito nunca é negativo (seção 31.9).
+- O saldo do caixa nunca fica negativo; uma saída que exceda o saldo disponível é rejeitada, nunca reduzida (seções 31.11 e 31.12).

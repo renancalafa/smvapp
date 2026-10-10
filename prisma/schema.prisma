@@ -7,8 +7,12 @@
 // - colunas *ByUserId nulas significam ação do SYSTEM.
 // - histórico nunca é apagado: relações usam Restrict (também as opcionais, para que
 //   uma exclusão não anule a referência); a exceção é NotificationDelivery.subscription.
+//   Única exclusão de linhas de negócio prevista: SessionTeam/SessionTeamPlayer de uma
+//   sessão sem nenhuma Match, substituídos na refação do sorteio (ver SessionTeam).
 // - "CHECK (SQL)": constraint escrita à mão na migration 001 (--create-only); o Prisma
 //   não expressa CHECK.
+// - reason/justificativa obrigatória = texto não vazio: vazio ou só espaços é inválido
+//   (CHECK com ~ '\S').
 //
 // Integridade entre entidades:
 // - Dentro de um agregado (opção de sorteio, times da sessão, partida, panela), o banco
@@ -249,31 +253,33 @@ model User {
   createdBy    User?  @relation("UserCreatedBy", fields: [createdByUserId], references: [id], onDelete: Restrict)
   createdUsers User[] @relation("UserCreatedBy")
 
-  authSessions         AuthSession[]
-  memberships          GroupMember[]
-  pushSubscriptions    PushSubscription[]
-  notifications        Notification[]
-  auditLogs            AuditLog[]
-  idempotentOperations IdempotentOperation[]
-  groupSettingsUpdated GroupSettings[]
-  feeExemptionsUpdated GroupMember[]         @relation("FeeExemptUpdatedBy")
-  sessionsCreated      GameSession[]         @relation("GameSessionCreatedBy")
-  sessionsCancelled    GameSession[]         @relation("GameSessionCancelledBy")
-  overflowDecisions    GameSession[]         @relation("GameSessionOverflowDecidedBy")
-  manualOverrides      SessionRegistration[] @relation("RegistrationManualOverrideBy")
-  rotatingAssignments  SessionRegistration[] @relation("RegistrationRotatingSetBy")
-  attendanceMarks      SessionRegistration[] @relation("RegistrationAttendanceMarkedBy")
-  drawsCreated         Draw[]                @relation("DrawCreatedBy")
-  drawsDecided         Draw[]                @relation("DrawDecidedBy")
-  drawsInvalidated     Draw[]                @relation("DrawInvalidatedBy")
-  matchEventsCreated   MatchEvent[]          @relation("MatchEventCreatedBy")
-  matchEventsVoided    MatchEvent[]          @relation("MatchEventVoidedBy")
-  billingCyclesClosed  BillingCycle[]
-  chargesCreated       Charge[]              @relation("ChargeCreatedBy")
-  chargesCancelled     Charge[]              @relation("ChargeCancelledBy")
-  paymentsConfirmed    Payment[]             @relation("PaymentConfirmedBy")
-  paymentsReversed     Payment[]             @relation("PaymentReversedBy")
-  cashTransactions     CashTransaction[]
+  authSessions            AuthSession[]
+  memberships             GroupMember[]
+  pushSubscriptions       PushSubscription[]
+  notifications           Notification[]
+  auditLogs               AuditLog[]
+  idempotentOperations    IdempotentOperation[]
+  groupSettingsUpdated    GroupSettings[]
+  feeExemptionsUpdated    GroupMember[]          @relation("FeeExemptUpdatedBy")
+  sessionsCreated         GameSession[]          @relation("GameSessionCreatedBy")
+  sessionsCancelled       GameSession[]          @relation("GameSessionCancelledBy")
+  overflowDecisions       GameSession[]          @relation("GameSessionOverflowDecidedBy")
+  manualOverrides         SessionRegistration[]  @relation("RegistrationManualOverrideBy")
+  rotatingAssignments     SessionRegistration[]  @relation("RegistrationRotatingSetBy")
+  attendanceMarks         SessionRegistration[]  @relation("RegistrationAttendanceMarkedBy")
+  unavailabilitiesStarted PlayerUnavailability[] @relation("UnavailabilityStartedBy")
+  unavailabilitiesEnded   PlayerUnavailability[] @relation("UnavailabilityEndedBy")
+  drawsCreated            Draw[]                 @relation("DrawCreatedBy")
+  drawsDecided            Draw[]                 @relation("DrawDecidedBy")
+  drawsInvalidated        Draw[]                 @relation("DrawInvalidatedBy")
+  matchEventsCreated      MatchEvent[]           @relation("MatchEventCreatedBy")
+  matchEventsVoided       MatchEvent[]           @relation("MatchEventVoidedBy")
+  billingCyclesClosed     BillingCycle[]
+  chargesCreated          Charge[]               @relation("ChargeCreatedBy")
+  chargesCancelled        Charge[]               @relation("ChargeCancelledBy")
+  paymentsConfirmed       Payment[]              @relation("PaymentConfirmedBy")
+  paymentsReversed        Payment[]              @relation("PaymentReversedBy")
+  cashTransactions        CashTransaction[]
 }
 
 /// Sessão de login própria, referenciada por cookie HttpOnly (Secure em produção).
@@ -321,8 +327,9 @@ model Group {
 
 /// Valores padrão usados para gerar novas sessões e ciclos. Sem @default de negócio:
 /// os valores vêm do seed ou do ADMIN. Toda alteração gera AuditLog com before/after.
-/// CHECK (SQL): minutos entre 0 e 1439; dias >= 0; contagens e duração > 0;
-/// valores em centavos >= 0; fieldPaymentDueDay entre 1 e 31.
+/// CHECK (SQL): minutos do dia entre 0 e 1439; maxExtraMinutes entre 0 e 30; dias >= 0;
+/// contagens e duração > 0; dailyFeeCents > 0; monthlyFieldCostCents >= 0;
+/// fieldPaymentDueDay entre 1 e 31.
 model GroupSettings {
   groupId String @id @db.Uuid
 
@@ -330,6 +337,8 @@ model GroupSettings {
   sessionWeekday              Weekday
   sessionStartMinute          Int
   sessionEndMinute            Int
+  /// Tempo extra máximo além de sessionEndMinute, em minutos (0 a 30; seed: 30).
+  /// É uma duração, não um minuto do dia.
   maxExtraMinutes             Int
   /// Dias antes da sessão em que a lista abre (ex.: 3 = segunda para quinta).
   registrationOpensDaysBefore Int
@@ -348,6 +357,7 @@ model GroupSettings {
   drawMinOptionDifference Int
 
   // Financeiro
+  /// Sempre > 0: não existe diarista gratuito no MVP.
   dailyFeeCents         Int
   monthlyFieldCostCents Int
   /// Se o mês não tiver o dia, vale o último dia do mês.
@@ -425,7 +435,8 @@ model Season {
 }
 
 /// Uma ocorrência da pelada, com snapshot da configuração no momento da criação.
-/// CHECK (SQL): endsAt > startsAt; status CANCELLED exige cancelledAt e cancelReason.
+/// CHECK (SQL): endsAt > startsAt; status CANCELLED exige cancelledAt e cancelReason não
+/// vazio.
 /// Invariantes (service):
 /// - season.groupId = groupId e billingCycle.groupId = groupId;
 /// - scheduledFor dentro de [season.startsOn, season.endsOn] e de
@@ -505,12 +516,19 @@ model GameSession {
 // ============================================================================
 
 /// Uma linha por membro por sessão. O status é a alocação materializada.
-/// CHECK (SQL): status PARTICIPANT ou WAITLISTED exige queuedAt, queueSortAt e priorityTier.
+/// CHECK (SQL): status PARTICIPANT ou WAITLISTED exige queuedAt, queueSortAt e priorityTier;
+/// manualOverrideAt exige manualOverrideReason não vazio.
 /// Invariantes (service):
 /// - member.groupId = gameSession.groupId;
 /// - a quantidade de PARTICIPANT nunca excede a capacidade efetiva da sessão, inclusive
 ///   em intervenção administrativa (lock da linha da GameSession na transação);
-/// - attendance só é marcada em inscrição PARTICIPANT.
+/// - attendance só é marcada em inscrição PARTICIPANT;
+/// - mudanças de status antes da primeira Match nunca invalidam o Draw automaticamente;
+///   só o ADMIN decide refazer o sorteio (ver Draw);
+/// - depois que a sessão tem alguma Match, o conjunto de PARTICIPANT fica congelado:
+///   nenhuma mudança de status (inclusão, remoção, cancelamento, promoção da fila,
+///   redução de capacidade). Os comandos de presença travam a mesma linha da GameSession
+///   que a criação da Match. attendance continua podendo ser marcada e corrigida.
 model SessionRegistration {
   id               String             @id @default(uuid(7)) @db.Uuid
   gameSessionId    String             @db.Uuid
@@ -551,11 +569,44 @@ model SessionRegistration {
   rotatingSetBy      User?       @relation("RegistrationRotatingSetBy", fields: [rotatingSetByUserId], references: [id], onDelete: Restrict)
   attendanceMarkedBy User?       @relation("RegistrationAttendanceMarkedBy", fields: [attendanceMarkedByUserId], references: [id], onDelete: Restrict)
 
-  dailyFeeCharge Charge?
+  dailyFeeCharge   Charge?
+  unavailabilities PlayerUnavailability[]
 
   @@unique([gameSessionId, memberId])
   @@index([gameSessionId, status, priorityTier, queueSortAt])
   @@index([memberId])
+}
+
+/// Período em que um participante fica indisponível durante a sessão (lesão, saída
+/// antecipada), de startedAt até endedAt (nulo = ainda indisponível). Voltar a ficar
+/// disponível fecha o período; uma nova indisponibilidade cria outro. Nada é apagado nem
+/// sobrescrito. Não altera a inscrição, a presença real, as cobranças nem o time.
+/// Disponível no instante t = nenhum período com startedAt <= t e (endedAt nulo ou
+/// endedAt > t).
+/// CHECK (SQL): reason não vazio; endedAt e endedByUserId ambos nulos ou ambos
+/// preenchidos; endedAt > startedAt.
+/// Invariantes (service):
+/// - a inscrição é PARTICIPANT;
+/// - períodos da mesma inscrição não se sobrepõem: um novo começa em ou depois do fim
+///   do anterior;
+/// - abrir e fechar travam a linha da GameSession, como a criação da Match.
+model PlayerUnavailability {
+  id                    String    @id @default(uuid(7)) @db.Uuid
+  sessionRegistrationId String    @db.Uuid
+  startedAt             DateTime  @db.Timestamptz(3)
+  startedByUserId       String    @db.Uuid
+  reason                String
+  endedAt               DateTime? @db.Timestamptz(3)
+  endedByUserId         String?   @db.Uuid
+
+  sessionRegistration SessionRegistration @relation(fields: [sessionRegistrationId], references: [id])
+  startedBy           User                @relation("UnavailabilityStartedBy", fields: [startedByUserId], references: [id])
+  endedBy             User?               @relation("UnavailabilityEndedBy", fields: [endedByUserId], references: [id], onDelete: Restrict)
+
+  /// PARCIAL: no máximo um período aberto por inscrição.
+  /// Consultar com { sessionRegistrationId, endedAt: null }.
+  @@unique([sessionRegistrationId], map: "PlayerUnavailability_open_key", where: { endedAt: null })
+  @@index([sessionRegistrationId, startedAt])
 }
 
 // ============================================================================
@@ -627,14 +678,24 @@ model BirthdayDraftApproval {
 }
 
 // ============================================================================
-// Sorteio e votação (imutáveis depois de criados; refação cria novo Draw)
+// Sorteio e votação (conteúdo imutável; refação manual cria novo Draw)
 // ============================================================================
 
 /// CHECK (SQL): status INVALIDATED se e somente se invalidatedAt preenchido;
+/// invalidatedAt exige invalidatedByUserId e invalidationReason não vazio;
 /// status DECIDED exige winningOptionId e decisionMethod.
+/// O Draw DECIDED é o sorteio oficial. Invalidação só por refação manual de ADMIN antes
+/// da primeira Match, inclusive de um Draw DECIDED; nada invalida um Draw
+/// automaticamente (cancelamento, promoção, indisponibilidade, rotativos). Invalidar
+/// preserva winningOptionId, decisionMethod e decidedAt, além das opções, times e votos.
+/// A composição de cada opção é a dos participantes no momento da geração e não é
+/// reescrita quando a inscrição de alguém muda depois.
 /// Invariantes (service):
-/// - replaces.gameSessionId = gameSessionId;
-/// - birthdayDraft.gameSessionId = gameSessionId e birthdayDraftVersion = versão finalizada.
+/// - invalidatedBy é ADMIN do grupo;
+/// - replaces.gameSessionId = gameSessionId e replaces.status = INVALIDATED;
+/// - birthdayDraft.gameSessionId = gameSessionId e birthdayDraftVersion = versão finalizada;
+/// - criar, decidir ou invalidar um Draw só enquanto a sessão não tem nenhuma Match
+///   (de qualquer status), com lock da linha da GameSession na transação.
 model Draw {
   id                   String              @id @default(uuid(7)) @db.Uuid
   gameSessionId        String              @db.Uuid
@@ -765,11 +826,25 @@ model DrawVote {
 // Times finais, partidas e eventos
 // ============================================================================
 
-/// Composição efetiva atual dos times da noite. Os rotativos ficam em um time de kind
-/// ROTATION_POOL. Ajustes movem SessionTeamPlayer entre times, com AuditLog.
+/// Times efetivos da noite e o time de cada jogador (SessionTeamPlayer). Os rotativos
+/// ficam em um time de kind ROTATION_POOL. Quem atuou por qual lado em cada partida,
+/// inclusive emprestado, está em MatchPlayer.
+/// Ciclo de vida:
+/// - Antes da primeira Match da sessão: cópia do Draw decidido. Só a refação manual do
+///   sorteio, na mesma transação que invalida o Draw, apaga SessionTeamPlayer e
+///   SessionTeam da sessão; o AuditLog guarda a composição substituída em before. Os
+///   novos times são gerados só a partir do novo Draw decidido.
+/// - Depois da primeira Match (de qualquer status): histórico. Nunca são apagados,
+///   regenerados nem movidos de time. Lesão ou saída antecipada é PlayerUnavailability;
+///   reposições são empréstimos por partida em MatchPlayer. As FKs
+///   Restrict de Match, MatchPlayer e MatchEvent impedem no banco a exclusão dos times
+///   que já jogaram.
 /// Invariantes (service):
 /// - no máximo um time BIRTHDAY e um ROTATION_POOL por sessão;
-/// - sourceDrawTeam pertence à opção vencedora de um Draw desta sessão.
+/// - sourceDrawTeam, quando presente, pertence à opção vencedora do Draw ativo (não
+///   invalidado) da sessão;
+/// - exclusão só enquanto a sessão não tem nenhuma Match, com lock da linha da
+///   GameSession na transação.
 model SessionTeam {
   id                   String            @id @default(uuid(7)) @db.Uuid
   gameSessionId        String            @db.Uuid
@@ -798,7 +873,11 @@ model SessionTeam {
 
 /// Um jogador pertence a no máximo um time da sessão, somando REGULAR, BIRTHDAY e
 /// ROTATION_POOL. Quem completa lacunas durante a noite aparece em MatchPlayer, não aqui.
-/// Invariante (service): o membro é PARTICIPANT da sessão.
+/// É o time do jogador na noite: não muda quando ele é emprestado a outro time em uma
+/// partida nem quando fica indisponível (PlayerUnavailability).
+/// Invariante (service): o membro é PARTICIPANT da sessão quando a linha é criada. Uma
+/// mudança posterior na inscrição não reescreve a composição oficial; quem deixou de ser
+/// PARTICIPANT simplesmente não entra em MatchPlayer.
 model SessionTeamPlayer {
   id            String   @id @default(uuid(7)) @db.Uuid
   sessionTeamId String   @db.Uuid
@@ -818,6 +897,8 @@ model SessionTeamPlayer {
 /// Os times A, B e o vencedor nos pênaltis são da mesma sessão da partida (FKs compostas).
 /// CHECK (SQL): teamAId <> teamBId; penaltyWinnerTeamId nulo ou igual a teamAId/teamBId;
 /// version >= 0; pausedTotalMs >= 0.
+/// Invariante (service): a criação trava a linha da GameSession, serializando com a
+/// refação do sorteio; a existência de qualquer Match encerra a fase de refação.
 model Match {
   id                  String      @id @default(uuid(7)) @db.Uuid
   gameSessionId       String      @db.Uuid
@@ -854,9 +935,18 @@ model Match {
 
 /// Quem efetivamente jogou a partida (inclui rotativos e goleiros escolhidos na hora).
 /// teamId é o lado em que o jogador atuou nesta partida, não necessariamente o seu
-/// SessionTeam (goleiro emprestado, rotativo).
-/// Invariantes (service): teamId é match.teamAId ou match.teamBId; o membro é
-/// PARTICIPANT da sessão.
+/// SessionTeam. Sem FK para SessionTeamPlayer: o membro pode não ter time na sessão.
+/// - Emprestado: tem SessionTeamPlayer e teamId é outro time; vale só para esta partida
+///   e não muda o time dele na noite.
+/// - Participante sem time: PARTICIPANT sem SessionTeamPlayer (entrou depois do sorteio
+///   oficial, sem refação); preenche vaga por aqui, sem alterar o sorteio.
+/// O unique (matchId, memberId) impede o mesmo jogador nos dois lados da partida.
+/// Invariantes (service):
+/// - teamId é match.teamAId ou match.teamBId; o membro é PARTICIPANT da sessão;
+/// - emprestado vem de um time que não está nesta partida;
+/// - o membro está disponível (sem PlayerUnavailability aberta) no instante em que entra
+///   na partida: match.startedAt na escalação inicial, o momento do comando quando entra
+///   durante a partida.
 model MatchPlayer {
   id       String          @id @default(uuid(7)) @db.Uuid
   matchId  String          @db.Uuid
@@ -874,7 +964,7 @@ model MatchPlayer {
 }
 
 /// CHECK (SQL): assistMemberId só em GOAL e diferente de memberId; elapsedSec >= 0;
-/// voidedAt exige voidedByUserId e voidReason.
+/// voidedAt exige voidedByUserId e voidReason não vazio.
 /// Invariantes (service): teamId é match.teamAId ou match.teamBId; autor e assistente
 /// são MatchPlayer desta partida no lado teamId.
 model MatchEvent {
@@ -883,7 +973,8 @@ model MatchEvent {
   type            MatchEventType
   /// Autor, obrigatório em todos os tipos.
   memberId        String         @db.Uuid
-  /// Time do autor. Em OWN_GOAL o placar é creditado ao adversário.
+  /// Lado em que o autor atuou nesta partida (MatchPlayer.teamId), mesmo emprestado.
+  /// Em OWN_GOAL o placar é creditado ao adversário.
   teamId          String         @db.Uuid
   assistMemberId  String?        @db.Uuid
   elapsedSec      Int
@@ -914,12 +1005,37 @@ model MatchEvent {
 // Financeiro
 // ============================================================================
 
-/// Ciclo financeiro mensal. Valores do fechamento ficam nulos enquanto OPEN
-/// e nunca mudam depois de CLOSED.
+/// Ciclo financeiro mensal.
+/// Previsão x fechamento:
+/// - Enquanto OPEN, a mensalidade é uma PREVISÃO sempre visível, calculada na hora e
+///   nunca gravada, a partir das receitas DAILY_FEE confirmadas atribuídas ao ciclo, do
+///   crédito herdado, dos mensalistas pagantes do momento e de fieldCostSnapshotCents.
+///   Os valores de fechamento ficam nulos porque o resultado ainda não é final.
+/// - No fechamento, os valores definitivos são calculados e congelados; nunca mudam depois.
+/// Cálculo (o mesmo na previsão e no fechamento):
+/// - amountToSplitCents = max(fieldCostSnapshotCents - eligibleDailyRevenueCents -
+///   carriedCreditCents, 0);
+/// - com payingMonthlyCount > 0: monthlyFeeCents = ceil(amountToSplitCents /
+///   payingMonthlyCount), totalChargedCents = monthlyFeeCents * payingMonthlyCount,
+///   roundingDifferenceCents = totalChargedCents - amountToSplitCents;
+/// - com payingMonthlyCount = 0: monthlyFeeCents, totalChargedCents e
+///   roundingDifferenceCents = 0, sem divisão;
+/// - Charge MONTHLY_FEE só quando monthlyFeeCents > 0 (nunca cobrança de valor zero);
+/// - crédito para o ciclo seguinte = max(eligibleDailyRevenueCents + carriedCreditCents +
+///   totalChargedCents - fieldCostSnapshotCents, 0): a diferença de arredondamento ou,
+///   com o custo já coberto, o excedente. Déficit nunca é levado adiante: com 0 pagantes
+///   e custo não coberto, o crédito do seguinte é 0.
+/// eligibleDailyRevenueCents é líquido (IN - OUT) e pode ser negativo: o estorno de uma
+/// diária de ciclo fechado é atribuído ao ciclo OPEN.
 /// CHECK (SQL): referenceMonth no dia 1; periodEnd >= periodStart;
-/// fieldCostSnapshotCents >= 0; status CLOSED se e somente se closedAt e todos os
-/// valores congelados preenchidos; roundingDifferenceCents entre 0 e payingMonthlyCount - 1.
-/// Invariante (service): carriedFrom é do mesmo Group e é o ciclo imediatamente anterior.
+/// fieldCostSnapshotCents >= 0; carriedCreditCents >= 0 (só crédito);
+/// CLOSED exige closedAt e todos os valores congelados;
+/// OPEN exige closedAt e todos os valores congelados nulos; no CLOSED, amountToSplitCents,
+/// monthlyFeeCents, totalChargedCents e roundingDifferenceCents conforme o cálculo acima,
+/// com roundingDifferenceCents entre 0 e payingMonthlyCount - 1 quando há pagantes.
+/// Invariantes (service):
+/// - carriedFrom é do mesmo Group e é o ciclo imediatamente anterior;
+/// - carriedCreditCents = crédito calculado sobre carriedFrom (0 sem ciclo anterior).
 model BillingCycle {
   id                     String             @id @default(uuid(7)) @db.Uuid
   groupId                String             @db.Uuid
@@ -964,7 +1080,8 @@ model BillingCycle {
 /// Obrigação de um jogador. DAILY_FEE liga-se à inscrição e à sessão;
 /// MONTHLY_FEE só ao ciclo e ao membro.
 /// CHECK (SQL): amountCents > 0; DAILY_FEE exige gameSessionId e sessionRegistrationId;
-/// MONTHLY_FEE exige ambos nulos; status CANCELLED exige cancelledAt e cancelReason.
+/// MONTHLY_FEE exige ambos nulos; status CANCELLED exige cancelledAt e cancelReason não
+/// vazio.
 /// Invariantes (service):
 /// - member.groupId = groupId e billingCycle.groupId = groupId;
 /// - DAILY_FEE: sessionRegistration.gameSessionId = gameSessionId,
@@ -1016,8 +1133,8 @@ model Charge {
 /// Nunca apagado: estorno muda para REVERSED; correção = estorno + novo Payment com
 /// correctsPaymentId. O índice parcial garante no máximo um CONFIRMED por Charge, então
 /// o estorno precisa acontecer antes do novo registro.
-/// CHECK (SQL): amountCents > 0; status REVERSED se e somente se reversedAt,
-/// reversedByUserId e reversalReason preenchidos.
+/// CHECK (SQL): amountCents > 0; status REVERSED exige reversedAt, reversedByUserId e
+/// reversalReason não vazio; status CONFIRMED exige os três nulos.
 /// Invariantes (service), na mesma transação:
 /// - amountCents = charge.amountCents e memberId = charge.memberId;
 /// - confirmar: Charge PENDING -> PAID + CashTransaction IN;
@@ -1062,11 +1179,15 @@ model Payment {
 /// CHECK (SQL): amountCents > 0; paymentId preenchido se e somente se category é
 /// DAILY_FEE ou MONTHLY_FEE; direção natural (IN para DAILY_FEE, MONTHLY_FEE e
 /// INITIAL_BALANCE; OUT para FIELD_COST) sem reversesTransactionId e oposta com ele;
-/// reason obrigatório em INITIAL_BALANCE e em estornos; reversesTransactionId <> id.
+/// reason não vazio obrigatório em INITIAL_BALANCE e em estornos; reversesTransactionId <> id.
 /// Invariantes (service):
 /// - billingCycle.groupId = groupId; payment pertence a uma Charge do mesmo Group;
 /// - o estorno tem o mesmo groupId, category, paymentId e amountCents do original;
 /// - no máximo um INITIAL_BALANCE não estornado por grupo;
+/// - o saldo do caixa do grupo (Σ IN - Σ OUT, nunca armazenado) nunca fica negativo:
+///   todo lançamento OUT (FIELD_COST ou estorno de entrada) trava a linha do Group,
+///   recalcula o saldo e é rejeitado se amountCents exceder o saldo disponível; o valor
+///   nunca é reduzido para caber no saldo;
 /// - atribuição de billingCycleId conforme PROJECT.md 31.6 (atrasos vão ao ciclo OPEN).
 model CashTransaction {
   id                    String         @id @default(uuid(7)) @db.Uuid

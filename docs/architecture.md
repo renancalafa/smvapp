@@ -39,6 +39,12 @@ O `PROJECT.md` continua sendo a fonte de verdade das regras. Este plano descreve
 - Revisão 4 (presença real e cobrança só de PRESENT, intervenção na fila, FIXED_TEAMS/FLEXIBLE_ROTATION, criação/cancelamento de sessões, confirmações financeiras): seções 6, 11, 12, 24, 29 e 31.
 - Revisão 5 (mensalidade independente da presença, capacidade na intervenção, destinatários de SESSION_CANCELLED, antecedência de 7 dias): seções 6, 11, 29 e 31.8.
 - Revisão 6 (correção de presença cancela e reativa a mesma cobrança de diária): seção 31.5.
+- Revisão 8 (refação do sorteio antes da primeira partida; times históricos depois dela): seção 17.
+- Revisão 9 (jogador indisponível durante a sessão e empréstimo por partida no Rei da Mesa): seção 24.
+- Revisão 10 (indisponibilidade temporária em períodos; conjunto de participantes congelado depois da primeira partida): seções 11 e 24.
+- Revisão 11 (sorteio decidido é o oficial; sem invalidação automática; refação só manual por ADMIN antes da primeira partida): seções 11, 12 e 17.
+- Revisão 12 (zero mensalistas pagantes, custo já coberto e excedente como crédito, previsão x valores congelados, diária > 0, tempo extra até 30 minutos, reason não vazio): seções 4, 20, 31.4 e 31.9.
+- Revisão 13 (déficit nunca é levado adiante; crédito sempre >= 0; saldo do caixa com piso de R$ 0; saída acima do saldo é rejeitada): seções 31.9, 31.11 e 31.12.
 
 ## 1. Arquitetura da aplicação
 
@@ -141,7 +147,7 @@ Decisões e trade-offs:
 - **GroupSettings** (1:1 com Group), em colunas tipadas:
   - agenda: dia da semana, início/fim, minutos extras, abertura da lista e prazo dos mensalistas (dias antes + hora);
   - formato: `maxPlayers` (20), `teamSize` (5), `matchDurationSec` (**420 = 7 min**), `drawOptionsCount` (2), `drawMinOptionDifference` (3);
-  - financeiro: `dailyFeeCents` (1500), `monthlyFieldCostCents` (90000, custo **mensal**), `fieldPaymentDueDay` (10), `currency` (BRL);
+  - financeiro: `dailyFeeCents` (1500, sempre > 0), `monthlyFieldCostCents` (90000, custo **mensal**), `fieldPaymentDueDay` (10), `currency` (BRL);
   - local;
   - `sessionAutoCreateLeadDays`: com quantos dias de antecedência a sessão automática é criada.
   - Toda alteração gera AuditLog com before/after.
@@ -163,7 +169,8 @@ Decisões e trade-offs:
   - fila: `status`, `queuedAt` (fato original, imutável), `**queueSortAt**` (posição efetiva; igual a `queuedAt`, salvo intervenção), `priorityTier`, `modalitySnapshot`, `source`, `respondedAt`, `**promotedAt**`, `withdrawnAt`;
   - intervenção administrativa: `manualOverrideAt`, `manualOverrideByUserId`, `manualOverrideReason` (a última; o histórico completo com before/after fica no AuditLog);
   - rotativos: `isRotating`, `rotatingSetByUserId`, `rotatingSetAt`;
-  - presença real: `**attendance**` (PRESENT, ABSENT ou nulo se não marcada), `attendanceMarkedAt`, `attendanceMarkedByUserId`.
+  - presença real: `**attendance**` (PRESENT, ABSENT ou nulo se não marcada), `attendanceMarkedAt`, `attendanceMarkedByUserId`;
+- **PlayerUnavailability** (Revisão 10): períodos de indisponibilidade temporária de um participante na sessão (lesão, saída antecipada): `sessionRegistrationId`, `startedAt`, `startedByUserId`, `reason`, `endedAt`, `endedByUserId`. No máximo um período aberto por inscrição. Não altera status, presença nem cobrança.
 
 ### Panela de Aniversário
 
@@ -176,7 +183,7 @@ Decisões e trade-offs:
 
 ### Times finais, partidas e eventos
 
-- **SessionTeam** / **SessionTeamPlayer**: times efetivos copiados da opção vencedora.
+- **SessionTeam** / **SessionTeamPlayer**: times efetivos copiados da opção vencedora. Até a primeira Match da sessão são uma cópia de trabalho, substituível na refação do sorteio; depois dela são histórico (ver "Refação do sorteio e times da sessão"). SessionTeamPlayer é o time do jogador na noite e não muda com empréstimo nem com indisponibilidade (ver "Indisponibilidade e empréstimo por partida").
 - **Match**: sessionId, `sequence`, `teamAId`, `teamBId`, `status`, tempos, `plannedDurationSec` (snapshot), `penaltyWinnerTeamId`, `**version`\*\* (inteiro incrementado a cada comando aceito).
 - **MatchPlayer**: quem jogou cada partida (`role` FIELD/GOALKEEPER).
 - **MatchEvent**: `type`, `**memberId` obrigatório\*\* (autor, para GOAL, OWN_GOAL e BIG_MISS), `teamId`, `assistMemberId` opcional (só em GOAL), `elapsedSec`, `createdByUserId`, `operationId`, campos de anulação (`voidedAt`, `voidedByUserId`, `voidReason`).
@@ -188,14 +195,15 @@ Decisões e trade-offs:
   - ciclo de vida: `status` (OPEN/CLOSED), `openedAt`, `closedAt`, `closedByUserId`;
   - `**dueDate**` (dia `fieldPaymentDueDay` do **próprio mês** de referência, calculado na abertura; por exemplo, outubro/2026 → 2026-10-10);
   - `**fieldCostSnapshotCents**` (gravado na abertura a partir de `monthlyFieldCostCents`);
-  - valores congelados no fechamento (nulos enquanto OPEN):
-    - `eligibleDailyRevenueCents`: líquido de DAILY_FEE atribuído ao ciclo;
-    - `carriedCreditCents` e `carriedFromCycleId`: crédito de arredondamento herdado do ciclo anterior;
-    - `**amountToSplitCents**` (valor exato a ser dividido) = `fieldCostSnapshotCents − eligibleDailyRevenueCents − carriedCreditCents`;
-    - `**payingMonthlyCount**` (quantidade de pagantes);
-    - `**monthlyFeeCents**` (valor individual arredondado para cima);
+  - valores congelados no fechamento (nulos enquanto OPEN; a previsão do ciclo aberto é calculada, não gravada):
+    - `eligibleDailyRevenueCents`: líquido de DAILY_FEE atribuído ao ciclo (pode ser negativo se um estorno de diária de ciclo fechado cair neste ciclo);
+    - `carriedCreditCents` e `carriedFromCycleId`: sobra positiva herdada do ciclo anterior (diferença de arredondamento ou excedente); sempre >= 0 (CHECK);
+    - `**amountToSplitCents**` (valor exato a ser dividido) = `max(fieldCostSnapshotCents − eligibleDailyRevenueCents − carriedCreditCents, 0)`;
+    - `**payingMonthlyCount**` (quantidade de pagantes, pode ser 0);
+    - `**monthlyFeeCents**` (valor individual arredondado para cima; 0 sem pagantes ou com valor a dividir 0);
     - `**totalChargedCents**` (total efetivamente cobrado) = `monthlyFeeCents × payingMonthlyCount`;
-    - `**roundingDifferenceCents**` (diferença de arredondamento) = `totalChargedCents − amountToSplitCents`, sempre entre 0 e `payingMonthlyCount − 1`. Vira o `carriedCreditCents` do ciclo seguinte.
+    - `**roundingDifferenceCents**` (diferença de arredondamento) = `totalChargedCents − amountToSplitCents`, entre 0 e `payingMonthlyCount − 1` com pagantes; 0 sem pagantes.
+  - crédito para o ciclo seguinte = `max(eligibleDailyRevenueCents + carriedCreditCents + totalChargedCents − fieldCostSnapshotCents, 0)` (= `roundingDifferenceCents` no caso normal; = excedente com o custo já coberto; 0 com zero pagantes e custo não coberto, porque déficit nunca é levado adiante). Não tem coluna própria: é derivado dos valores congelados e vira o `carriedCreditCents` do ciclo seguinte. Os CHECKs da migration 001 garantem `carriedCreditCents >= 0`, a fórmula de `amountToSplitCents` e a relação entre mensalidade, total e diferença; a ligação com o ciclo anterior é invariante de serviço.
 - **Charge** (cobrança/obrigação):
   - groupId, memberId, `**billingCycleId**` (obrigatório), `type` (DAILY_FEE ou MONTHLY_FEE);
   - `gameSessionId` e `sessionRegistrationId`, só em DAILY_FEE. Unique em `sessionRegistrationId` garante uma cobrança por participação. Unique (billingCycleId, memberId) para MONTHLY_FEE, via índice parcial;
@@ -277,6 +285,7 @@ Apenas em TypeScript: `AuditAction`, `AuditEntityType`, `CommandType`, `MatchOut
   - antes do prazo, só `MONTHLY_PRIORITY` ocupa vaga;
   - depois do prazo, primeiro `MONTHLY_PRIORITY` por `queuedAt` e depois `GENERAL` por `queuedAt`. Interpretação adotada a partir do §10 do `PROJECT.md`: só perde a prioridade o mensalista que não confirmou até o prazo.
 - A alocação é estável: participante só volta para a fila em caso de redução de capacidade (FIXED_TEAMS), na ordem inversa de prioridade.
+- Depois que a sessão tem qualquer Match, o conjunto de participantes fica congelado: não há liberação de vaga, promoção, inclusão nem remoção (ver "Indisponibilidade e empréstimo por partida").
 - `modalitySnapshot` e `priorityTier` são gravados no momento da confirmação. A quantidade de mensalistas nunca aparece como constante; vem sempre de consulta a membros ativos.
 
 ```mermaid
@@ -309,10 +318,10 @@ stateDiagram-v2
   - nenhum Draw ativo (não invalidado) na sessão. Isso implementa "alterável até o sorteio"; invalidar o sorteio reabre a escolha.
 - **FIXED_TEAMS**: a capacidade efetiva vira 15. `allocate` devolve os excedentes para WAITLISTED na ordem inversa de prioridade (diaristas mais recentes primeiro). Eles continuam na fila e podem ser promovidos se surgir vaga.
 - **FLEXIBLE_ROTATION**: a capacidade continua `maxPlayers`.
-  - O ADMIN marca os rotativos (`isRotating`), com AuditLog.
+  - O ADMIN marca os rotativos (`isRotating`), com AuditLog, enquanto não houver Draw ativo (mesma pré-condição de `setOverflowMode`).
   - O sorteio só é permitido quando a quantidade de rotativos for igual a participantes − 15.
   - Os rotativos formam o bloco ROTATION_POOL, idêntico nas duas opções; o algoritmo só balanceia os 15 restantes.
-  - Ajustes depois do sorteio são feitos nos times finais (SessionTeamPlayer com papel ROTATING), com AuditLog.
+  - O Draw votado, incluindo o ROTATION_POOL, é a composição oficial e nunca é reescrito: SessionTeamPlayer não é alterado depois do sorteio. Desvios práticos nas partidas ficam em MatchPlayer. Para outra composição oficial antes da primeira Match, o ADMIN usa a refação manual ("Refação do sorteio e times da sessão").
 - **Voltar de FIXED para FLEXIBLE** restaura a capacidade e promove automaticamente da fila, pela regra geral de promoção.
 - **Menos de 15 participantes**: nenhum comportamento automático; o sorteio automático é bloqueado. Os mecanismos disponíveis ao ADMIN são montar os times manualmente (SessionTeam com origem MANUAL) ou cancelar a sessão.
 
@@ -349,10 +358,89 @@ Uma opção é uma partição dos jogadores sorteados em blocos (times). Os rót
 
 Sem mudanças de regra em relação à versão anterior:
 
-- Draw imutável; refação com `replacesDrawId` e votos do zero.
+- Conteúdo do Draw imutável; o Draw DECIDED é o sorteio oficial. A única mudança de estado depois disso é a invalidação por refação manual de ADMIN antes da primeira Match, com novo Draw (`replacesDrawId`) e votos do zero.
 - Votação restrita a mensalistas participantes; empate fica TIED com resolução registrada pelo admin.
 - Panela versionada; aprovação vale só para a versão atual.
 - Telas de PLAYER mostram composição dos times e votos, nunca força.
+
+### Refação do sorteio e times da sessão (Revisão 8)
+
+O marco é a existência de qualquer Match na sessão, de qualquer status: a linha da Match nasce quando a partida é iniciada, e uma partida cancelada também já referenciou os times.
+
+**Antes da primeira Match** — comando de ADMIN (`operationId`, `reason` obrigatório), em uma transação:
+
+1. Lock da linha da GameSession (`SELECT ... FOR UPDATE`); rejeita se existir alguma Match na sessão.
+2. Update condicional do Draw ativo para INVALIDATED (`WHERE id = ? AND invalidatedAt IS NULL`), com `invalidatedAt`, `invalidatedByUserId` e `invalidationReason`. Se o Draw estava DECIDED, `winningOptionId`, `decisionMethod` e `decidedAt` ficam como estavam; opções, times, jogadores e votos não são tocados.
+3. Exclusão de SessionTeamPlayer e SessionTeam da sessão, se houver. É a única exclusão de linhas de negócio prevista no schema e só é válida porque nenhuma Match as usou.
+4. AuditLog com o Draw invalidado, o reason e, em `before`, a composição de times substituída.
+5. Criação do novo Draw (`sequence` seguinte, `replacesDrawId` = Draw invalidado) com votação do zero. Se a geração falhar (por exemplo, sem opção B com a diversidade mínima), a transação inteira é desfeita e o Draw anterior continua vigente. Os novos SessionTeam nascem somente quando esse Draw é decidido, a partir da opção vencedora.
+
+**Sem invalidação automática** (Revisão 11): cancelamento, remoção, inclusão, promoção da fila, indisponibilidade temporária, ajuste de rotativos e outras circunstâncias antes da partida NÃO invalidam o Draw. Só a refação manual acima invalida, sempre com `invalidatedByUserId` de um ADMIN (CHECK) e `reason`.
+
+- O Draw guarda a composição do momento da geração; DrawTeamPlayer nunca é reescrito.
+- Sem refação, a sessão começa com a composição oficial. Quem deixou de ser PARTICIPANT continua no SessionTeamPlayer do time oficial, mas não entra em MatchPlayer. Quem está indisponível não joga enquanto o período estiver aberto. Um participante que entrou depois do sorteio fica como participante sem time. As vagas em campo são cobertas por jogadores emprestados ou por participantes sem time, sempre via MatchPlayer.
+
+**Depois da primeira Match**:
+
+- criar, decidir ou invalidar Draw é rejeitado, assim como apagar ou regenerar SessionTeam;
+- o comando "iniciar próxima partida" trava a mesma linha da GameSession, de modo que refação e início de partida nunca se intercalam;
+- rede de segurança no banco: as FKs Restrict de `Match.teamA/teamB/penaltyWinner`, `MatchPlayer.team` e `MatchEvent.team` impedem a exclusão dos times que já jogaram, então uma regeneração completa falharia mesmo com um bug no service;
+- SessionTeamPlayer nunca é apagado nem movido de time: lesão ou saída antecipada é indisponibilidade, e a vaga em campo é preenchida por empréstimo por partida (abaixo).
+
+### Indisponibilidade e empréstimo por partida (Revisões 9 e 10)
+
+No Rei da Mesa, quando um jogador fica indisponível, a vaga dele em campo é preenchida a cada partida por um jogador emprestado de um time que não está jogando. O emprestado continua no próprio time e volta a jogar por ele normalmente.
+
+Exemplo: João (Time 2) se lesiona na partida 5 (Time 1 × Time 2). Marcos (Time 3, descansando) completa o Time 2. Na partida 6 (Time 2 × Time 3), Marcos joga pelo Time 3, e o Time 2 pega emprestado alguém do Time 1 ou do Time 4.
+
+**Três camadas, nenhuma reescrita**:
+
+- **Sorteio votado** (imutável): Draw decidido → opção vencedora → DrawTeam → DrawTeamPlayer.
+- **Time do jogador na noite**: SessionTeam (`sourceDrawTeam` aponta o DrawTeam de origem) → SessionTeamPlayer, uma linha por membro na sessão, que não muda com empréstimo nem com indisponibilidade.
+- **Quem jogou por qual lado em cada partida**: MatchPlayer (`teamId` = lado na partida). Emprestado = `MatchPlayer.teamId` diferente do SessionTeamPlayer do membro. O unique (matchId, memberId) já impede o mesmo jogador nos dois lados.
+
+**Indisponibilidade temporária** (Revisão 10): **PlayerUnavailability**, um período por indisponibilidade.
+
+- Campos: `sessionRegistrationId`, `startedAt`, `startedByUserId`, `reason` (obrigatório), `endedAt` e `endedByUserId` (nulos enquanto o jogador está indisponível).
+- Voltar a ficar disponível fecha o período; ficar indisponível de novo abre outro. Nada é sobrescrito, e a sessão pode ter vários períodos por jogador.
+- Índice único parcial `(sessionRegistrationId) WHERE endedAt IS NULL`: no máximo um período aberto por inscrição, garantido no banco.
+- Disponível no instante t: nenhum período da inscrição com `startedAt <= t` e (`endedAt` nulo ou `endedAt > t`).
+
+Comandos de ADMIN (`operationId`), cada um em uma transação com lock da linha da GameSession (o mesmo de "iniciar próxima partida" e da refação):
+
+- `markUnavailable` (inscrição, `reason`): exige inscrição PARTICIPANT; insere o período com `startedAt = now()`. Um segundo período aberto é rejeitado pelo índice parcial (conflito com o estado atual). AuditLog com `reason`.
+- `markAvailable` (período): update condicional `SET endedAt = now(), endedByUserId WHERE id = ? AND endedAt IS NULL`; 0 linhas = conflito. AuditLog.
+
+Nenhum dos dois altera status, attendance, cobrança, SessionTeamPlayer nem partidas anteriores, e nenhum libera vaga: o jogador continua PARTICIPANT (e PRESENT, se compareceu). Se a lesão ocorre no meio de uma partida, João continua como MatchPlayer dela. Quando volta, joga normalmente pelo próprio time nas partidas seguintes.
+
+Alternativas descartadas:
+- campos `unavailableAt/By/Reason` na SessionRegistration (versão inicial da Revisão 9): a volta exigiria limpar ou sobrescrever os campos, perdendo o período anterior;
+- tabela de eventos (indisponível/disponível): exigiria reordenar eventos para saber o estado em um instante; o período responde direto com um intervalo;
+- campos em SessionTeamPlayer: a indisponibilidade é do jogador na sessão, não do time.
+
+**Empréstimo**: não há comando nem tabela próprios. A escalação de cada partida (ao iniciar, ou pelo comando de partida que altera jogadores, com `expectedVersion` da Match) grava MatchPlayer com o lado em que cada um atua. O service valida:
+
+- `teamId` é `teamAId` ou `teamBId`;
+- o membro é PARTICIPANT e está disponível no instante em que entra na partida (`match.startedAt` na escalação inicial; o momento do comando quando entra durante a partida);
+- **jogador emprestado** (tem SessionTeamPlayer, atua por outro time nesta partida): vem de um time que não está nesta partida;
+- **participante sem time** (PARTICIPANT sem SessionTeamPlayer, porque entrou depois do sorteio oficial e o ADMIN não refez o sorteio): pode preencher vaga por qualquer lado; o sorteio oficial não é alterado para encaixá-lo em um time;
+- um jogador por partida (unique no banco).
+
+MatchPlayer não tem FK para SessionTeamPlayer, então os dois casos já são representáveis sem mudança de schema. As estatísticas sempre pertencem ao `memberId`.
+
+**Conjunto de participantes congelado**: depois que a sessão tem qualquer Match, nenhum comando muda o status de uma SessionRegistration. Ficam proibidos inclusão (inclusive a intervenção excepcional), remoção, cancelamento pelo próprio jogador, promoção da fila e redução de capacidade. Quem não pode mais jogar fica indisponível; a vaga em campo é coberta só por empréstimo entre os participantes. Não há 21º participante, diarista de emergência nem promoção por lesão. É regra de service, sem mudança de schema: os comandos de presença já travam a linha da GameSession, a mesma que a criação da Match trava, então "existe Match?" é verificado sem corrida. A presença real (`attendance`) continua podendo ser marcada e corrigida, porque não muda o conjunto de participantes.
+
+**Estatísticas**: calculadas por `memberId` a partir de MatchPlayer e MatchEvent. Gols, gols contra, assistências dadas e recebidas e pixotadas de Marcos são dele, emprestado ou não; `MatchEvent.teamId` é o lado em que ele atuou. Partida jogada, vitória, empate e derrota usam o resultado do lado `MatchPlayer.teamId`: na partida 5, Marcos soma o resultado do Time 2. Ninguém herda estatísticas de outro jogador.
+
+**Reconstrução histórica**:
+
+- time original de João e de Marcos: SessionTeamPlayer de cada um (e o DrawTeamPlayer da opção vencedora, via `sourceDrawTeam`);
+- quando, por quem e por que João ficou indisponível, e quando e por quem voltou: os períodos de PlayerUnavailability da inscrição dele, repetidos no AuditLog;
+- se João estava disponível quando a partida N começou: nenhum período cobrindo `Match.startedAt`;
+- partidas que João jogou: MatchPlayer de João;
+- partidas em que Marcos jogou emprestado ao Time 2: MatchPlayer de Marcos com `teamId` = Time 2, diferente do time dele (Time 3);
+- partidas em que Marcos jogou pelo Time 3: MatchPlayer de Marcos com `teamId` = Time 3;
+- eventos e estatísticas de cada um: MatchEvent por `memberId` (autor) e `assistMemberId`.
 
 ### Concorrência no Modo Pelada (múltiplos admins)
 
@@ -449,23 +537,23 @@ flowchart LR
   - Cada GameSession recebe o `billingCycleId` do ciclo do seu período na criação.
   - Pode haver dois ciclos OPEN ao mesmo tempo (o mês anterior ainda não fechado e o mês corrente).
 - **Mudança de configuração**: alterar `monthlyFieldCostCents` ou `fieldPaymentDueDay` vale para ciclos abertos depois. Ajustar o snapshot de um ciclo OPEN é um comando explícito do admin, com AuditLog. Ciclo CLOSED nunca é alterado nem recalculado.
-- **Previsão dinâmica** (enquanto OPEN, calculada; função pura `domain/finance/monthlyFee.ts`):
+- **Previsão dinâmica** (enquanto OPEN, sempre disponível, calculada na hora e nunca gravada; função pura `domain/finance/monthlyFee.ts`, a mesma do fechamento):
   - `eligible` = líquido de DAILY_FEE (Σ IN − Σ OUT) com `billingCycleId` = ciclo;
-  - `credit` = `roundingDifferenceCents` do ciclo anterior fechado (0 se não houver);
-  - `amountToSplit = fieldCostSnapshotCents − eligible − credit`;
+  - `credit` = crédito deixado pelo ciclo anterior fechado (`max(eligibleDailyRevenueCents + carriedCreditCents + totalChargedCents − fieldCostSnapshotCents, 0)` dele; 0 se não houver);
+  - `amountToSplit = max(fieldCostSnapshotCents − eligible − credit, 0)`;
   - `payingCount` = membros ativos, MONTHLY, `feeExempt = false`, no momento da consulta;
-  - valor individual com arredondamento para cima.
-  - A tela exibe "PREVISÃO" e a fórmula com os valores reais. Com `payingCount = 0`, mostra "indisponível".
+  - valor individual com arredondamento para cima; 0 quando `payingCount = 0` ou `amountToSplit = 0` (sem divisão por zero). Nunca negativo.
+  - A tela exibe "PREVISÃO" e a fórmula com os valores reais. Os campos de fechamento do ciclo continuam nulos: a previsão não é o valor congelado.
 - **Fechamento** (comando manual de ADMIN, transacional e idempotente):
   1. Idempotência pelo `operationId`: um reenvio devolve o resultado original.
   2. Pré-condições:
   - o ciclo é o OPEN mais antigo do grupo (fechamento sequencial, garantindo que o crédito herdado do anterior já está congelado);
-  - `payingCount > 0` (caso contrário, erro explícito);
+  - `payingCount = 0` é permitido: mensalidade, total e diferença ficam 0 e nenhuma cobrança é criada;
   - existe um ciclo OPEN posterior; se não existir, é criado na mesma transação, para receber pagamentos atrasados.
   3. Update condicional `status = CLOSED, closedAt = now(), closedByUserId WHERE id = ? AND status = OPEN`. Com 0 linhas afetadas, o ciclo já estava fechado e nada mais é feito.
   4. Determina os mensalistas ativos não isentos e calcula com a mesma função pura da previsão.
   5. Congela `eligibleDailyRevenueCents`, `carriedCreditCents`, `carriedFromCycleId`, `amountToSplitCents`, `payingMonthlyCount`, `monthlyFeeCents`, `totalChargedCents` e `roundingDifferenceCents`.
-  6. Cria uma Charge MONTHLY_FEE PENDING por pagante, todas com `amountCents = monthlyFeeCents`. O índice único (billingCycleId, memberId) impede duplicação. O conjunto dessas cobranças é o registro explícito de quem foi considerado.
+  6. Se `monthlyFeeCents > 0`, cria uma Charge MONTHLY_FEE PENDING por pagante, todas com `amountCents = monthlyFeeCents` (nunca cobrança de valor zero; `Charge.amountCents > 0` no CHECK). O índice único (billingCycleId, memberId) impede duplicação. O conjunto dessas cobranças é o registro explícito de quem foi considerado.
   7. Grava AuditLog com o cálculo completo e a lista de pagantes.
   - Depois de CLOSED, o ciclo continua recebendo pagamentos de mensalidade e o pagamento do campo (isso não altera os valores congelados), mas nunca mais recebe lançamentos DAILY_FEE.
 
@@ -474,13 +562,14 @@ flowchart LR
 - Em inteiros: `monthlyFeeCents = ceil(amountToSplitCents / payingMonthlyCount)`, calculado como `floor((amountToSplitCents + payingMonthlyCount − 1) / payingMonthlyCount)`, sem ponto flutuante.
 - Exemplo: 82500 / 19 → 4343. Total cobrado: 82517. Diferença: 17.
 - Os 17 centavos ficam no caixa (o total cobrado é maior que o necessário) e entram como `carriedCreditCents` no ciclo seguinte, reduzindo o valor a dividir. Assim o excedente beneficia o próximo ciclo sem ser descartado nem contado duas vezes.
+- Custo já coberto (Revisão 12): com diárias 95000, crédito 0 e campo 90000, `amountToSplitCents = 0`, mensalidade 0, nenhuma cobrança, e a sobra de 5000 vira o `carriedCreditCents` do ciclo seguinte.
 
 **Atribuição de movimentações ao ciclo** (sempre gravada em `CashTransaction.billingCycleId`, nunca derivada da data):
 
 - Pagamento de diária: vai para o ciclo da cobrança se ele estiver OPEN. Se o ciclo da cobrança já fechou (pagamento atrasado, decidido), Charge e Payment continuam no ciclo de origem; a CashTransaction é atribuída ao ciclo OPEN mais antigo e reduz a próxima mensalidade; o ciclo fechado não é recalculado.
 - Pagamento de mensalidade: sempre o ciclo da cobrança.
 - Pagamento do campo: o ciclo informado pelo admin (padrão: o ciclo cujo `dueDate` está sendo pago).
-- Saldo inicial: o ciclo OPEN mais antigo. Não entra na fórmula da mensalidade, que só considera DAILY_FEE e o crédito de arredondamento.
+- Saldo inicial: o ciclo OPEN mais antigo. Não entra na fórmula da mensalidade, que só considera DAILY_FEE e a sobra herdada do ciclo anterior.
 - Estornos seguem a regra da categoria. Um estorno de DAILY_FEE de ciclo fechado vai para o ciclo OPEN mais antigo.
 
 **Pagamentos (diária e mensalidade)**
@@ -502,6 +591,7 @@ flowchart LR
 **Pagamento do campo**
 
 - Comando de ADMIN (`operationId`) que cria CashTransaction OUT/FIELD_COST com `billingCycleId`, `occurredAt`, valor, `method`, `notes` e AuditLog. Correção por estorno + novo lançamento.
+- Rejeitado se o valor exceder o saldo disponível do caixa (ver piso de R$ 0 em **Saldo**). Nunca é reduzido ao saldo: o admin registra o pagamento quando houver dinheiro confirmado suficiente.
 - Situação do campo no ciclo é calculada: pago, parcial, pendente ou vencido (`now > dueDate` sem pagamento completo).
 
 **Saldo inicial**
@@ -513,7 +603,13 @@ flowchart LR
 
 - O saldo nunca é armazenado.
 - Saldo do caixa = Σ IN − Σ OUT de todas as movimentações, incluindo INITIAL_BALANCE.
-- Saldo do ciclo = o mesmo filtrado por `billingCycleId`. No exemplo do `PROJECT.md`: +7500 de diárias, +82517 de mensalidades, −90000 do campo, saldo +17 (crédito do ciclo seguinte).
+- Saldo do ciclo = o mesmo filtrado por `billingCycleId`. No exemplo do `PROJECT.md`: +7500 de diárias, +82517 de mensalidades, −90000 do campo, saldo +17 (crédito do ciclo seguinte). O saldo de um ciclo pode ser negativo (o campo pago com sobra de ciclos anteriores); o saldo do caixa não.
+- **Piso de R$ 0 do saldo do caixa** (Revisão 13), invariante de serviço porque depende da soma de todas as movimentações do grupo:
+  - todo comando que grava uma CashTransaction OUT (FIELD_COST, ou estorno de DAILY_FEE, MONTHLY_FEE ou INITIAL_BALANCE) trava a linha do Group (`SELECT ... FOR UPDATE`), recalcula o saldo e rejeita se `amountCents > saldo`, na mesma transação do lançamento;
+  - lançamentos IN não precisam do lock: uma entrada concorrente só aumenta o saldo;
+  - em READ COMMITTED, a soma feita depois de obter o lock já enxerga os lançamentos OUT confirmados por quem segurava o lock antes;
+  - nenhuma coluna de saldo é armazenada.
+  - Consequência: o estorno de um pagamento já gasto no campo é rejeitado até haver saldo; se o pagamento foi registrado por engano, primeiro estorna-se o pagamento do campo (entrada), depois o pagamento errado, e o campo é registrado de novo quando houver saldo.
 
 **Isenção e visibilidade**
 
@@ -631,12 +727,12 @@ Ficam em aberto por decisão do usuário; serão respondidas quando cada módulo
 
 Financeiro:
 
-1. **Valor a dividir zero ou negativo** (receitas de diaristas + crédito ≥ custo do campo): fechar sem cobranças de mensalidade e levar o excedente como crédito ao ciclo seguinte (proposta)?
+1. **Zero pagantes com custo não coberto** (resolvida na Revisão 13): ninguém é cobrado, o déficit não é levado adiante e o crédito do ciclo seguinte é 0. O saldo do caixa nunca fica negativo; o pagamento do campo sem saldo suficiente é rejeitado. (O valor a dividir zero, com o excedente virando crédito, foi resolvido na Revisão 12.)
 2. **Visibilidade de nomes**: nomes de quem está com cobrança pendente são visíveis a todos ou só os totais?
 
 Presença e sessões: 3, 4 e 5 resolvidas na Revisão 5 (a intervenção nunca excede a capacidade; SESSION_CANCELLED vai para todos os membros ativos; `sessionAutoCreateLeadDays` = 7).
 
-Sorteio, votação e panela: 6. Quem dispara o sorteio e quando a lista trava? 7. Quando a votação abre e fecha? O voto pode ser alterado? O voto de quem cancela depois conta? 8. O que acontece com os times quando um participante cancela, ou alguém é promovido automaticamente, depois dos times definidos? 9. Como se identificam os aniversariantes e qual a janela? Pode haver 3 ou mais? Há prazo e possibilidade de intervenção do admin? O que acontece se um escolhido cancelar?
+Sorteio, votação e panela: 6. Quem dispara o sorteio e quando a lista trava? 7. Quando a votação abre e fecha? O voto pode ser alterado? O voto de quem cancela depois conta? 8. O que acontece com os times quando um participante cancela, ou alguém é promovido automaticamente, depois dos times definidos? (Resolvida nas Revisões 8 a 11. O sorteio decidido é o oficial e nenhuma mudança o invalida automaticamente; antes da primeira partida, o ADMIN pode refazê-lo como ação manual excepcional. Depois da primeira partida, os times e o conjunto de participantes ficam congelados; quem não pode jogar fica indisponível, pode voltar, e a vaga em campo é coberta por empréstimo a cada partida.) 9. Como se identificam os aniversariantes e qual a janela? Pode haver 3 ou mais? Há prazo e possibilidade de intervenção do admin? O que acontece se um escolhido cancelar?
 
 Partidas e estatísticas: 10. Critério da classificação geral (pontos, aproveitamento, mínimo de jogos, desempates). 11. Vitória nos pênaltis conta como vitória ou empate nas estatísticas? 12. Atuar como goleiro conta como partida jogada, vitória e derrota? 13. Ordem inicial dos times e primeiro confronto.
 
@@ -687,6 +783,7 @@ erDiagram
   GroupMember ||--o{ MatchPlayer : "joga"
   GroupMember ||--o{ MatchEvent : "autor ou assistencia"
   SessionRegistration ||--o| Charge : "gera diaria"
+  SessionRegistration ||--o{ PlayerUnavailability : "indisponibilidades"
   GameSession ||--o{ Charge : "cobrancas"
   GroupMember ||--o{ Charge : "deve"
   Charge ||--o{ Payment : "pagamentos"
@@ -702,4 +799,4 @@ Observações do diagrama:
 - `Charge` é DAILY_FEE (ligada a SessionRegistration e GameSession) ou MONTHLY_FEE (ligada só ao BillingCycle e ao membro).
 - `CashTransaction` OUT/FIELD_COST e IN/INITIAL_BALANCE não têm Payment; ligam-se diretamente ao BillingCycle.
 - `CashTransaction.billingCycleId` pode diferir de `Charge.billingCycleId` no pagamento atrasado de diária (regra decidida na Revisão 3).
-- `BillingCycle.carriedFromCycleId` aponta o ciclo anterior cuja diferença de arredondamento foi herdada como crédito.
+- `BillingCycle.carriedFromCycleId` aponta o ciclo anterior cuja sobra (diferença de arredondamento ou excedente) foi herdada como crédito.
