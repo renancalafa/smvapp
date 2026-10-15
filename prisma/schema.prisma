@@ -167,14 +167,35 @@ enum MatchEventType {
   BIG_MISS
 }
 
+/// OPEN: acumula receitas de diaristas; a mensalidade é previsão.
+/// CLOSED: mensalidade congelada. O ciclo continua recebendo pagamentos de mensalidade e
+/// o pagamento do campo; só os valores do cálculo ficam imutáveis.
 enum BillingCycleStatus {
   OPEN
   CLOSED
 }
 
+/// REGULAR: mensalidade calculada pelo sistema no congelamento.
+/// OPENING: mês corrente na implantação; mensalidade declarada pelo ADMIN, sem cálculo.
+enum BillingCycleKind {
+  REGULAR
+  OPENING
+}
+
 enum ChargeType {
   DAILY_FEE
   MONTHLY_FEE
+}
+
+/// Origem de uma Charge MONTHLY_FEE.
+/// CYCLE_FREEZE: criada no congelamento, uma por pagante do divisor.
+/// LATE_JOIN: novo mensalista, que só entra do dia 1 ao 7 (depois do congelamento); paga
+/// o valor congelado sem alterar divisor, total cobrado, arredondamento ou crédito.
+/// OPENING: criada na implantação para quem ainda devia a mensalidade do mês corrente.
+enum MonthlyFeeOrigin {
+  CYCLE_FREEZE
+  LATE_JOIN
+  OPENING
 }
 
 enum ChargeStatus {
@@ -241,7 +262,8 @@ model User {
   username           String    @unique
   name               String
   birthDate          DateTime? @db.Date
-  /// Hash da senha (string PHC, ex.: argon2id). A senha em texto puro nunca é persistida.
+  /// Hash da senha (string PHC; hoje scrypt do node:crypto). A senha em texto puro nunca é
+  /// persistida.
   passwordHash       String
   /// true após criação ou redefinição pelo ADMIN; bloqueia o uso até a troca da senha.
   mustChangePassword Boolean   @default(true)
@@ -329,7 +351,7 @@ model Group {
 /// os valores vêm do seed ou do ADMIN. Toda alteração gera AuditLog com before/after.
 /// CHECK (SQL): minutos do dia entre 0 e 1439; maxExtraMinutes entre 0 e 30; dias >= 0;
 /// contagens e duração > 0; dailyFeeCents > 0; monthlyFieldCostCents >= 0;
-/// fieldPaymentDueDay entre 1 e 31.
+/// fieldPaymentDueDay e monthlyFeeDueDay entre 1 e 31.
 model GroupSettings {
   groupId String @id @db.Uuid
 
@@ -360,8 +382,12 @@ model GroupSettings {
   /// Sempre > 0: não existe diarista gratuito no MVP.
   dailyFeeCents         Int
   monthlyFieldCostCents Int
+  /// Prazo do pagamento do campo, no próprio mês do ciclo (seed: 10).
   /// Se o mês não tiver o dia, vale o último dia do mês.
   fieldPaymentDueDay    Int
+  /// Prazo de pagamento da mensalidade, no próprio mês do ciclo (seed: 7). A mensalidade
+  /// é congelada e fica pagável no dia 1 (fixo). Mês sem o dia: último dia do mês.
+  monthlyFeeDueDay      Int
   /// ISO 4217, por exemplo BRL.
   currency              String
 
@@ -437,21 +463,20 @@ model Season {
 /// Uma ocorrência da pelada, com snapshot da configuração no momento da criação.
 /// CHECK (SQL): endsAt > startsAt; status CANCELLED exige cancelledAt e cancelReason não
 /// vazio.
+/// Não tem ciclo financeiro: a receita de diária é atribuída ao ciclo pela confirmação
+/// do pagamento (ver CashTransaction), não pela data da sessão.
 /// Invariantes (service):
-/// - season.groupId = groupId e billingCycle.groupId = groupId;
-/// - scheduledFor dentro de [season.startsOn, season.endsOn] e de
-///   [billingCycle.periodStart, billingCycle.periodEnd];
-/// - billingCycle está OPEN na criação da sessão.
+/// - season.groupId = groupId;
+/// - scheduledFor dentro de [season.startsOn, season.endsOn].
 model GameSession {
-  id             String            @id @default(uuid(7)) @db.Uuid
-  groupId        String            @db.Uuid
-  seasonId       String            @db.Uuid
-  billingCycleId String            @db.Uuid
-  status         GameSessionStatus @default(SCHEDULED)
-  type           GameSessionType   @default(NORMAL)
-  origin         GameSessionOrigin
+  id           String            @id @default(uuid(7)) @db.Uuid
+  groupId      String            @db.Uuid
+  seasonId     String            @db.Uuid
+  status       GameSessionStatus @default(SCHEDULED)
+  type         GameSessionType   @default(NORMAL)
+  origin       GameSessionOrigin
   /// Data civil da sessão no fuso do Group.
-  scheduledFor   DateTime          @db.Date
+  scheduledFor DateTime          @db.Date
 
   // Snapshot da configuração
   startsAt                DateTime @db.Timestamptz(3)
@@ -488,12 +513,11 @@ model GameSession {
   createdAt       DateTime @default(now()) @db.Timestamptz(3)
   updatedAt       DateTime @updatedAt @db.Timestamptz(3)
 
-  group             Group        @relation(fields: [groupId], references: [id])
-  season            Season       @relation(fields: [seasonId], references: [id])
-  billingCycle      BillingCycle @relation(fields: [billingCycleId], references: [id])
-  overflowDecidedBy User?        @relation("GameSessionOverflowDecidedBy", fields: [overflowDecidedByUserId], references: [id], onDelete: Restrict)
-  cancelledBy       User?        @relation("GameSessionCancelledBy", fields: [cancelledByUserId], references: [id], onDelete: Restrict)
-  createdBy         User?        @relation("GameSessionCreatedBy", fields: [createdByUserId], references: [id], onDelete: Restrict)
+  group             Group  @relation(fields: [groupId], references: [id])
+  season            Season @relation(fields: [seasonId], references: [id])
+  overflowDecidedBy User?  @relation("GameSessionOverflowDecidedBy", fields: [overflowDecidedByUserId], references: [id], onDelete: Restrict)
+  cancelledBy       User?  @relation("GameSessionCancelledBy", fields: [cancelledByUserId], references: [id], onDelete: Restrict)
+  createdBy         User?  @relation("GameSessionCreatedBy", fields: [createdByUserId], references: [id], onDelete: Restrict)
 
   registrations    SessionRegistration[]
   birthdayDraft    BirthdayDraft?
@@ -1005,14 +1029,25 @@ model MatchEvent {
 // Financeiro
 // ============================================================================
 
-/// Ciclo financeiro mensal.
-/// Previsão x fechamento:
+/// Ciclo financeiro mensal: a mensalidade e o campo do mês referenceMonth (M).
+/// Linha do tempo de um ciclo REGULAR (ex.: outubro/2026):
+/// - OPEN durante o mês anterior: recebe as receitas DAILY_FEE confirmadas antes de
+///   freezesAt (setembro); a mensalidade de outubro é uma PREVISÃO.
+/// - freezesAt = 00:00 do dia 1 de M no fuso do Group (01/10), snapshot na criação.
+///   É o corte de atribuição: atraso do job não muda nenhuma atribuição.
+/// - Congelamento (job automático no dia 1, ou ADMIN como fallback, mesma operação
+///   idempotente): calcula, grava os valores e passa a CLOSED; cria as Charges
+///   MONTHLY_FEE, pagáveis desde o dia 1, com prazo monthlyFeeDueDate (07/10).
+/// - CLOSED: continua recebendo pagamentos de mensalidade (inclusive LATE_JOIN) e o
+///   pagamento do campo (prazo fieldPaymentDueDate, 10/10); nunca recebe DAILY_FEE.
+///   Os valores do cálculo nunca mudam depois do congelamento.
+/// Previsão x congelamento:
 /// - Enquanto OPEN, a mensalidade é uma PREVISÃO sempre visível, calculada na hora e
 ///   nunca gravada, a partir das receitas DAILY_FEE confirmadas atribuídas ao ciclo, do
 ///   crédito herdado, dos mensalistas pagantes do momento e de fieldCostSnapshotCents.
-///   Os valores de fechamento ficam nulos porque o resultado ainda não é final.
-/// - No fechamento, os valores definitivos são calculados e congelados; nunca mudam depois.
-/// Cálculo (o mesmo na previsão e no fechamento):
+///   Os valores congelados ficam nulos porque o resultado ainda não é final.
+/// - No congelamento, os valores definitivos são calculados e gravados.
+/// Cálculo REGULAR (o mesmo na previsão e no congelamento):
 /// - amountToSplitCents = max(fieldCostSnapshotCents - eligibleDailyRevenueCents -
 ///   carriedCreditCents, 0);
 /// - com payingMonthlyCount > 0: monthlyFeeCents = ceil(amountToSplitCents /
@@ -1024,34 +1059,55 @@ model MatchEvent {
 /// - crédito para o ciclo seguinte = max(eligibleDailyRevenueCents + carriedCreditCents +
 ///   totalChargedCents - fieldCostSnapshotCents, 0): a diferença de arredondamento ou,
 ///   com o custo já coberto, o excedente. Déficit nunca é levado adiante: com 0 pagantes
-///   e custo não coberto, o crédito do seguinte é 0.
+///   e custo não coberto, o crédito do seguinte é 0. totalChargedCents é o congelado:
+///   cobranças LATE_JOIN entram no caixa, mas não no crédito.
 /// eligibleDailyRevenueCents é líquido (IN - OUT) e pode ser negativo: o estorno de uma
-/// diária de ciclo fechado é atribuído ao ciclo OPEN.
-/// CHECK (SQL): referenceMonth no dia 1; periodEnd >= periodStart;
+/// diária já usada num ciclo congelado é atribuído ao ciclo OPEN da vez.
+/// OPENING (implantação, no máximo um por grupo, sempre o primeiro ciclo, criado CLOSED):
+/// - monthlyFeeCents = mensalidade do mês corrente já definida pelo grupo, declarada pelo
+///   ADMIN; nenhum outro valor de cálculo é gravado (receita histórica não é inventada);
+/// - fieldCostSnapshotCents = parte do campo do mês ainda a pagar pelo sistema (0 se já
+///   paga antes da implantação; esse dinheiro já está refletido no saldo inicial);
+/// - crédito para o ciclo seguinte = 0.
+/// CHECK (SQL): referenceMonth no dia 1; os dois prazos dentro do mês de referência;
 /// fieldCostSnapshotCents >= 0; carriedCreditCents >= 0 (só crédito);
-/// CLOSED exige closedAt e todos os valores congelados;
-/// OPEN exige closedAt e todos os valores congelados nulos; no CLOSED, amountToSplitCents,
-/// monthlyFeeCents, totalChargedCents e roundingDifferenceCents conforme o cálculo acima,
-/// com roundingDifferenceCents entre 0 e payingMonthlyCount - 1 quando há pagantes.
+/// closedAt >= freezesAt (nunca congela antes do corte);
+/// OPEN só REGULAR, com closedAt, carriedFromCycleId e valores congelados nulos;
+/// CLOSED REGULAR exige closedAt e todos os valores congelados;
+/// CLOSED OPENING exige closedAt e monthlyFeeCents >= 0, demais valores nulos;
+/// no CLOSED REGULAR, amountToSplitCents, monthlyFeeCents, totalChargedCents e
+/// roundingDifferenceCents conforme o cálculo acima, com roundingDifferenceCents entre 0
+/// e payingMonthlyCount - 1 quando há pagantes.
 /// Invariantes (service):
+/// - os ciclos de um grupo são meses consecutivos; OPENING, se existir, é o primeiro;
+/// - congelamento sequencial: só congela se o ciclo do mês anterior está CLOSED (ou não
+///   existe) e trava a linha do ciclo (FOR UPDATE) antes de ler as receitas;
 /// - carriedFrom é do mesmo Group e é o ciclo imediatamente anterior;
-/// - carriedCreditCents = crédito calculado sobre carriedFrom (0 sem ciclo anterior).
+/// - carriedCreditCents = crédito calculado sobre carriedFrom (0 sem ciclo anterior ou
+///   quando o anterior é OPENING);
+/// - depois de CLOSED, nenhuma coluna do ciclo muda.
 model BillingCycle {
   id                     String             @id @default(uuid(7)) @db.Uuid
   groupId                String             @db.Uuid
   /// Primeiro dia do mês de referência.
   referenceMonth         DateTime           @db.Date
-  periodStart            DateTime           @db.Date
-  periodEnd              DateTime           @db.Date
+  kind                   BillingCycleKind   @default(REGULAR)
   status                 BillingCycleStatus @default(OPEN)
   openedAt               DateTime           @default(now()) @db.Timestamptz(3)
+  /// Corte do congelamento: 00:00 do dia 1 de referenceMonth no fuso do Group.
+  /// DAILY_FEE confirmada antes dele pode ir para este ciclo; depois, nunca.
+  freezesAt              DateTime           @db.Timestamptz(3)
+  /// Instante em que o congelamento foi executado (>= freezesAt).
   closedAt               DateTime?          @db.Timestamptz(3)
+  /// Nulo = congelado pelo SYSTEM (job ou avaliação preguiçosa).
   closedByUserId         String?            @db.Uuid
-  /// Vencimento do pagamento do campo no próprio mês de referência.
-  dueDate                DateTime           @db.Date
+  /// Prazo de pagamento da mensalidade (dia monthlyFeeDueDay de referenceMonth).
+  monthlyFeeDueDate      DateTime           @db.Date
+  /// Prazo do pagamento do campo (dia fieldPaymentDueDay de referenceMonth).
+  fieldPaymentDueDate    DateTime           @db.Date
   fieldCostSnapshotCents Int
 
-  // Congelados no fechamento
+  // Congelados no congelamento
   eligibleDailyRevenueCents Int?
   carriedCreditCents        Int?
   carriedFromCycleId        String? @unique @db.Uuid
@@ -1069,50 +1125,61 @@ model BillingCycle {
   carriedFrom BillingCycle? @relation("BillingCycleCarriedCredit", fields: [carriedFromCycleId], references: [id], onDelete: Restrict)
   carriedInto BillingCycle? @relation("BillingCycleCarriedCredit")
 
-  gameSessions     GameSession[]
   charges          Charge[]
   cashTransactions CashTransaction[]
 
   @@unique([groupId, referenceMonth])
+  /// PARCIAL: no máximo um ciclo de implantação por grupo.
+  /// Consultar com { groupId, kind: "OPENING" }.
+  @@unique([groupId], map: "BillingCycle_opening_per_group_key", where: { kind: "OPENING" })
   @@index([groupId, status, referenceMonth])
 }
 
-/// Obrigação de um jogador. DAILY_FEE liga-se à inscrição e à sessão;
-/// MONTHLY_FEE só ao ciclo e ao membro.
-/// CHECK (SQL): amountCents > 0; DAILY_FEE exige gameSessionId e sessionRegistrationId;
-/// MONTHLY_FEE exige ambos nulos; status CANCELLED exige cancelledAt e cancelReason não
-/// vazio.
+/// Obrigação de um jogador. DAILY_FEE liga-se à inscrição e à sessão, sem ciclo (o ciclo
+/// da receita é o da CashTransaction); MONTHLY_FEE liga-se ao ciclo e ao membro.
+/// CHECK (SQL): amountCents > 0; DAILY_FEE exige gameSessionId e sessionRegistrationId,
+/// com billingCycleId e monthlyFeeOrigin nulos; MONTHLY_FEE exige billingCycleId e
+/// monthlyFeeOrigin, com gameSessionId e sessionRegistrationId nulos; status CANCELLED
+/// exige cancelledAt e cancelReason não vazio.
 /// Invariantes (service):
 /// - member.groupId = groupId e billingCycle.groupId = groupId;
 /// - DAILY_FEE: sessionRegistration.gameSessionId = gameSessionId,
-///   sessionRegistration.memberId = memberId, billingCycleId = gameSession.billingCycleId;
+///   sessionRegistration.memberId = memberId;
+/// - MONTHLY_FEE: billingCycle CLOSED e amountCents = billingCycle.monthlyFeeCents (> 0);
+///   CYCLE_FREEZE só na transação do congelamento de um ciclo REGULAR, uma por pagante
+///   (quantidade = payingMonthlyCount); OPENING só na implantação; LATE_JOIN só no
+///   cadastro de um novo mensalista (permitido do dia 1 ao 7), criada travando o ciclo do
+///   mês (FOR SHARE) para não concorrer com o congelamento;
 /// - status PAID se e somente se existe exatamente um Payment CONFIRMED desta Charge;
 /// - cancelar (PRESENT -> ABSENT) só a partir de PENDING, com reason e AuditLog;
 ///   reativar (ABSENT -> PRESENT) é CANCELLED -> PENDING na MESMA linha, com AuditLog;
 ///   com pagamento confirmado, o estorno vem antes.
 model Charge {
-  id                    String       @id @default(uuid(7)) @db.Uuid
-  groupId               String       @db.Uuid
-  memberId              String       @db.Uuid
-  billingCycleId        String       @db.Uuid
+  id                    String            @id @default(uuid(7)) @db.Uuid
+  groupId               String            @db.Uuid
+  memberId              String            @db.Uuid
+  /// Só MONTHLY_FEE.
+  billingCycleId        String?           @db.Uuid
   type                  ChargeType
-  gameSessionId         String?      @db.Uuid
+  /// Só MONTHLY_FEE.
+  monthlyFeeOrigin      MonthlyFeeOrigin?
+  gameSessionId         String?           @db.Uuid
   /// Uma cobrança de diária por participação, para sempre: correções de presença
   /// cancelam e reativam esta mesma linha, nunca criam outra.
-  sessionRegistrationId String?      @unique @db.Uuid
+  sessionRegistrationId String?           @unique @db.Uuid
   /// Snapshot da diária da sessão ou da mensalidade congelada do ciclo.
   amountCents           Int
-  status                ChargeStatus @default(PENDING)
-  createdByUserId       String?      @db.Uuid
-  createdAt             DateTime     @default(now()) @db.Timestamptz(3)
-  updatedAt             DateTime     @updatedAt @db.Timestamptz(3)
-  cancelledAt           DateTime?    @db.Timestamptz(3)
-  cancelledByUserId     String?      @db.Uuid
+  status                ChargeStatus      @default(PENDING)
+  createdByUserId       String?           @db.Uuid
+  createdAt             DateTime          @default(now()) @db.Timestamptz(3)
+  updatedAt             DateTime          @updatedAt @db.Timestamptz(3)
+  cancelledAt           DateTime?         @db.Timestamptz(3)
+  cancelledByUserId     String?           @db.Uuid
   cancelReason          String?
 
   group               Group                @relation(fields: [groupId], references: [id])
   member              GroupMember          @relation(fields: [memberId], references: [id])
-  billingCycle        BillingCycle         @relation(fields: [billingCycleId], references: [id])
+  billingCycle        BillingCycle?        @relation(fields: [billingCycleId], references: [id], onDelete: Restrict)
   gameSession         GameSession?         @relation(fields: [gameSessionId], references: [id], onDelete: Restrict)
   sessionRegistration SessionRegistration? @relation(fields: [sessionRegistrationId], references: [id], onDelete: Restrict)
   createdBy           User?                @relation("ChargeCreatedBy", fields: [createdByUserId], references: [id], onDelete: Restrict)
@@ -1120,7 +1187,8 @@ model Charge {
 
   payments Payment[]
 
-  /// PARCIAL: uma mensalidade por mensalista pagante por ciclo.
+  /// PARCIAL: uma mensalidade por mensalista por ciclo, qualquer que seja a origem
+  /// (CYCLE_FREEZE, LATE_JOIN ou OPENING).
   /// Consultar com { billingCycleId, memberId, type: "MONTHLY_FEE" }.
   @@unique([billingCycleId, memberId], map: "Charge_monthly_fee_per_cycle_key", where: { type: "MONTHLY_FEE" })
   @@index([groupId, status])
@@ -1133,8 +1201,12 @@ model Charge {
 /// Nunca apagado: estorno muda para REVERSED; correção = estorno + novo Payment com
 /// correctsPaymentId. O índice parcial garante no máximo um CONFIRMED por Charge, então
 /// o estorno precisa acontecer antes do novo registro.
-/// CHECK (SQL): amountCents > 0; status REVERSED exige reversedAt, reversedByUserId e
-/// reversalReason não vazio; status CONFIRMED exige os três nulos.
+/// paidAt = quando o jogador pagou (informado pelo ADMIN); confirmedAt = quando a
+/// confirmação foi gravada (relógio do banco, lido depois do lock do ciclo-alvo). A
+/// atribuição de uma diária ao ciclo usa confirmedAt (ver CashTransaction).
+/// CHECK (SQL): amountCents > 0; paidAt <= confirmedAt; status REVERSED exige reversedAt
+/// (>= confirmedAt), reversedByUserId e reversalReason não vazio; status CONFIRMED exige
+/// os três nulos.
 /// Invariantes (service), na mesma transação:
 /// - amountCents = charge.amountCents e memberId = charge.memberId;
 /// - confirmar: Charge PENDING -> PAID + CashTransaction IN;
@@ -1188,7 +1260,18 @@ model Payment {
 ///   todo lançamento OUT (FIELD_COST ou estorno de entrada) trava a linha do Group,
 ///   recalcula o saldo e é rejeitado se amountCents exceder o saldo disponível; o valor
 ///   nunca é reduzido para caber no saldo;
-/// - atribuição de billingCycleId conforme PROJECT.md 31.6 (atrasos vão ao ciclo OPEN).
+/// - atribuição de billingCycleId (PROJECT.md 31.6), gravada uma vez e nunca recalculada:
+///   - DAILY_FEE (confirmação e estorno): o ciclo de menor referenceMonth com
+///     freezesAt > recordedAt, onde recordedAt = payment.confirmedAt (entrada) ou
+///     payment.reversedAt (estorno). Como paidAt <= confirmedAt, uma diária paga ou
+///     confirmada no mês M nunca reduz a mensalidade de M. O service trava o ciclo-alvo
+///     (FOR SHARE), lê o relógio depois do lock e, se o corte passou durante a espera,
+///     passa ao ciclo seguinte. O alvo é sempre REGULAR e OPEN: o congelamento trava o
+///     ciclo FOR UPDATE, então espera a confirmação e a inclui, ou terminou antes e o
+///     relógio lido depois do lock já passou do corte;
+///   - MONTHLY_FEE (entrada e estorno): o ciclo da Charge, mesmo CLOSED;
+///   - FIELD_COST: o ciclo cujo campo está sendo pago, informado pelo ADMIN;
+///   - INITIAL_BALANCE (e estorno): o ciclo OPENING.
 model CashTransaction {
   id                    String         @id @default(uuid(7)) @db.Uuid
   groupId               String         @db.Uuid
@@ -1198,8 +1281,10 @@ model CashTransaction {
   amountCents           Int
   category              CashCategory
   reason                String?
-  /// Data real do dinheiro.
+  /// Data real do dinheiro (em pagamentos, payment.paidAt).
   occurredAt            DateTime       @db.Timestamptz(3)
+  /// Instante do lançamento. Em DAILY_FEE é gravado explicitamente igual a
+  /// payment.confirmedAt / payment.reversedAt e é o instante usado na atribuição.
   recordedAt            DateTime       @default(now()) @db.Timestamptz(3)
   paymentId             String?        @db.Uuid
   gameSessionId         String?        @db.Uuid

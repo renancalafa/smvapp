@@ -1,41 +1,94 @@
-<<<<<<< HEAD
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# Pelada
 
-## Getting Started
+Sistema de Gestão da Pelada. Regras de negócio: [`PROJECT.md`](PROJECT.md). Arquitetura: [`docs/architecture.md`](docs/architecture.md).
 
-First, run the development server:
+Stack: Next.js 16 (App Router), TypeScript, Prisma 7 + PostgreSQL, Tailwind CSS 4.
 
-```bash
-npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
+## Ambiente local (Windows, CMD)
+
+Requisitos: Node.js 24 e um PostgreSQL local **descartável** (nunca o de produção).
+
+### 1. PostgreSQL local
+
+Opção A, instalador nativo (pede a senha do usuário `postgres` durante a instalação):
+
+```bat
+winget install --id PostgreSQL.PostgreSQL.17 -e
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+Crie um usuário e um banco só para desenvolvimento:
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+```bat
+set PSQL="C:\Program Files\PostgreSQL\17\bin\psql.exe"
+%PSQL% -h localhost -U postgres -c "CREATE ROLE pelada_dev LOGIN PASSWORD 'pelada_dev' CREATEDB;"
+%PSQL% -h localhost -U postgres -c "CREATE DATABASE pelada_dev OWNER pelada_dev;"
+```
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+Opção B, Docker:
 
-## Learn More
+```bat
+docker run --name pelada-dev-pg -e POSTGRES_USER=pelada_dev -e POSTGRES_PASSWORD=pelada_dev -e POSTGRES_DB=pelada_dev -p 5432:5432 -d postgres:17
+```
 
-To learn more about Next.js, take a look at the following resources:
+### 2. Variáveis de ambiente
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+```bat
+copy .env.example .env
+```
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+Em `.env`, aponte para o banco local:
 
-## Deploy on Vercel
+```
+DATABASE_URL="postgresql://pelada_dev:pelada_dev@localhost:5432/pelada_dev"
+DIRECT_URL=""
+```
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+### 3. Dependências e migration
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
-=======
-# smvapp
-Pelada Management
->>>>>>> 240e6250006468de77da40fff0015bcc21b80616
+```bat
+npm install
+npx prisma migrate status
+npx prisma migrate deploy
+npx prisma migrate status
+```
+
+`migrate deploy` aplica as migrations versionadas em `prisma/migrations` sem gerar novas. Para recomeçar do zero **no banco local descartável**: `npx prisma migrate reset` (apaga todos os dados).
+
+### 4. Primeiro ADMIN
+
+```bat
+npm run bootstrap -- --username seu.usuario --name "Seu Nome" --modality MONTHLY
+```
+
+Cria o grupo, as configurações iniciais e o ADMIN, e imprime uma senha temporária uma única vez. Só roda em banco vazio e recusa hosts que não sejam `localhost` (para um banco remoto intencional, use `--allow-remote`). Opções: `npm run bootstrap -- --help`.
+
+### 5. Rodar
+
+```bat
+npm run dev
+```
+
+Abra http://localhost:3000, entre com a senha temporária e defina a senha nova.
+
+## PWA
+
+O service worker só é registrado no build de produção (`npm run build` e `npm start`); em `npm run dev` ele é removido de propósito. Instalação e service worker exigem HTTPS, com exceção de `localhost`. Um IP da rede local (http://192.168...) não serve: o navegador não registra o service worker e, em produção, o cookie de sessão (`Secure`) não é gravado.
+
+- **Desktop**: `npm run build` e `npm start`, abra http://localhost:3000 no Chrome ou Edge e use o ícone de instalar na barra de endereço.
+- **Android**: com o celular no cabo USB e a depuração USB ativada, abra `chrome://inspect/#devices` no Chrome do PC, ative "Port forwarding" de `3000` para `localhost:3000` e abra http://localhost:3000 no Chrome do celular.
+- **iPhone**: precisa de HTTPS de verdade: um deploy de preview ou um túnel HTTPS para o `npm start` local (por exemplo `cloudflared tunnel --url http://localhost:3000`). Se o login pelo túnel falhar por origem diferente, inclua o domínio do túnel em `experimental.serverActions.allowedOrigins` no `next.config.ts`, só localmente.
+
+Ícones: `npm run icons` regenera `public/icons/*` e `src/app/favicon.ico`.
+
+## Scripts
+
+| Comando | O que faz |
+| --- | --- |
+| `npm run dev` | Servidor de desenvolvimento |
+| `npm run build` / `npm start` | Build e servidor de produção |
+| `npm run typecheck` | `tsc --noEmit` |
+| `npm run lint` | ESLint |
+| `npm run bootstrap -- ...` | Cria o grupo e o primeiro ADMIN |
+| `npm run icons` | Regenera os ícones do PWA |
+
+O Prisma Client é gerado em `src/generated/prisma` no `npm install` (`postinstall`); após mudar o schema, rode `npx prisma generate`.

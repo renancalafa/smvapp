@@ -85,8 +85,8 @@ Pode:
 - corrigir eventos;
 - criar contas e redefinir senhas;
 - confirmar, corrigir e estornar pagamentos;
-- registrar o pagamento do campo, lançar o saldo inicial do caixa e fechar ciclos financeiros;
-- alterar valor da diária, custo do campo e dia de vencimento;
+- registrar o pagamento do campo, realizar a implantação financeira (saldo inicial) e disparar manualmente o congelamento da mensalidade quando o automático não tiver ocorrido;
+- alterar valor da diária, custo do campo e dias de vencimento;
 - definir/remover isenção financeira de mensalistas;
 - acessar logs administrativos.
 
@@ -153,6 +153,8 @@ Configuração atual:
 - Diferença mínima entre opções de sorteio: 3 jogadores;
 - Valor da diária (exemplo atual): R$ 15;
 - Custo mensal do campo (exemplo atual): R$ 900 por mês;
+- Mensalidade congelada e disponível para pagamento no dia 1 de cada mês (fixo);
+- Prazo de pagamento da mensalidade: dia 7 de cada mês;
 - Vencimento do pagamento do campo: dia 10 de cada mês.
 
 Essas informações NÃO devem ser hardcoded.
@@ -249,7 +251,7 @@ Após abertura da lista, cada mensalista pode:
 
 O prazo prioritário dos mensalistas termina:
 
-Quinta-feira às 14:00.
+Quinta-feira às 15:00.
 
 Antes desse horário, mensalistas possuem prioridade sobre qualquer diarista.
 
@@ -283,19 +285,19 @@ Não existe convidado anônimo.
 
 # 10. Deadline dos mensalistas
 
-Às 14:00 da quinta-feira termina a prioridade dos mensalistas.
+Às 15:00 da quinta-feira termina a prioridade dos mensalistas.
 
 Mensalistas que não confirmaram até esse horário perdem a prioridade.
 
 Vagas disponíveis passam a ser preenchidas pelos diaristas interessados, respeitando a ordem da fila.
 
-Caso um mensalista tente entrar depois das 14:00, ele entra no final da lista de espera e não recupera prioridade sobre diaristas.
+Caso um mensalista tente entrar depois das 15:00, ele entra no final da lista de espera e não recupera prioridade sobre diaristas.
 
 ---
 
 # 11. Liberação de vaga e promoção automática
 
-Sempre que uma vaga for liberada, o próximo jogador elegível da lista de espera é promovido AUTOMATICAMENTE, respeitando as regras de prioridade vigentes (seções 8 a 10).
+Enquanto a votação do sorteio não começou, sempre que uma vaga for liberada, o próximo jogador elegível da lista de espera é promovido AUTOMATICAMENTE, respeitando as regras de prioridade vigentes (seções 8 a 10). Depois que a votação começa, a promoção é sempre manual (ver "Desde o início da votação e antes da primeira partida").
 
 O jogador já manifestou interesse ao entrar na fila, portanto NÃO precisa aceitar novamente.
 
@@ -306,9 +308,9 @@ Ao ser promovido:
 - é gerado AuditLog (ação do SYSTEM);
 - recebe a notificação push WAITLIST_PROMOTED.
 
-### Cancelamento depois das 14:00
+### Cancelamento depois das 15:00
 
-Se um participante confirmado cancelar depois das 14:00:
+Se um participante confirmado cancelar depois das 15:00, enquanto a votação do sorteio ainda não começou:
 
 1. sua vaga é liberada;
 2. o primeiro jogador elegível da lista de espera é promovido;
@@ -332,13 +334,30 @@ O timestamp original de confirmação do jogador é preservado; a intervenção 
 
 Uma intervenção administrativa nunca pode fazer a sessão ultrapassar sua capacidade. Se a sessão estiver cheia, o ADMIN deve remover ou reposicionar outro participante como parte da mesma intervenção.
 
-### Depois do sorteio e antes da primeira partida
+### Antes da votação do sorteio
 
-Cancelamentos, remoções, inclusões e promoções continuam funcionando normalmente e NÃO invalidam o sorteio automaticamente. O sorteio decidido continua sendo o oficial; o ADMIN decide se a situação justifica refazê-lo (seção 17).
+Enquanto a votação não começou, a lista funciona normalmente: jogadores confirmam, recusam, desistem e entram na lista de espera, e a promoção automática continua valendo.
+
+O sorteio é sempre gerado pelo sistema, e gerar o sorteio abre a votação no mesmo passo: não existe uma etapa em que o ADMIN veja opções antes da votação e escolha entre elas (seção 17).
+
+### Desde o início da votação e antes da primeira partida
+
+A votação começa quando o sistema gera o sorteio e continua valendo enquanto esse sorteio estiver ativo: em votação, empatado ou decidido. A partir daí:
+
+- o jogador NÃO altera mais a lista: não confirma, não recusa, não desiste e não entra na lista de espera. O app mostra: "Votação iniciada. Alterações na lista somente com um administrador.";
+- o ADMIN continua podendo incluir, remover e promover jogadores, como intervenção manual (reason obrigatório e AuditLog);
+- a promoção automática da lista de espera fica desligada: uma vaga liberada continua livre até o ADMIN promover alguém explicitamente;
+- nenhuma mudança na lista invalida ou altera o sorteio, suas opções e votos, nem os times da sessão; o ADMIN decide se a situação justifica refazê-lo (seção 17).
+
+O jogador que não puder mais ir avisa um ADMIN, que o remove da sessão.
+
+Se o ADMIN invalidar o sorteio sem gerar outro, a lista volta a funcionar como antes da votação: os jogadores voltam a alterá-la e a fila volta a promover automaticamente, inclusive para as vagas que estavam livres. Se o novo sorteio for gerado na mesma ação, as vagas livres são preenchidas pela fila antes da geração e a nova votação trava a lista de novo.
+
+Uma resposta do jogador e a geração do sorteio nunca se cruzam: ou a resposta é registrada antes de a votação começar, ou é rejeitada.
 
 ### Depois do início das partidas
 
-Assim que a primeira partida da sessão é iniciada, o conjunto de participantes fica congelado: não há cancelamento, liberação de vaga, promoção da lista de espera, inclusão nem remoção, nem por intervenção administrativa. Quem não puder mais jogar fica indisponível (seção 24).
+Assim que a primeira partida da sessão é iniciada, o conjunto de participantes fica congelado para todos: não há cancelamento, liberação de vaga, promoção da lista de espera, inclusão nem remoção, nem por intervenção administrativa. Quem não puder mais jogar fica indisponível (seção 24).
 
 ---
 
@@ -352,7 +371,7 @@ Também é possível:
 
 15 jogadores → 3 times de 5.
 
-Quando houver entre 16 e 19 participantes, após o deadline das 14:00, o ADMIN escolhe entre:
+Quando houver entre 16 e 19 participantes, após o deadline das 15:00, o ADMIN escolhe entre:
 
 ### FIXED_TEAMS
 
@@ -475,6 +494,8 @@ Em caso de empate:
 
 Administradores podem invalidar um sorteio e gerar outro.
 
+O sorteio é sempre responsabilidade do sistema: o ADMIN não monta, não pré-visualiza e não escolhe opções. Gerar o sorteio abre a votação imediatamente, e a única forma de obter outro sorteio é invalidar o atual, sempre registrada.
+
 O sorteio anterior NÃO deve ser apagado.
 
 Deve permanecer no histórico.
@@ -497,10 +518,11 @@ Uma nova votação começa do zero.
 
 Depois que a votação decide um sorteio, ele é o sorteio oficial e normalmente não muda.
 
+Desde o início da votação (e, portanto, também com o sorteio decidido), a lista de participantes só muda por intervenção do ADMIN, e a lista de espera não promove automaticamente (seção 11).
+
 Nenhuma mudança invalida um sorteio automaticamente, inclusive:
 
-- cancelamento de participante;
-- remoção, inclusão ou promoção da lista de espera;
+- remoção, inclusão ou promoção feita pelo ADMIN;
 - indisponibilidade temporária;
 - ajuste de rotativos;
 - outras circunstâncias antes da partida.
@@ -519,7 +541,7 @@ Enquanto nenhuma partida da sessão foi iniciada, um ADMIN pode, como ação man
 
 Se o ADMIN não refizer o sorteio, a sessão começa com a composição oficial. Quem deixou de ser participante continua no sorteio oficial como registro histórico, mas não joga; quem está indisponível também não joga. Quem entrou depois do sorteio é participante sem time. As vagas em campo são cobertas por jogadores emprestados ou por participantes sem time, partida a partida (seção 24).
 
-Exemplo: João era do Time 2 no sorteio oficial e cancela. Marcos é promovido da lista de espera. O ADMIN decide não refazer o sorteio. João continua no Time 2 do sorteio oficial, mas não entra em nenhuma partida seguinte. Marcos é participante sem time e pode jogar por um lado adequado em cada partida.
+Exemplo: João era do Time 2 no sorteio oficial e avisa que não poderá ir. Com a votação já iniciada, ele não consegue sair da lista pelo app, então fala com um ADMIN, que o remove da sessão com o motivo. A vaga fica livre, e o ADMIN promove Marcos, o primeiro da lista de espera. O ADMIN decide não refazer o sorteio. João continua no Time 2 do sorteio oficial, mas não entra em nenhuma partida seguinte. Marcos é participante sem time e pode jogar por um lado adequado em cada partida.
 
 ### Depois da primeira partida
 
@@ -612,10 +634,11 @@ Exemplos:
 - criação de conta e redefinição de senha;
 - geração e cancelamento de cobrança;
 - confirmação, correção e estorno de pagamento;
-- abertura e fechamento de ciclo financeiro;
+- abertura de ciclo financeiro e congelamento da mensalidade (automático ou manual);
+- cobrança de mensalidade de quem entrou depois do congelamento;
 - registro, correção e estorno do pagamento do campo;
-- lançamento do saldo inicial do caixa;
-- alteração do valor da diária, do custo do campo e do dia de vencimento;
+- implantação financeira e lançamento do saldo inicial do caixa;
+- alteração do valor da diária, do custo do campo e dos dias de vencimento;
 - definição/remoção de isenção financeira;
 - conflitos de concorrência relevantes no Modo Pelada.
 
@@ -761,7 +784,7 @@ Empréstimo por partida:
 
 - Em cada partida, o ADMIN escolhe quem atua por cada lado. Para a vaga de um jogador indisponível (ou que deixou de ser participante antes da primeira partida sem refação do sorteio), escolhe:
   - um **jogador emprestado**: participante disponível que tem time no sorteio oficial e representa outro time só nessa partida; vem de um time que não está nessa partida; ou
-  - um **participante sem time**: participante que entrou depois do sorteio oficial (por exemplo, promovido da lista de espera) sem que o ADMIN refizesse o sorteio. O sorteio oficial NÃO é alterado para colocá-lo em um time.
+  - um **participante sem time**: participante que entrou depois do sorteio oficial (por exemplo, promovido da lista de espera pelo ADMIN) sem que o ADMIN refizesse o sorteio. O sorteio oficial NÃO é alterado para colocá-lo em um time.
 - As estatísticas são sempre do próprio jogador, nos dois casos.
 - O emprestado continua no próprio time e só representa o outro time naquela partida.
 - Um jogador não pode atuar pelos dois lados da mesma partida.
@@ -868,6 +891,32 @@ A experiência principal será em smartphones.
 
 Também deve funcionar normalmente pelo navegador em desktop.
 
+O app instalado se chama SMV e abre em tela cheia (modo standalone), sem a barra do navegador.
+
+No celular, a navegação fica numa barra inferior com botões grandes para o toque. No desktop, fica numa coluna lateral.
+
+Itens de administração só aparecem para ADMIN. Esconder o item não é a proteção: cada página e ação de ADMIN verifica o papel no servidor.
+
+### Sem conexão
+
+O app precisa de internet para mostrar dados da pelada. Sem conexão, abre uma página "Sem conexão" com um botão para tentar de novo.
+
+O aparelho guarda só arquivos estáticos e públicos: ícones, fontes, estilos, scripts do app e a página "Sem conexão". Nunca guarda:
+
+- páginas de usuário logado;
+- respostas de API ou dados de sessão;
+- dados pessoais;
+- informações financeiras.
+
+Não existe uso offline dos dados nem gravação offline para envio posterior.
+
+### Instalação
+
+- Android (Chrome) e desktop (Chrome e Edge): pelo menu do navegador, "Instalar app".
+- iPhone (Safari): Compartilhar, "Adicionar à Tela de Início". No iPhone, as notificações push (seção 29) só funcionam com o app instalado.
+
+A tela Conta mostra essas instruções enquanto o app não está instalado.
+
 ---
 
 # 29. Push notifications
@@ -905,6 +954,8 @@ Enviada a todos os membros ativos.
 Previsto para o futuro. Não faz parte do MVP, mesmo com o caixa básico (seção 31).
 
 Novos tipos de notificação devem poder ser adicionados futuramente.
+
+O conteúdo de uma notificação push aparece na tela bloqueada e passa pelo serviço de push do navegador. Por isso ela leva só um título e um texto curtos e o link da tela. Nunca leva valores financeiros nem dados pessoais além do nome do jogador quando necessário; o detalhe é visto no app, depois do login.
 
 ---
 
@@ -945,7 +996,7 @@ SAÍDAS:
 
 O financeiro separa quatro conceitos:
 
-- ciclo financeiro (BillingCycle): o mês financeiro ao qual cobranças e movimentações são atribuídas;
+- ciclo financeiro (BillingCycle): o mês financeiro (mensalidade e campo de um mês) ao qual mensalidades e movimentações são atribuídas;
 - cobrança (obrigação): o que um jogador deve (diária ou mensalidade);
 - pagamento: o registro de que uma cobrança foi paga, confirmado por ADMIN;
 - movimentação do caixa: a entrada ou saída de dinheiro efetivamente registrada no caixa.
@@ -957,34 +1008,49 @@ Presença e financeiro são domínios separados.
 A rastreabilidade deve permitir seguir:
 
 - GameSession → participação do diarista → cobrança → pagamento → movimentação do caixa;
-- BillingCycle → cobranças dos diaristas atribuídas ao ciclo → pagamentos recebidos → movimentações de entrada;
+- BillingCycle → movimentações de entrada de diárias atribuídas ao ciclo → pagamentos → cobranças → sessões;
 - BillingCycle → cobranças dos mensalistas → pagamentos recebidos → movimentações de entrada;
 - BillingCycle → pagamento do campo → movimentação de saída.
 
+A cobrança de diária não pertence a um ciclo: o ciclo cuja mensalidade ela reduz é decidido quando o pagamento é confirmado (seção 31.6).
+
 ## 31.2 Ciclo financeiro (BillingCycle)
 
-O ciclo financeiro é mensal e é representado por uma entidade explícita.
+O ciclo financeiro é mensal e é representado por uma entidade explícita. O ciclo de um mês reúne a mensalidade daquele mês e o pagamento do campo daquele mês.
 
-O ciclo NÃO é derivado simplesmente do mês da data de pagamento (MONTH(paymentDate)), porque pagamentos podem ocorrer com atraso e é preciso preservar explicitamente a qual ciclo cada receita foi atribuída.
+Linha do tempo (exemplo: ciclo de outubro/2026):
+
+- durante setembro, o ciclo de outubro está ABERTO e acumula as diárias confirmadas; a mensalidade de outubro aparece como previsão;
+- em 01/10, às 00:00 no fuso do grupo, a mensalidade de outubro é calculada e CONGELADA, e as cobranças de mensalidade ficam disponíveis para pagamento;
+- os mensalistas pagam de 01/10 a 07/10;
+- o campo de outubro é pago até 10/10;
+- as diárias confirmadas a partir de 01/10 acumulam para a mensalidade de novembro.
 
 Cada ciclo possui pelo menos:
 
-- período/referência (mês de referência);
+- mês de referência;
 - openedAt;
-- closedAt;
-- dueDate (data concreta de vencimento do pagamento do campo);
+- instante de congelamento programado (00:00 do dia 1 do mês de referência, no fuso do grupo);
+- closedAt (instante em que o congelamento foi executado);
+- prazo de pagamento da mensalidade (exemplo: 07/10/2026);
+- prazo do pagamento do campo (exemplo: 10/10/2026);
 - fieldCostSnapshot (custo mensal do campo aplicável ao ciclo);
 - status: OPEN ou CLOSED.
 
-Toda cobrança e toda movimentação do caixa são vinculadas explicitamente a um ciclo. A atribuição fica gravada e não é recalculada a partir de datas.
+Status:
 
-As receitas de diaristas que reduzem a mensalidade são as vinculadas explicitamente ao ciclo.
+- OPEN: o ciclo acumula receitas de diaristas e a mensalidade é uma previsão;
+- CLOSED: a mensalidade está congelada. CLOSED NÃO significa que o ciclo deixa de receber dinheiro: ele continua recebendo os pagamentos das mensalidades e o pagamento do campo. Só as entradas e os resultados do cálculo ficam imutáveis.
 
-Ao fechar um ciclo, seus valores históricos (custo do campo, receitas elegíveis, mensalistas pagantes e valor por mensalista) ficam congelados e NÃO mudam silenciosamente por causa de alterações posteriores em configurações ou cadastros.
+Toda mensalidade e toda movimentação do caixa são vinculadas explicitamente a um ciclo. A atribuição fica gravada no momento do lançamento e nunca é recalculada.
 
-Ciclos fechados nunca são recalculados retroativamente.
+As receitas de diaristas que reduzem a mensalidade são as movimentações de diária vinculadas explicitamente ao ciclo (regra de atribuição na seção 31.6).
 
-Os ciclos são fechados em ordem cronológica: apenas o ciclo aberto mais antigo pode ser fechado.
+Ao congelar um ciclo, seus valores históricos (custo do campo, receitas elegíveis, crédito herdado, mensalistas pagantes e valor por mensalista) ficam gravados e NÃO mudam silenciosamente por causa de alterações posteriores em configurações, cadastros, pagamentos ou estornos.
+
+Ciclos congelados nunca são recalculados retroativamente.
+
+Os ciclos são congelados em ordem cronológica: um ciclo só é congelado depois do ciclo do mês anterior.
 
 ## 31.3 Custo do campo e vencimento
 
@@ -994,12 +1060,17 @@ O pagamento do campo deve ser realizado até o dia 10 de cada mês.
 
 O vencimento é no dia configurado DO PRÓPRIO MÊS do ciclo. Exemplo: ciclo de outubro/2026 → vencimento em 10/10/2026.
 
-O custo mensal e o dia de vencimento são configuráveis por ADMIN e NÃO devem ser hardcoded.
+A mensalidade do mesmo ciclo é congelada em 01/10 e tem prazo de pagamento no dia configurado do próprio mês (padrão: dia 7, ou seja, 07/10/2026). Assim, as mensalidades de outubro são recebidas antes do vencimento do campo de outubro.
+
+O custo mensal e os dias de vencimento (campo e mensalidade) são configuráveis por ADMIN e NÃO devem ser hardcoded. Se o mês não tiver o dia configurado, vale o último dia do mês. O dia do congelamento é sempre o dia 1.
 
 Cada BillingCycle guarda:
 
 - o snapshot do custo mensal aplicável (exemplo: fieldCostSnapshot = 90000 centavos);
-- a dueDate concreta (exemplo: 10/10/2026 para o ciclo de outubro/2026).
+- o prazo concreto da mensalidade (exemplo: 07/10/2026 para o ciclo de outubro/2026);
+- o prazo concreto do campo (exemplo: 10/10/2026 para o ciclo de outubro/2026).
+
+Os snapshots são gravados quando o ciclo é criado (no início do mês anterior). Enquanto o ciclo está aberto, o ADMIN pode ajustá-los com um comando explícito e auditado; depois do congelamento, nunca.
 
 Se futuramente o campo passar para R$ 1.000, os ciclos históricos continuam com o custo original.
 
@@ -1023,7 +1094,7 @@ O valor da diária é salvo como snapshot na cobrança.
 
 Exemplo: se a diária era R$ 15 naquela sessão e depois passar para R$ 20, a cobrança antiga continua sendo R$ 15.
 
-A cobrança nasce PENDENTE e é vinculada ao ciclo financeiro da sessão.
+A cobrança nasce PENDENTE e fica vinculada à sessão e à participação. Ela não é vinculada a um ciclo: a mensalidade reduzida pelo pagamento é decidida na confirmação (seção 31.6).
 
 ### Correção de presença
 
@@ -1078,15 +1149,31 @@ Ao confirmar um pagamento, registrar:
 - forma de pagamento (opcional);
 - observação (opcional).
 
-### Pagamento atrasado de diária
+São guardadas as duas datas: a data/hora real do pagamento (paidAt, informada pelo ADMIN) e a data/hora da confirmação no sistema (confirmedAt). O pagamento nunca é confirmado antes de ter sido recebido (paidAt ≤ confirmedAt).
 
-Se uma diária de um ciclo já fechado for paga posteriormente:
+### Atribuição da diária ao ciclo
 
-- a cobrança permanece vinculada à sessão e ao ciclo originais;
-- o pagamento permanece vinculado à cobrança;
-- a movimentação de entrada no caixa é atribuída ao ciclo financeiro atualmente aberto;
-- o valor reduz a próxima mensalidade;
-- o ciclo fechado não é recalculado.
+Somente pagamentos de diária CONFIRMADOS reduzem uma mensalidade.
+
+Regra: a entrada de uma diária é atribuída ao primeiro ciclo cujo congelamento programado (00:00 do dia 1, fuso do grupo) é POSTERIOR à confirmação.
+
+Exemplos com o ciclo de outubro (congelamento programado em 01/10 00:00):
+
+- recebida em setembro e confirmada em setembro: reduz a mensalidade de outubro;
+- recebida em setembro e confirmada depois do congelamento de outubro (por exemplo, em 01/10 às 09:00 ou em 15/10): NÃO altera a mensalidade congelada de outubro; reduz a de novembro;
+- recebida em outubro: nunca reduz a mensalidade de outubro, mesmo que o job de congelamento de outubro atrase; reduz a de novembro;
+- diária de uma sessão de setembro paga com atraso em outubro: reduz a de novembro.
+
+Garantias:
+
+- a atribuição depende somente de datas gravadas (confirmedAt e o congelamento programado de cada ciclo), não de qual operação concorrente obteve um lock primeiro;
+- o atraso do job de congelamento não muda nenhuma atribuição;
+- cada pagamento gera uma única entrada no caixa, atribuída uma única vez e nunca recalculada;
+- o congelamento de um ciclo sempre inclui todas as diárias confirmadas antes do seu corte e nenhuma confirmada depois;
+- a cobrança permanece vinculada à sessão e o pagamento à cobrança; só a movimentação do caixa aponta para o ciclo;
+- o estorno de uma diária segue a mesma regra pela data/hora do estorno: se a mensalidade que ela reduziu já foi congelada, o estorno reduz a receita do próximo ciclo ainda não congelado, e o ciclo congelado não é recalculado.
+
+Pagamentos de mensalidade (e seus estornos) são sempre atribuídos ao ciclo da própria mensalidade, mesmo depois do congelamento.
 
 ## 31.7 Correção e estorno
 
@@ -1094,29 +1181,46 @@ Confirmação, correção e estorno de pagamento devem ser auditáveis.
 
 O histórico financeiro NUNCA é apagado silenciosamente: correções e estornos preservam o registro original e geram novos registros que o compensam.
 
-Correções nunca alteram os valores congelados de um ciclo já fechado.
+Correções nunca alteram os valores congelados de um ciclo.
 
 ## 31.8 Mensalistas pagantes
 
-Mensalistas pagantes = mensalistas ativos não isentos no momento do fechamento do ciclo (ver isenção financeira na seção 3).
+Mensalistas pagantes = mensalistas ativos não isentos no momento do congelamento da mensalidade (ver isenção financeira na seção 3). Eles formam o divisor do cálculo.
 
 O mensalista paga a mensalidade independentemente da presença. Somente o diarista PRESENT gera cobrança de diária (seção 31.5).
 
 Enquanto o ciclo está aberto, a previsão usa os mensalistas ativos não isentos do momento da consulta.
 
+### Entrada de novos mensalistas
+
+Novos mensalistas só podem entrar no período de pagamento da mensalidade: do dia 1 ao dia 7 do mês (o prazo configurado da mensalidade), no fuso do grupo. Fora desse período, o cadastro de um novo mensalista (inclusive a mudança de diarista para mensalista) é bloqueado. A mesma janela vale para reativar um mensalista inativo.
+
+A regra vale depois da implantação financeira (seção 31.12). Antes dela, os mensalistas que já fazem parte do grupo são cadastrados livremente; a implantação declara quem ainda deve a mensalidade do mês corrente.
+
+Como a mensalidade é congelada no dia 1, quem entra entre os dias 1 e 7 paga a mensalidade do mês corrente já congelada:
+
+- é criada uma cobrança individual de mensalidade com exatamente o valor congelado;
+- divisor, mensalidade congelada, cobranças existentes, diferença de arredondamento e crédito para o ciclo seguinte NÃO são recalculados;
+- nunca existe mais de uma cobrança de mensalidade para o mesmo jogador no mesmo ciclo;
+- se a mensalidade congelada for zero, nenhuma cobrança é criada;
+- o pagamento dessa cobrança aumenta o saldo real do caixa, mas NÃO é receita de diarista e NÃO reduz a mensalidade do mês seguinte (o crédito usa o total cobrado congelado).
+
+No mês seguinte ele já faz parte do divisor normalmente.
+
 ## 31.9 Cálculo da mensalidade
 
-Durante o ciclo são acumulados os pagamentos CONFIRMADOS de diaristas atribuídos àquele ciclo.
+Enquanto o ciclo está aberto (na prática, durante o mês anterior), são acumulados os pagamentos CONFIRMADOS de diaristas atribuídos a ele (seção 31.6). Exemplo: as diárias confirmadas em setembro reduzem a mensalidade de outubro.
 
 Fórmula:
 
 - valorParaMensalistas = custoDoCampoDoCiclo − receitasElegiveisRecebidasDeDiaristas − créditoDoCicloAnterior, nunca menor que zero;
-- mensalistasPagantes = mensalistas ativos não isentos no momento do fechamento;
+- mensalistasPagantes = mensalistas ativos não isentos no momento do congelamento;
 - valorPorMensalista = valorParaMensalistas / mensalistasPagantes, arredondado PARA CIMA ao próximo centavo.
 
 O créditoDoCicloAnterior é a sobra positiva do ciclo anterior: a diferença de arredondamento ou, se o custo do campo já estava coberto, o excedente. Crédito nunca é negativo:
 
 - créditoParaOCicloSeguinte = máximo entre zero e (receitas elegíveis de diaristas + crédito herdado + total cobrado de mensalidades − custo do campo);
+- o total cobrado é o congelado (19 × R$ 43,43 no exemplo abaixo); cobranças de quem entrou depois do congelamento (seção 31.8) não entram no crédito;
 - um déficit NUNCA é levado para o ciclo seguinte.
 
 Custo do campo já coberto: se as receitas elegíveis de diaristas mais o crédito herdado cobrem todo o custo do campo:
@@ -1126,7 +1230,7 @@ Custo do campo já coberto: se as receitas elegíveis de diaristas mais o crédi
 - nenhuma cobrança de mensalidade de valor zero é criada;
 - o excedente permanece no caixa e vira crédito do ciclo seguinte.
 
-Nenhum mensalista pagante: o ciclo pode ser fechado com zero mensalistas pagantes. Na prática isso não deve acontecer, porque sem mensalistas suficientes normalmente não há pelada, mas o comportamento é determinístico:
+Nenhum mensalista pagante: o ciclo pode ser congelado com zero mensalistas pagantes. Na prática isso não deve acontecer, porque sem mensalistas suficientes normalmente não há pelada, mas o comportamento é determinístico:
 
 - a mensalidade individual, o total cobrado e a diferença de arredondamento são zero;
 - nenhuma cobrança de mensalidade é criada;
@@ -1135,11 +1239,11 @@ Nenhum mensalista pagante: o ciclo pode ser fechado com zero mensalistas pagante
 
 A previsão da mensalidade segue as mesmas regras e nunca produz mensalidade negativa.
 
-Exemplo:
+Exemplo (mensalidade de outubro, congelada em 01/10):
 
-- campo: R$ 900;
-- diaristas efetivamente pagos: R$ 75;
-- mensalistas pagantes: 19;
+- campo de outubro: R$ 900;
+- diárias confirmadas em setembro: R$ 75;
+- mensalistas pagantes em 01/10: 19;
 - R$ 900 − R$ 75 = R$ 825;
 - R$ 825 / 19 = R$ 43,421...;
 - mensalidade individual = R$ 43,43;
@@ -1150,12 +1254,14 @@ Cobranças PENDENTES não reduzem a mensalidade.
 
 Enquanto o ciclo está aberto, o sistema apresenta o valor como PREVISÃO dinâmica, visível para todos os usuários autenticados.
 
-No fechamento do ciclo, o valor é congelado como o valor daquele ciclo.
+No congelamento (dia 1), o valor passa a ser o valor definitivo daquele ciclo.
+
+A previsão exibida é sempre a da próxima mensalidade ainda não congelada. Exemplo: durante outubro, o caixa mostra a mensalidade de outubro (congelada) e a previsão da de novembro, com as diárias de outubro confirmadas até o momento.
 
 Previsão e valores congelados são coisas diferentes:
 
-- enquanto o ciclo está ABERTO, a previsão está SEMPRE disponível para os usuários. Ela é calculada na hora a partir das receitas elegíveis confirmadas, do crédito herdado, da quantidade atual de mensalistas pagantes e do custo do campo, e muda conforme esses dados mudam. Ela não é gravada como valor do ciclo; os campos de fechamento permanecem vazios porque o resultado ainda não é final;
-- no FECHAMENTO, os valores definitivos são calculados com a mesma regra, gravados e congelados, e nunca mudam retroativamente.
+- enquanto o ciclo está ABERTO, a previsão está SEMPRE disponível para os usuários. Ela é calculada na hora a partir das receitas elegíveis confirmadas, do crédito herdado, da quantidade atual de mensalistas pagantes e do custo do campo, e muda conforme esses dados mudam. Ela não é gravada como valor do ciclo; os campos congelados permanecem vazios porque o resultado ainda não é final;
+- no CONGELAMENTO, os valores definitivos são calculados com a mesma regra, gravados, e nunca mudam retroativamente.
 
 Divisão monetária:
 
@@ -1165,7 +1271,7 @@ Divisão monetária:
 - a diferença de arredondamento NÃO é descartada: permanece como saldo positivo do caixa e beneficia o ciclo seguinte, entrando como crédito no cálculo da próxima mensalidade;
 - nenhum centavo pode ser criado ou perdido sem registro.
 
-O BillingCycle registra no fechamento:
+O BillingCycle registra no congelamento:
 
 - valor exato a ser dividido;
 - quantidade de pagantes;
@@ -1173,28 +1279,29 @@ O BillingCycle registra no fechamento:
 - total efetivamente cobrado;
 - diferença de arredondamento.
 
-NÃO devem ser hardcoded: custo do campo, dia de vencimento, valor da diária, quantidade de mensalistas pagantes e quantidade de mensalistas.
+NÃO devem ser hardcoded: custo do campo, dias de vencimento (campo e mensalidade), valor da diária, quantidade de mensalistas pagantes e quantidade de mensalistas.
 
-## 31.10 Fechamento do ciclo e cobrança das mensalidades
+## 31.10 Congelamento da mensalidade e cobrança das mensalidades
 
-No MVP, o fechamento do BillingCycle é MANUAL, realizado por ADMIN.
+A mensalidade de cada mês é congelada AUTOMATICAMENTE pelo sistema no dia 1, às 00:00 no fuso configurado do grupo.
+
+Se a tarefa automática atrasar, o congelamento é executado na primeira operação ou consulta financeira seguinte, e o ADMIN também pode dispará-lo manualmente como fallback. As três formas usam a mesma operação idempotente: repetir não congela duas vezes nem duplica cobranças. O atraso nunca muda quais diárias entram no cálculo (seção 31.6).
 
 Enquanto o ciclo está OPEN, o sistema mostra a previsão dinâmica.
 
-Ao fechar, em uma única operação transacional e idempotente (repetir o comando não fecha duas vezes nem duplica cobranças):
+O congelamento só acontece a partir do dia 1 do mês de referência e depois do congelamento do mês anterior. Em uma única operação transacional:
 
-1. congelar os valores do ciclo;
-2. determinar os mensalistas ativos não isentos;
+1. determinar as receitas de diárias atribuídas ao ciclo e o crédito herdado do ciclo anterior;
+2. determinar os mensalistas ativos não isentos naquele momento;
 3. calcular a mensalidade individual;
 4. arredondar para cima conforme a regra da seção 31.9;
-5. se a mensalidade individual for maior que zero, criar uma cobrança de mensalidade para cada mensalista pagante, todas com o mesmo valor individual congelado;
-6. registrar closedAt;
-7. mudar o status para CLOSED;
-8. gerar AuditLog.
+5. gravar os valores congelados, closedAt e o status CLOSED;
+6. se a mensalidade individual for maior que zero, criar uma cobrança de mensalidade para cada mensalista pagante, todas com o mesmo valor individual congelado;
+7. gerar AuditLog (ator SYSTEM, ou o ADMIN no fallback).
 
-As cobranças de mensalidade nascem PENDENTES.
+As cobranças de mensalidade nascem PENDENTES e podem ser pagas desde o dia 1, com prazo até o dia 7.
 
-O pagamento é confirmado manualmente por ADMIN, com os mesmos registros exigidos na seção 31.6, e só então entra no caixa.
+O pagamento é confirmado manualmente por ADMIN, com os mesmos registros exigidos na seção 31.6, e só então entra no caixa. Pagamentos de mensalidade, pagamento do campo e estornos continuam sendo registrados no ciclo congelado sem alterar os valores congelados.
 
 ## 31.11 Pagamento do campo
 
@@ -1206,18 +1313,39 @@ O registro é auditável e segue as mesmas regras de correção e estorno.
 
 O pagamento do campo só pode ser registrado se o saldo disponível do caixa cobrir o valor inteiro. Caso contrário, a operação é rejeitada até que exista dinheiro confirmado suficiente. O valor NUNCA é reduzido ao saldo disponível: registrar R$ 400 de um pagamento de R$ 900 mostraria o campo como pago quando não foi.
 
-Exemplo de ciclo:
+Exemplo do ciclo de outubro:
 
-- diaristas: + R$ 75;
-- mensalidades: + R$ 825,17 (19 × R$ 43,43);
-- pagamento do campo: − R$ 900;
-- saldo do ciclo: + R$ 0,17 (diferença de arredondamento, que beneficia o ciclo seguinte).
+- diárias confirmadas em setembro: + R$ 75;
+- mensalidades de outubro, pagas de 01/10 a 07/10: + R$ 825,17 (19 × R$ 43,43);
+- pagamento do campo de outubro, até 10/10: − R$ 900;
+- saldo do ciclo: + R$ 0,17 (diferença de arredondamento, que vira crédito da mensalidade de novembro).
 
-## 31.12 Saldo inicial do caixa
-
-É permitido lançar o saldo inicial do caixa (por exemplo, o dinheiro já existente ao começar a usar o sistema) como uma movimentação do tipo INITIAL_BALANCE.
+## 31.12 Implantação e saldo inicial do caixa
 
 O saldo do caixa NÃO é armazenado diretamente: é sempre calculado a partir das movimentações.
+
+### Implantação em um grupo que já está funcionando
+
+A implantação é uma operação única do ADMIN, transacional, idempotente e auditada. Ela não pula o mês corrente e não inventa histórico. O ADMIN informa explicitamente:
+
+- o saldo inicial do caixa: o dinheiro realmente existente no momento da implantação, que já inclui o que foi recebido e pago antes (diárias, mensalidades e campo);
+- a mensalidade do mês corrente já definida pelo grupo fora do sistema (pode ser zero);
+- quais mensalistas ainda devem essa mensalidade;
+- quanto do campo do mês corrente ainda falta pagar (zero se já foi pago).
+
+Resultado:
+
+- o ciclo do mês corrente é criado como ciclo de implantação, já congelado, com a mensalidade declarada. Ele não registra receitas de diárias, crédito herdado nem divisor, porque esse histórico não existe no sistema;
+- uma cobrança de mensalidade com o valor declarado é criada para cada mensalista que ainda deve (nenhuma se o valor for zero). Quem já pagou não recebe cobrança nem pagamento fictício: o dinheiro já está no saldo inicial;
+- o saldo inicial vira uma movimentação INITIAL_BALANCE (se for maior que zero);
+- o ciclo do mês seguinte é criado aberto e começa a acumular as diárias confirmadas no sistema a partir da implantação;
+- a primeira mensalidade calculada pelo sistema é a do mês seguinte, sem crédito herdado. Diárias recebidas antes da implantação não são reconstruídas: estão no saldo inicial;
+- depois da implantação, novos mensalistas só entram do dia 1 ao dia 7 de um mês (seção 31.8); se entrarem no próprio mês da implantação, pagam a mensalidade declarada;
+- nenhum pagamento, saldo ou receita histórica é gerado silenciosamente; os valores declarados e as listas de quem deve e de quem já pagou ficam no AuditLog.
+
+### Saldo inicial
+
+O saldo inicial do caixa é lançado como uma movimentação do tipo INITIAL_BALANCE, vinculada ao ciclo de implantação. Ele não entra no cálculo da mensalidade.
 
 O saldo do caixa nunca fica negativo (piso de R$ 0). Toda saída (pagamento do campo ou estorno de uma entrada) é rejeitada se exceder o saldo disponível naquele momento. Um custo do campo não coberto nunca é representado como saldo negativo nem como crédito negativo.
 
@@ -1236,8 +1364,9 @@ Todos os usuários autenticados podem visualizar:
 - histórico por sessão;
 - quantidade de diaristas;
 - custo do campo;
-- ciclos financeiros, com valor congelado da mensalidade e pagamento do campo;
-- previsão da próxima mensalidade;
+- ciclos financeiros, com valor congelado da mensalidade, prazos e pagamento do campo;
+- receitas de diárias confirmadas que estão acumulando para a próxima mensalidade;
+- previsão da próxima mensalidade ainda não congelada;
 - fórmula utilizada no cálculo.
 
 Somente ADMIN pode:
@@ -1245,10 +1374,10 @@ Somente ADMIN pode:
 - confirmar pagamento (diária ou mensalidade);
 - corrigir/estornar pagamento;
 - registrar, corrigir ou estornar o pagamento do campo;
-- fechar ciclo financeiro;
-- lançar o saldo inicial do caixa;
+- disparar manualmente o congelamento da mensalidade (fallback do automático);
+- realizar a implantação e lançar o saldo inicial do caixa;
 - alterar valor da diária;
-- alterar custo do campo e dia de vencimento;
+- alterar custo do campo e dias de vencimento;
 - definir/remover isenção;
 - realizar qualquer alteração financeira.
 
@@ -1441,3 +1570,37 @@ Antes de implementar ou alterar funcionalidades que envolvam regras da pelada:
 - Ciclo fechado com zero mensalistas pagantes e custo do campo não coberto: sem cobranças, e a parte descoberta não é levada adiante; o crédito do ciclo seguinte é zero (seção 31.9).
 - O ciclo seguinte herda só sobra positiva; um déficit nunca é levado adiante, e o crédito nunca é negativo (seção 31.9).
 - O saldo do caixa nunca fica negativo; uma saída que exceda o saldo disponível é rejeitada, nunca reduzida (seções 31.11 e 31.12).
+
+### Revisão 14 — 10/10/2026
+
+Correção do calendário financeiro. Substitui o fechamento manual da Revisão 3 e a regra de pagamento atrasado da Revisão 3.
+
+- A mensalidade de cada mês é congelada automaticamente no dia 1, às 00:00 no fuso do grupo, e fica disponível para pagamento desde o dia 1; o ADMIN pode disparar o mesmo congelamento idempotente como fallback (seção 31.10).
+- Prazos: mensalidade até o dia 7 e campo até o dia 10 do próprio mês, ambos configuráveis (seções 4 e 31.3).
+- As diárias confirmadas em um mês reduzem a mensalidade do mês seguinte (setembro → outubro). A atribuição é pelo instante da confirmação em relação ao congelamento programado de cada ciclo, independente de atraso do job ou de ordem de locks. Uma diária confirmada depois do congelamento, ou recebida no próprio mês, vai para a próxima mensalidade ainda não congelada (seção 31.6).
+- São guardados paidAt (pagamento real) e confirmedAt (confirmação no sistema), com paidAt ≤ confirmedAt (seção 31.6).
+- A cobrança de diária deixa de ser vinculada a um ciclo; o ciclo da receita é o da movimentação do caixa (seções 31.1 e 31.5).
+- CLOSED significa mensalidade congelada; o ciclo continua recebendo pagamentos de mensalidade e do campo sem alterar os valores congelados (seção 31.2).
+- Mensalista que entra depois do congelamento paga a mensalidade congelada do mês, em cobrança individual, sem recalcular divisor, cobranças, arredondamento ou crédito; esse dinheiro não reduz a mensalidade seguinte; sem cobrança de valor zero (seção 31.8).
+- Implantação em grupo já em funcionamento: saldo inicial real, ciclo do mês corrente com a mensalidade declarada pelo grupo e cobranças só de quem ainda deve, sem histórico inventado; a primeira mensalidade calculada é a do mês seguinte (seção 31.12).
+
+### Revisão 15 — 10/10/2026
+
+- Novos mensalistas (cadastro novo ou mudança de diarista para mensalista) só entram do dia 1 ao dia 7 do mês, no fuso do grupo; fora desse período o cadastro é bloqueado. Quem entra nesse período paga a mensalidade já congelada do mês, em cobrança individual. A regra vale depois da implantação financeira (seção 31.8).
+
+### Revisão 16 — 10/10/2026
+
+- PWA instalável com o nome SMV, navegação mobile-first (barra inferior no celular, coluna lateral no desktop) e página "Sem conexão". O aparelho guarda só arquivos estáticos públicos, nunca páginas logadas, dados pessoais ou financeiros (seção 28).
+- Notificações push levam só título, texto curto e link, sem valores financeiros (seção 29).
+
+### Revisão 17 — 10/10/2026
+
+- O prazo de prioridade dos mensalistas passa a ser quinta-feira às 15:00 (antes 14:00), em GroupSettings (`priorityDeadlineMinute` = 900) e na sessão já criada da semana (seções 8, 10 e 11).
+
+### Revisão 18 — 14/10/2026
+
+- Correção da regra de presença depois do sorteio (seções 11 e 17). Enquanto não há sorteio decidido, inclusive durante a votação, a lista funciona normalmente. Com o sorteio decidido (status DECIDED), só o ADMIN altera a lista (incluir, remover, promover, com reason e AuditLog); os jogadores veem "Times definidos. Alterações na lista somente com um administrador."; a promoção automática da lista de espera fica desligada e toda promoção é explícita do ADMIN. Mudanças na lista continuam sem invalidar o sorteio oficial. Se o sorteio decidido for invalidado, a lista volta ao funcionamento normal. A partir da primeira partida, a lista fica congelada para todos (sem mudança).
+
+### Revisão 19 — 14/10/2026
+
+- O travamento da lista de presença passa a valer desde o INÍCIO DA VOTAÇÃO, e não mais só com o sorteio decidido (substitui o marco da Revisão 18; seções 11 e 17). Com um sorteio ativo em votação, empatado ou decidido, os jogadores não alteram a lista e veem "Votação iniciada. Alterações na lista somente com um administrador."; a promoção automática fica desligada e o ADMIN continua incluindo, removendo e promovendo explicitamente até a primeira partida. O sorteio é sempre do sistema: gerar abre a votação no mesmo passo, sem pré-visualização nem escolha de opções pelo ADMIN; cada refação é uma invalidação registrada com ADMIN e reason. Invalidar sem gerar outro sorteio devolve a lista ao funcionamento normal; gerar na mesma ação trava de novo.

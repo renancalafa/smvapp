@@ -62,7 +62,13 @@ CREATE TYPE "MatchEventType" AS ENUM ('GOAL', 'OWN_GOAL', 'BIG_MISS');
 CREATE TYPE "BillingCycleStatus" AS ENUM ('OPEN', 'CLOSED');
 
 -- CreateEnum
+CREATE TYPE "BillingCycleKind" AS ENUM ('REGULAR', 'OPENING');
+
+-- CreateEnum
 CREATE TYPE "ChargeType" AS ENUM ('DAILY_FEE', 'MONTHLY_FEE');
+
+-- CreateEnum
+CREATE TYPE "MonthlyFeeOrigin" AS ENUM ('CYCLE_FREEZE', 'LATE_JOIN', 'OPENING');
 
 -- CreateEnum
 CREATE TYPE "ChargeStatus" AS ENUM ('PENDING', 'PAID', 'CANCELLED');
@@ -150,6 +156,7 @@ CREATE TABLE "GroupSettings" (
     "dailyFeeCents" INTEGER NOT NULL,
     "monthlyFieldCostCents" INTEGER NOT NULL,
     "fieldPaymentDueDay" INTEGER NOT NULL,
+    "monthlyFeeDueDay" INTEGER NOT NULL,
     "currency" TEXT NOT NULL,
     "venueName" TEXT,
     "venueAddress" TEXT,
@@ -196,7 +203,6 @@ CREATE TABLE "GameSession" (
     "id" UUID NOT NULL,
     "groupId" UUID NOT NULL,
     "seasonId" UUID NOT NULL,
-    "billingCycleId" UUID NOT NULL,
     "status" "GameSessionStatus" NOT NULL DEFAULT 'SCHEDULED',
     "type" "GameSessionType" NOT NULL DEFAULT 'NORMAL',
     "origin" "GameSessionOrigin" NOT NULL,
@@ -474,13 +480,14 @@ CREATE TABLE "BillingCycle" (
     "id" UUID NOT NULL,
     "groupId" UUID NOT NULL,
     "referenceMonth" DATE NOT NULL,
-    "periodStart" DATE NOT NULL,
-    "periodEnd" DATE NOT NULL,
+    "kind" "BillingCycleKind" NOT NULL DEFAULT 'REGULAR',
     "status" "BillingCycleStatus" NOT NULL DEFAULT 'OPEN',
     "openedAt" TIMESTAMPTZ(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "freezesAt" TIMESTAMPTZ(3) NOT NULL,
     "closedAt" TIMESTAMPTZ(3),
     "closedByUserId" UUID,
-    "dueDate" DATE NOT NULL,
+    "monthlyFeeDueDate" DATE NOT NULL,
+    "fieldPaymentDueDate" DATE NOT NULL,
     "fieldCostSnapshotCents" INTEGER NOT NULL,
     "eligibleDailyRevenueCents" INTEGER,
     "carriedCreditCents" INTEGER,
@@ -501,8 +508,9 @@ CREATE TABLE "Charge" (
     "id" UUID NOT NULL,
     "groupId" UUID NOT NULL,
     "memberId" UUID NOT NULL,
-    "billingCycleId" UUID NOT NULL,
+    "billingCycleId" UUID,
     "type" "ChargeType" NOT NULL,
+    "monthlyFeeOrigin" "MonthlyFeeOrigin",
     "gameSessionId" UUID,
     "sessionRegistrationId" UUID,
     "amountCents" INTEGER NOT NULL,
@@ -805,6 +813,9 @@ CREATE INDEX "BillingCycle_groupId_status_referenceMonth_idx" ON "BillingCycle"(
 CREATE UNIQUE INDEX "BillingCycle_groupId_referenceMonth_key" ON "BillingCycle"("groupId", "referenceMonth");
 
 -- CreateIndex
+CREATE UNIQUE INDEX "BillingCycle_opening_per_group_key" ON "BillingCycle"("groupId") WHERE ("kind" = 'OPENING');
+
+-- CreateIndex
 CREATE UNIQUE INDEX "Charge_sessionRegistrationId_key" ON "Charge"("sessionRegistrationId");
 
 -- CreateIndex
@@ -911,9 +922,6 @@ ALTER TABLE "GameSession" ADD CONSTRAINT "GameSession_groupId_fkey" FOREIGN KEY 
 
 -- AddForeignKey
 ALTER TABLE "GameSession" ADD CONSTRAINT "GameSession_seasonId_fkey" FOREIGN KEY ("seasonId") REFERENCES "Season"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
-
--- AddForeignKey
-ALTER TABLE "GameSession" ADD CONSTRAINT "GameSession_billingCycleId_fkey" FOREIGN KEY ("billingCycleId") REFERENCES "BillingCycle"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
 
 -- AddForeignKey
 ALTER TABLE "GameSession" ADD CONSTRAINT "GameSession_overflowDecidedByUserId_fkey" FOREIGN KEY ("overflowDecidedByUserId") REFERENCES "User"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
@@ -1205,6 +1213,9 @@ ALTER TABLE "GroupSettings" ADD CONSTRAINT "GroupSettings_cents_check"
 ALTER TABLE "GroupSettings" ADD CONSTRAINT "GroupSettings_fieldPaymentDueDay_check"
     CHECK ("fieldPaymentDueDay" BETWEEN 1 AND 31);
 
+ALTER TABLE "GroupSettings" ADD CONSTRAINT "GroupSettings_monthlyFeeDueDay_check"
+    CHECK ("monthlyFeeDueDay" BETWEEN 1 AND 31);
+
 -- GroupMember
 ALTER TABLE "GroupMember" ADD CONSTRAINT "GroupMember_baseRating_check"
     CHECK ("baseRating" BETWEEN 1 AND 5);
@@ -1303,8 +1314,18 @@ ALTER TABLE "MatchEvent" ADD CONSTRAINT "MatchEvent_voided_fields_check"
 ALTER TABLE "BillingCycle" ADD CONSTRAINT "BillingCycle_referenceMonth_check"
     CHECK (EXTRACT(DAY FROM "referenceMonth") = 1);
 
-ALTER TABLE "BillingCycle" ADD CONSTRAINT "BillingCycle_period_check"
-    CHECK ("periodEnd" >= "periodStart");
+-- Both deadlines fall inside the reference month (e.g. October: fee 07/10, field 10/10).
+ALTER TABLE "BillingCycle" ADD CONSTRAINT "BillingCycle_due_dates_check"
+    CHECK (
+        "monthlyFeeDueDate" >= "referenceMonth"
+        AND "monthlyFeeDueDate" < "referenceMonth" + INTERVAL '1 month'
+        AND "fieldPaymentDueDate" >= "referenceMonth"
+        AND "fieldPaymentDueDate" < "referenceMonth" + INTERVAL '1 month'
+    );
+
+-- The fee is never frozen before the attribution cutoff (00:00 on day 1, group time zone).
+ALTER TABLE "BillingCycle" ADD CONSTRAINT "BillingCycle_freeze_not_early_check"
+    CHECK ("closedAt" IS NULL OR "closedAt" >= "freezesAt");
 
 ALTER TABLE "BillingCycle" ADD CONSTRAINT "BillingCycle_fieldCostSnapshotCents_check"
     CHECK ("fieldCostSnapshotCents" >= 0);
@@ -1313,10 +1334,13 @@ ALTER TABLE "BillingCycle" ADD CONSTRAINT "BillingCycle_fieldCostSnapshotCents_c
 ALTER TABLE "BillingCycle" ADD CONSTRAINT "BillingCycle_carriedCreditCents_check"
     CHECK ("carriedCreditCents" IS NULL OR "carriedCreditCents" >= 0);
 
+-- CLOSED = monthly fee frozen. OPENING (go-live) is born CLOSED with only the declared fee:
+-- no historical daily revenue, credit or divisor is recorded for it.
 ALTER TABLE "BillingCycle" ADD CONSTRAINT "BillingCycle_closed_fields_check"
     CHECK (
         (
             "status" = 'CLOSED'
+            AND "kind" = 'REGULAR'
             AND "closedAt" IS NOT NULL
             AND "eligibleDailyRevenueCents" IS NOT NULL
             AND "carriedCreditCents" IS NOT NULL
@@ -1327,10 +1351,27 @@ ALTER TABLE "BillingCycle" ADD CONSTRAINT "BillingCycle_closed_fields_check"
             AND "roundingDifferenceCents" IS NOT NULL
         )
         OR (
-            "status" = 'OPEN'
-            AND "closedAt" IS NULL
+            "status" = 'CLOSED'
+            AND "kind" = 'OPENING'
+            AND "closedAt" IS NOT NULL
+            AND "monthlyFeeCents" IS NOT NULL
+            AND "monthlyFeeCents" >= 0
             AND "eligibleDailyRevenueCents" IS NULL
             AND "carriedCreditCents" IS NULL
+            AND "carriedFromCycleId" IS NULL
+            AND "amountToSplitCents" IS NULL
+            AND "payingMonthlyCount" IS NULL
+            AND "totalChargedCents" IS NULL
+            AND "roundingDifferenceCents" IS NULL
+        )
+        OR (
+            "status" = 'OPEN'
+            AND "kind" = 'REGULAR'
+            AND "closedAt" IS NULL
+            AND "closedByUserId" IS NULL
+            AND "eligibleDailyRevenueCents" IS NULL
+            AND "carriedCreditCents" IS NULL
+            AND "carriedFromCycleId" IS NULL
             AND "amountToSplitCents" IS NULL
             AND "payingMonthlyCount" IS NULL
             AND "monthlyFeeCents" IS NULL
@@ -1339,10 +1380,11 @@ ALTER TABLE "BillingCycle" ADD CONSTRAINT "BillingCycle_closed_fields_check"
         )
     );
 
--- Closing values are NULL while OPEN (enforced above); the forecast is computed, not stored.
+-- Frozen values are NULL while OPEN (enforced above); the forecast is computed, not stored.
 ALTER TABLE "BillingCycle" ADD CONSTRAINT "BillingCycle_amountToSplit_check"
     CHECK (
         "status" <> 'CLOSED'
+        OR "kind" <> 'REGULAR'
         OR "amountToSplitCents" = GREATEST(
             "fieldCostSnapshotCents" - "eligibleDailyRevenueCents" - "carriedCreditCents",
             0
@@ -1352,6 +1394,7 @@ ALTER TABLE "BillingCycle" ADD CONSTRAINT "BillingCycle_amountToSplit_check"
 ALTER TABLE "BillingCycle" ADD CONSTRAINT "BillingCycle_monthly_fee_check"
     CHECK (
         "status" <> 'CLOSED'
+        OR "kind" <> 'REGULAR'
         OR (
             "payingMonthlyCount" = 0
             AND "monthlyFeeCents" = 0
@@ -1370,10 +1413,23 @@ ALTER TABLE "BillingCycle" ADD CONSTRAINT "BillingCycle_monthly_fee_check"
 ALTER TABLE "Charge" ADD CONSTRAINT "Charge_amountCents_check"
     CHECK ("amountCents" > 0);
 
+-- A daily charge has no cycle: its revenue is attributed by the CashTransaction.
 ALTER TABLE "Charge" ADD CONSTRAINT "Charge_type_links_check"
     CHECK (
-        ("type" = 'DAILY_FEE' AND "gameSessionId" IS NOT NULL AND "sessionRegistrationId" IS NOT NULL)
-        OR ("type" = 'MONTHLY_FEE' AND "gameSessionId" IS NULL AND "sessionRegistrationId" IS NULL)
+        (
+            "type" = 'DAILY_FEE'
+            AND "gameSessionId" IS NOT NULL
+            AND "sessionRegistrationId" IS NOT NULL
+            AND "billingCycleId" IS NULL
+            AND "monthlyFeeOrigin" IS NULL
+        )
+        OR (
+            "type" = 'MONTHLY_FEE'
+            AND "gameSessionId" IS NULL
+            AND "sessionRegistrationId" IS NULL
+            AND "billingCycleId" IS NOT NULL
+            AND "monthlyFeeOrigin" IS NOT NULL
+        )
     );
 
 ALTER TABLE "Charge" ADD CONSTRAINT "Charge_cancelled_check"
@@ -1386,11 +1442,16 @@ ALTER TABLE "Charge" ADD CONSTRAINT "Charge_cancelled_check"
 ALTER TABLE "Payment" ADD CONSTRAINT "Payment_amountCents_check"
     CHECK ("amountCents" > 0);
 
+-- Money is received before it is confirmed; cycle attribution relies on this.
+ALTER TABLE "Payment" ADD CONSTRAINT "Payment_paidAt_check"
+    CHECK ("paidAt" <= "confirmedAt");
+
 ALTER TABLE "Payment" ADD CONSTRAINT "Payment_reversed_fields_check"
     CHECK (
         (
             "status" = 'REVERSED'
             AND "reversedAt" IS NOT NULL
+            AND "reversedAt" >= "confirmedAt"
             AND "reversedByUserId" IS NOT NULL
             AND "reversalReason" IS NOT NULL
             AND "reversalReason" ~ '\S'

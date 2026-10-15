@@ -8,6 +8,10 @@
     "start": "next start",
     "lint": "eslint",
     "typecheck": "tsc --noEmit",
+    "bootstrap": "tsx scripts/bootstrap.ts",
+    "seed:test-players": "tsx scripts/seed-test-players.ts",
+    "check:attendance-lock": "tsx scripts/check-attendance-lock.ts",
+    "icons": "tsx scripts/generate-icons.tsx",
     "postinstall": "prisma generate"
   },
   "dependencies": {
@@ -27,6 +31,7 @@
     "eslint-config-next": "16.3.8",
     "prisma": "7.10.0",
     "tailwindcss": "^4",
+    "tsx": "^4.23.15",
     "typescript": "^5"
   }
 }
