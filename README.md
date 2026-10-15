@@ -90,5 +90,7 @@ O service worker só é registrado no build de produção (`npm run build` e `np
 | `npm run lint` | ESLint |
 | `npm run bootstrap -- ...` | Cria o grupo e o primeiro ADMIN |
 | `npm run icons` | Regenera os ícones do PWA |
+| `npm run seed:test-players -- ...` | Só desenvolvimento: cria jogadores de teste (`teste01`…, senha `teste1234`); com `--confirm`, confirma-os na próxima sessão |
+| `npm run check:attendance-lock` | Só desenvolvimento: teste de regressão do travamento da lista pela votação (tudo em transação desfeita) |
 
 O Prisma Client é gerado em `src/generated/prisma` no `npm install` (`postinstall`); após mudar o schema, rode `npx prisma generate`.
