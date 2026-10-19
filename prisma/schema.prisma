@@ -165,6 +165,13 @@ enum MatchEventType {
   GOAL
   OWN_GOAL
   BIG_MISS
+  YELLOW_CARD
+  BLUE_CARD
+  RED_CARD
+  /// Bola na trave.
+  HIT_WOODWORK
+  /// Desarme.
+  TACKLE
 }
 
 /// OPEN: acumula receitas de diaristas; a mensalidade é previsão.
@@ -323,6 +330,18 @@ model AuthSession {
 
   @@index([userId, revokedAt])
   @@index([expiresAt])
+}
+
+/// Rate limit de login compartilhado entre instâncias serverless (sem Redis).
+/// key: "ip:<hash>" ou "user:<username>"; failureCount na janela windowStartedAt.
+model LoginThrottle {
+  key             String    @id
+  failureCount    Int       @default(0)
+  windowStartedAt DateTime  @db.Timestamptz(3)
+  blockedUntil    DateTime? @db.Timestamptz(3)
+  updatedAt       DateTime  @updatedAt @db.Timestamptz(3)
+
+  @@index([blockedUntil])
 }
 
 /// A pelada. Hoje existe uma única linha (seed); é a âncora do futuro SaaS.
@@ -991,6 +1010,8 @@ model MatchPlayer {
 /// voidedAt exige voidedByUserId e voidReason não vazio.
 /// Invariantes (service): teamId é match.teamAId ou match.teamBId; autor e assistente
 /// são MatchPlayer desta partida no lado teamId.
+/// Placar: só GOAL e OWN_GOAL (OWN_GOAL credita o adversário). Cartões, pixotada,
+/// trave e desarme são registros sem efeito no placar nem suspensão automática.
 model MatchEvent {
   id              String         @id @default(uuid(7)) @db.Uuid
   matchId         String         @db.Uuid

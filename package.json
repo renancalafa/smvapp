@@ -2,6 +2,9 @@
   "name": "smvapp",
   "version": "0.1.0",
   "private": true,
+  "engines": {
+    "node": ">=22.12.0"
+  },
   "scripts": {
     "dev": "next dev",
     "build": "next build",
@@ -11,6 +14,11 @@
     "bootstrap": "tsx scripts/bootstrap.ts",
     "seed:test-players": "tsx scripts/seed-test-players.ts",
     "check:attendance-lock": "tsx scripts/check-attendance-lock.ts",
+    "check:match-flow": "tsx scripts/check-match-flow.ts",
+    "check:stats": "tsx scripts/check-stats.ts",
+    "check:live-poll": "tsx scripts/check-live-poll.ts",
+    "check:login-throttle": "tsx scripts/check-login-throttle.ts",
+    "check:dev-reset": "tsx scripts/check-dev-reset.ts",
     "icons": "tsx scripts/generate-icons.tsx",
     "postinstall": "prisma generate"
   },

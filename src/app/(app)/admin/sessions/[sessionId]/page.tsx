@@ -2,11 +2,14 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { requireAdmin } from "@/server/auth/dal";
+import { db } from "@/server/db";
+import { getLiveBoard } from "@/server/modules/matches/queries";
 import { isUuid } from "@/server/modules/members/validation";
 import { getAdminRoster, getSessionBoard } from "@/server/modules/sessions/queries";
 import { syncSessionsForRead } from "@/server/modules/sessions/sync";
 import { displayName, formatDateTime, formatSessionTitle, formatTime, phaseDescription } from "../../../sessions/format";
 import { RegistrationList } from "../../../sessions/registration-list";
+import { DevTestTools } from "./dev-tools";
 import { IncludeForm } from "./include-form";
 import { RegistrationActions } from "./registration-actions";
 
@@ -20,11 +23,15 @@ export default async function AdminSessionPage({ params }: { params: Promise<{ s
   const now = new Date();
   const board = await getSessionBoard(viewer.group.id, sessionId, now);
   if (!board) notFound();
-  const roster = await getAdminRoster(viewer.group.id, board);
+  const [roster, live] = await Promise.all([
+    getAdminRoster(viewer.group.id, board),
+    getLiveBoard(viewer.group.id, sessionId, now),
+  ]);
 
   const { session } = board;
   const timeZone = viewer.group.timezone;
-  const canChangeList = board.phase !== "CANCELLED" && board.phase !== "CLOSED";
+  const canChangeList =
+    board.phase !== "CANCELLED" && board.phase !== "CLOSED" && !live?.participantsFrozen;
   const canMarkAttendance = board.phase !== "CANCELLED" && now >= session.startsAt;
   const hasFreeSpot = board.participants.length < board.capacity;
   const actions = (registration: (typeof board.participants)[number]) => (
@@ -53,6 +60,12 @@ export default async function AdminSessionPage({ params }: { params: Promise<{ s
           {formatDateTime(session.priorityDeadlineAt, timeZone)}
         </p>
         <p className="mt-1 text-sm text-zinc-600">{phaseDescription(board.phase, session, timeZone)}</p>
+        {live?.participantsFrozen && (
+          <p className="mt-2 rounded-lg bg-amber-50 px-3 py-2 text-sm text-amber-900">
+            Partidas iniciadas: a lista de presença está congelada para todos. Quem não puder jogar fica indisponível
+            (empréstimo por partida — em breve neste modo).
+          </p>
+        )}
         {canChangeList && board.attendanceLocked && (
           <p className="mt-2 rounded-lg bg-amber-50 px-3 py-2 text-sm text-amber-900">
             Votação iniciada: os jogadores não alteram mais a lista e a fila não promove automaticamente. Use “Promover…”
@@ -68,18 +81,32 @@ export default async function AdminSessionPage({ params }: { params: Promise<{ s
       </div>
 
       {board.phase !== "CANCELLED" && (
-        <Link
-          href={`/admin/sessions/${session.id}/draw`}
-          className="flex min-h-14 items-center justify-between rounded-xl border border-zinc-200 bg-white px-4 py-3 active:bg-zinc-50"
-        >
-          <span>
-            <span className="block font-medium text-zinc-900">Sorteio e votação</span>
-            <span className="block text-sm text-zinc-500">Formação, rotativos, opções de times e votos</span>
-          </span>
-          <span aria-hidden="true" className="text-zinc-400">
-            ›
-          </span>
-        </Link>
+        <>
+          <Link
+            href={`/admin/sessions/${session.id}/live`}
+            className="flex min-h-14 items-center justify-between rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 active:bg-emerald-100"
+          >
+            <span>
+              <span className="block font-medium text-zinc-900">Modo Pelada</span>
+              <span className="block text-sm text-zinc-600">Partidas, cronômetro, placar e Rei da Mesa</span>
+            </span>
+            <span aria-hidden="true" className="text-emerald-700">
+              ›
+            </span>
+          </Link>
+          <Link
+            href={`/admin/sessions/${session.id}/draw`}
+            className="flex min-h-14 items-center justify-between rounded-xl border border-zinc-200 bg-white px-4 py-3 active:bg-zinc-50"
+          >
+            <span>
+              <span className="block font-medium text-zinc-900">Sorteio e votação</span>
+              <span className="block text-sm text-zinc-500">Formação, rotativos, opções de times e votos</span>
+            </span>
+            <span aria-hidden="true" className="text-zinc-400">
+              ›
+            </span>
+          </Link>
+        </>
       )}
 
       <RegistrationList
@@ -112,7 +139,33 @@ export default async function AdminSessionPage({ params }: { params: Promise<{ s
         title="Removidos pelo ADMIN"
         names={board.removed.map((registration) => `${displayName(registration)} — ${registration.manualOverrideReason ?? ""}`)}
       />
+
+      {process.env.NODE_ENV === "development" && (
+        <DevTestToolsSection
+          sessionId={session.id}
+          sessionLabel={formatSessionTitle(session.startsAt, timeZone)}
+        />
+      )}
     </section>
+  );
+}
+
+async function DevTestToolsSection({ sessionId, sessionLabel }: { sessionId: string; sessionLabel: string }) {
+  const [matchCount, drawCount, teamCount, registrationCount] = await Promise.all([
+    db.match.count({ where: { gameSessionId: sessionId } }),
+    db.draw.count({ where: { gameSessionId: sessionId } }),
+    db.sessionTeam.count({ where: { gameSessionId: sessionId } }),
+    db.sessionRegistration.count({ where: { gameSessionId: sessionId } }),
+  ]);
+  return (
+    <DevTestTools
+      sessionId={sessionId}
+      sessionLabel={sessionLabel}
+      matchCount={matchCount}
+      drawCount={drawCount}
+      teamCount={teamCount}
+      registrationCount={registrationCount}
+    />
   );
 }
 

@@ -1,4 +1,5 @@
 import "server-only";
+import { matchClockHasStarted } from "@/domain/match/kickoff";
 import { allocate, type AllocationPhase, type QueueEntry } from "@/domain/presence/allocate";
 import type { Prisma } from "@/generated/prisma/client";
 import { writeAuditLog } from "@/server/audit";
@@ -21,6 +22,7 @@ export const LOCKED_SESSION_SELECT = {
   priorityDeadlineAt: true,
   maxPlayers: true,
   teamSize: true,
+  matchDurationSec: true,
   overflowMode: true,
   openedAt: true,
   priorityClosedAt: true,
@@ -48,9 +50,16 @@ export function allocationPhase(
   return session.priorityClosedAt || now >= session.priorityDeadlineAt ? "GENERAL" : "PRIORITY";
 }
 
-/** Depois da primeira partida, o conjunto de participantes fica congelado (seção 11). */
+/**
+ * Depois que o cronômetro da primeira partida é ligado, o conjunto de participantes
+ * fica congelado (seção 11). Confirmar times sem apitar NÃO congela.
+ */
 export async function participantsFrozen(tx: Tx, sessionId: string): Promise<boolean> {
-  return (await tx.match.count({ where: { gameSessionId: sessionId } })) > 0;
+  const matches = await tx.match.findMany({
+    where: { gameSessionId: sessionId },
+    select: { status: true, startedAt: true, pausedAt: true, pausedTotalMs: true },
+  });
+  return matches.some((match) => matchClockHasStarted(match));
 }
 
 export const ATTENDANCE_LOCKED_MESSAGE = "Votação iniciada. Alterações na lista somente com um administrador.";

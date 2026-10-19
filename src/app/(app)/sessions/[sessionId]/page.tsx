@@ -3,11 +3,13 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { requireViewer } from "@/server/auth/dal";
 import { getActiveDraw } from "@/server/modules/draws/queries";
+import { getLiveBoard } from "@/server/modules/matches/queries";
 import { isUuid } from "@/server/modules/members/validation";
 import { getSessionBoard } from "@/server/modules/sessions/queries";
 import { syncSessionsForRead } from "@/server/modules/sessions/sync";
 import { DrawSection } from "../draw/draw-section";
 import { formatSessionTitle, formatTime, phaseDescription } from "../format";
+import { MatchPanel } from "../match/match-panel";
 import { MySessionStatus } from "../my-session-status";
 import { RegistrationList } from "../registration-list";
 
@@ -20,6 +22,7 @@ export default async function SessionPage({ params }: { params: Promise<{ sessio
   await syncSessionsForRead(viewer.group.id);
   const board = await getSessionBoard(viewer.group.id, sessionId);
   if (!board) notFound();
+  const live = await getLiveBoard(viewer.group.id, sessionId);
 
   const { session } = board;
   const timeZone = viewer.group.timezone;
@@ -50,6 +53,10 @@ export default async function SessionPage({ params }: { params: Promise<{ sessio
         <div className="rounded-2xl border border-zinc-200 bg-white p-4">
           <MySessionStatus board={board} viewer={viewer} />
         </div>
+      )}
+
+      {live && (live.current || live.suggested || live.history.length > 0 || live.softHint) && (
+        <MatchPanel board={live} />
       )}
 
       {draw && <DrawSection draw={draw} sessionId={session.id} canVote={canVote} />}

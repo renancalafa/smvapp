@@ -1,3 +1,4 @@
+import Link from "next/link";
 import { requireViewer } from "@/server/auth/dal";
 import { getActiveDrawStatus } from "@/server/modules/draws/queries";
 import { getNextSession } from "@/server/modules/sessions/queries";
@@ -20,6 +21,18 @@ export default async function HomePage() {
         </p>
       </div>
       <NextSessionCard board={board} viewer={viewer} drawStatus={drawStatus} />
+      <Link
+        href="/stats"
+        className="flex min-h-14 items-center justify-between rounded-xl border border-zinc-200 bg-white px-4 py-3 active:bg-zinc-50"
+      >
+        <span>
+          <span className="block font-medium text-zinc-900">Rankings e estatísticas</span>
+          <span className="block text-sm text-zinc-500">Artilharia, assistências, pixotadas e mais</span>
+        </span>
+        <span aria-hidden="true" className="text-zinc-400">
+          ›
+        </span>
+      </Link>
     </section>
   );
 }

@@ -24,6 +24,15 @@ const nextConfig: NextConfig = {
         source: "/offline.html",
         headers: [{ key: "Cache-Control", value: "no-cache" }],
       },
+      {
+        // Ao Vivo autenticado: nunca cachear no CDN/browser.
+        source: "/api/live",
+        headers: [{ key: "Cache-Control", value: "private, no-store, no-cache, must-revalidate" }],
+      },
+      {
+        source: "/live",
+        headers: [{ key: "Cache-Control", value: "private, no-store, no-cache, must-revalidate" }],
+      },
     ];
   },
 };

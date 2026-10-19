@@ -43,6 +43,8 @@ DATABASE_URL="postgresql://pelada_dev:pelada_dev@localhost:5432/pelada_dev"
 DIRECT_URL=""
 ```
 
+**Produção (Neon):** use a URL **pooled** (`-pooler` no host) em `DATABASE_URL` (runtime Vercel) e a URL **direct** em `DIRECT_URL` (só CLI: `migrate deploy` / bootstrap). Detalhes e placeholders sem credenciais: [`.env.example`](.env.example). Runbook completo: [`docs/deploy-vercel-neon.md`](docs/deploy-vercel-neon.md). O build da Vercel **não** aplica migrations automaticamente.
+
 ### 3. Dependências e migration
 
 ```bat
@@ -92,5 +94,10 @@ O service worker só é registrado no build de produção (`npm run build` e `np
 | `npm run icons` | Regenera os ícones do PWA |
 | `npm run seed:test-players -- ...` | Só desenvolvimento: cria jogadores de teste (`teste01`…, senha `teste1234`); com `--confirm`, confirma-os na próxima sessão |
 | `npm run check:attendance-lock` | Só desenvolvimento: teste de regressão do travamento da lista pela votação (tudo em transação desfeita) |
+| `npm run check:match-flow` | Só desenvolvimento: Rei da Mesa + fluxo de partidas (funções puras + rollback no banco) |
+| `npm run check:stats` | Só desenvolvimento: estatísticas / classificação (rollback) |
+| `npm run check:live-poll` | Só desenvolvimento: polling Ao Vivo / revisão / 304 (rollback) |
+| `npm run check:login-throttle` | Só desenvolvimento: rate limit de login no Postgres (rollback) |
+| `npm run check:dev-reset` | Só desenvolvimento: reset de teste bloqueado fora de `development` |
 
-O Prisma Client é gerado em `src/generated/prisma` no `npm install` (`postinstall`); após mudar o schema, rode `npx prisma generate`.
+O Prisma Client é gerado em `src/generated/prisma` no `npm install` (`postinstall`); após mudar o schema, rode `npx prisma generate`. Deploy: [`docs/deploy-vercel-neon.md`](docs/deploy-vercel-neon.md).

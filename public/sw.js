@@ -3,14 +3,15 @@
 // Política de cache (PROJECT.md, seção 28):
 // - Cacheia apenas arquivos estáticos públicos: /_next/static/* (nomes com hash,
 //   imutáveis), os ícones e a página offline.
-// - Navegações vão sempre à rede; sem rede, mostram /offline.html. Nenhuma página,
-//   resposta de API, payload RSC, Server Action ou cookie é guardado.
+// - Navegações vão sempre à rede; sem rede, mostram /offline.html. Nenhuma página
+//   autenticada (ex.: /live), resposta de API, payload RSC, Server Action ou cookie
+//   é guardado.
 // - Requisições que não são GET ou de outra origem não passam pelo service worker.
 //
 // Ao mudar a lista de pré-cache ou a política, troque CACHE_VERSION: o activate apaga
 // os caches antigos.
 
-const CACHE_VERSION = "v1";
+const CACHE_VERSION = "v2";
 const CACHE_PREFIX = "smv-static-";
 const STATIC_CACHE = `${CACHE_PREFIX}${CACHE_VERSION}`;
 const OFFLINE_URL = "/offline.html";
@@ -86,6 +87,8 @@ self.addEventListener("fetch", (event) => {
   if (request.method !== "GET") return;
   const url = new URL(request.url);
   if (url.origin !== self.location.origin) return;
+  // APIs autenticadas (ex.: /api/live) nunca passam pelo cache do SW.
+  if (url.pathname.startsWith("/api/")) return;
 
   if (request.mode === "navigate") {
     event.respondWith(networkWithOfflineFallback(request));

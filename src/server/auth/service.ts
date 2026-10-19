@@ -3,23 +3,34 @@ import { writeAuditLog } from "@/server/audit";
 import { db } from "@/server/db";
 import { getCurrentGroup } from "@/server/group";
 import type { Viewer } from "./dal";
+import {
+  assertLoginAllowed,
+  clearLoginThrottle,
+  recordLoginFailure,
+} from "./login-throttle";
 import { hashPassword, needsRehash, verifyAgainstDummy, verifyPassword } from "./password";
 import { createSession, revokeAllUserSessions, revokeSessionByToken, type IssuedSession } from "./session";
 import { isValidUsername, normalizeUsername, PASSWORD_MAX_LENGTH, validateNewPassword } from "./validation";
 
 export type LoginResult =
   | { ok: true; session: IssuedSession; mustChangePassword: boolean }
-  | { ok: false };
+  | { ok: false; reason?: "invalid" | "rate_limited"; retryAfterSec?: number };
 
-/** Qualquer falha devolve o mesmo resultado, sem indicar se o usuário existe. */
+/** Qualquer falha de credencial devolve o mesmo resultado, sem indicar se o usuário existe. */
 export async function login(input: {
   username: string;
   password: string;
   userAgent: string | null;
+  ip: string;
 }): Promise<LoginResult> {
   const username = normalizeUsername(input.username);
   if (!isValidUsername(username) || input.password.length > PASSWORD_MAX_LENGTH * 4) {
-    return { ok: false };
+    return { ok: false, reason: "invalid" };
+  }
+
+  const allowed = await assertLoginAllowed({ username, ip: input.ip });
+  if (!allowed.ok) {
+    return { ok: false, reason: "rate_limited", retryAfterSec: allowed.retryAfterSec };
   }
 
   const group = await getCurrentGroup();
@@ -37,10 +48,17 @@ export async function login(input: {
     : null;
   if (!user) {
     await verifyAgainstDummy(input.password);
-    return { ok: false };
+    await recordLoginFailure({ username, ip: input.ip });
+    return { ok: false, reason: "invalid" };
   }
-  if (!(await verifyPassword(input.password, user.passwordHash))) return { ok: false };
-  if (user.disabledAt || user.memberships.length === 0) return { ok: false };
+  if (!(await verifyPassword(input.password, user.passwordHash))) {
+    await recordLoginFailure({ username, ip: input.ip });
+    return { ok: false, reason: "invalid" };
+  }
+  if (user.disabledAt || user.memberships.length === 0) {
+    await recordLoginFailure({ username, ip: input.ip });
+    return { ok: false, reason: "invalid" };
+  }
 
   if (needsRehash(user.passwordHash)) {
     await db.user.update({
@@ -49,6 +67,7 @@ export async function login(input: {
     });
   }
 
+  await clearLoginThrottle({ username, ip: input.ip });
   const session = await createSession(db, user.id, input.userAgent);
   return { ok: true, session, mustChangePassword: user.mustChangePassword };
 }

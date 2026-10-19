@@ -3,6 +3,7 @@
 import { headers } from "next/headers";
 import { redirect } from "next/navigation";
 import { requireViewerAllowingPasswordChange } from "./dal";
+import { clientIpFromHeaders } from "./login-throttle";
 import { changePassword, login, logout } from "./service";
 import { deleteSessionCookie, readSessionToken, revokeSessionByToken, setSessionCookie } from "./session";
 import { formText } from "./validation";
@@ -22,17 +23,28 @@ export async function loginAction(
     return { error: "Informe usuário e senha.", username };
   }
 
-  const userAgent = (await headers()).get("user-agent");
+  const headerList = await headers();
+  const userAgent = headerList.get("user-agent");
+  const ip = clientIpFromHeaders(headerList);
   let result;
   try {
     const previousToken = await readSessionToken();
     if (previousToken) await revokeSessionByToken(previousToken);
-    result = await login({ username, password, userAgent });
+    result = await login({ username, password, userAgent, ip });
   } catch (error) {
     console.error("loginAction", error);
     return { error: UNEXPECTED_ERROR, username };
   }
-  if (!result.ok) return { error: "Usuário ou senha inválidos.", username };
+  if (!result.ok) {
+    if (result.reason === "rate_limited") {
+      const minutes = Math.max(1, Math.ceil((result.retryAfterSec ?? 60) / 60));
+      return {
+        error: `Muitas tentativas. Aguarde cerca de ${minutes} min e tente de novo.`,
+        username,
+      };
+    }
+    return { error: "Usuário ou senha inválidos.", username };
+  }
 
   await setSessionCookie(result.session);
   redirect(result.mustChangePassword ? "/change-password" : "/");

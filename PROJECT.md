@@ -357,7 +357,7 @@ Uma resposta do jogador e a geração do sorteio nunca se cruzam: ou a resposta 
 
 ### Depois do início das partidas
 
-Assim que a primeira partida da sessão é iniciada, o conjunto de participantes fica congelado para todos: não há cancelamento, liberação de vaga, promoção da lista de espera, inclusão nem remoção, nem por intervenção administrativa. Quem não puder mais jogar fica indisponível (seção 24).
+Assim que o cronômetro da primeira partida da sessão é ligado (apito), o conjunto de participantes fica congelado para todos: não há cancelamento, liberação de vaga, promoção da lista de espera, inclusão nem remoção, nem por intervenção administrativa. Montar o confronto no placar sem apitar NÃO congela a lista. Quem não puder mais jogar fica indisponível (seção 24).
 
 ---
 
@@ -669,6 +669,18 @@ A duração é configurável e NÃO deve ser hardcoded.
 
 O vencedor permanece em campo.
 
+### Escolha dos times (ADMIN)
+
+O ADMIN escolhe livremente qualquer dois times regulares elegíveis para cada partida, sem reason.
+
+A `initialQueuePosition` do sorteio oficial NÃO força o primeiro confronto: não dá para prever quais times chegam primeiro no campo. Na primeira partida, o ADMIN escolhe os dois que estão prontos.
+
+Nas partidas seguintes, o sistema sugere o próximo par pelas regras do Rei da Mesa a partir do histórico real (quem jogou e o placar). O ADMIN pode aceitar a sugestão ou trocar por qualquer outro par elegível.
+
+As seleções e os resultados reais determinam a rotação daí em diante. O sorteio oficial e o histórico de partidas já apitadas são preservados.
+
+A interface do Modo Pelada é um único placar (antes e durante a partida). Antes do apito, o placar mostra a sugestão do Rei da Mesa (ou um hint inicial), editável: o ADMIN toca no nome de um time para trocá-lo por outro elegível, sem reason. A escolha só é gravada e finalizada quando o ADMIN inicia o cronômetro — o mesmo passo liga o timer e, na primeira partida, congela a lista de presença (seção 11). Pausar ou retomar nunca reabre a troca de times.
+
 ---
 
 # 22. Rei da Mesa com quatro times
@@ -718,13 +730,15 @@ Deve permitir:
 - registrar assistência;
 - registrar pixotadas;
 - selecionar goleiros;
+- montar o confronto no próprio placar (tocar nos nomes dos times antes do apito; ver seção 21);
+- iniciar o cronômetro (apito), que finaliza a escolha dos times e começa a partida;
 - finalizar partida;
 - registrar vencedor nos pênaltis;
-- iniciar próxima partida;
+- iniciar a próxima partida no mesmo placar (sugerida pelo Rei da Mesa; o ADMIN pode trocar os times antes do apito);
 - marcar jogador como indisponível (lesão, saída antecipada);
 - escolher jogador emprestado para completar um time na partida.
 
-O sistema deve aplicar automaticamente as regras de Rei da Mesa para sugerir os próximos times.
+O sistema aplica as regras do Rei da Mesa para sugerir os próximos times depois de cada resultado. A sugestão NÃO é obrigatória: o ADMIN troca os times no placar. Só o apito grava o confronto e inicia o cronômetro.
 
 ### Múltiplos administradores simultâneos
 
@@ -1604,3 +1618,39 @@ Correção do calendário financeiro. Substitui o fechamento manual da Revisão 
 ### Revisão 19 — 14/10/2026
 
 - O travamento da lista de presença passa a valer desde o INÍCIO DA VOTAÇÃO, e não mais só com o sorteio decidido (substitui o marco da Revisão 18; seções 11 e 17). Com um sorteio ativo em votação, empatado ou decidido, os jogadores não alteram a lista e veem "Votação iniciada. Alterações na lista somente com um administrador."; a promoção automática fica desligada e o ADMIN continua incluindo, removendo e promovendo explicitamente até a primeira partida. O sorteio é sempre do sistema: gerar abre a votação no mesmo passo, sem pré-visualização nem escolha de opções pelo ADMIN; cada refação é uma invalidação registrada com ADMIN e reason. Invalidar sem gerar outro sorteio devolve a lista ao funcionamento normal; gerar na mesma ação trava de novo.
+
+### Revisão 20 — 17/10/2026
+
+- Modo Pelada / Rei da Mesa (seções 21 a 24): partidas com duração configurável (`matchDurationSec`), cronômetro a partir de timestamps do servidor, placar por eventos, rotação da fila. Com 4 times, empate tira os dois e entram os dois que esperavam; com 3 times, empate exige vencedor nos pênaltis antes de finalizar.
+
+### Revisão 21 — 18/10/2026
+
+- Correção do Modo Pelada (seções 21 a 24): o ADMIN escolhe livremente qualquer dois times regulares para cada partida, sem reason. A `initialQueuePosition` do sorteio NÃO força o primeiro confronto (quem chega primeiro no campo manda). Depois de cada resultado, o sistema sugere o próximo par pelo Rei da Mesa, mas o ADMIN pode trocar. Confirmar times e ligar o cronômetro são ações separadas: confirmar NÃO inicia o timer e NÃO congela a lista; só o apito da primeira partida congela a presença permanentemente. O sorteio oficial e o histórico de partidas apitadas são preservados.
+
+### Revisão 22 — 18/10/2026
+
+- Interface única do Modo Pelada (seções 21 e 24): o placar é a única tela antes e durante a partida. A sugestão Rei da Mesa pré-preenche o confronto; o ADMIN troca times tocando nos nomes. Não há formulário separado de “Confirmar times”. O botão “Iniciar cronômetro” é o único passo que persiste o confronto e liga o timer; na primeira partida congela a lista. Depois do apito, os times daquela partida ficam fixos.
+
+### Revisão 23 — 18/10/2026
+
+- Ao Vivo (`/live`) para todo usuário autenticado (PLAYER e ADMIN): placar somente leitura com confronto, escalações, cronômetro por timestamps do servidor, status, eventos recentes, times na espera e histórico; estado vazio se não houver sessão; após o ADMIN encerrar a sessão, mostra “Sessão encerrada” preservando placares e histórico. Item “Ao Vivo” na navegação (barra inferior e lateral). Encerrar sessão (`endGameSession` / `SESSION_FINISHED`) no Modo Pelada: exige finalizar partida em andamento; partidas só aguardando apito são descartadas; grava `FINISHED` + `finishedAt` sem expor ações administrativas a PLAYER.
+
+### Revisão 26 — 18/10/2026
+
+- Ao Vivo em produção (Vercel + Neon): polling adaptativo via `GET /api/live` (5s partida ativa, 10s espera, 30s idle, para quando a sessão encerra); aba oculta suspende e ao voltar faz refresh imediato; cronômetro só por `remainingMs` + `serverNow` (sem decrementar timer local independente); AbortController evita respostas obsoletas; revisão composta (`Match.version` + times/pausa/histórico + status da sessão) com ETag / If-None-Match → 304 sem alterar schema; `Cache-Control: private, no-store`; service worker não intercepta `/api/*`. Script `npm run check:live-poll`.
+
+### Revisão 27 — 19/10/2026
+
+- Preparação do primeiro deploy (Vercel + Neon): pool Postgres serverless-safe (`max: 1` em produção via `@prisma/adapter-pg`); documentação `DATABASE_URL` (pooled) / `DIRECT_URL` (direct); runbook `docs/deploy-vercel-neon.md`; cron opcional em `vercel.json`; rate limit de login persistido em `LoginThrottle` (sem Redis); migrations CLI manuais (não no build); `engines.node >= 22.12`.
+
+### Revisão 24 — 18/10/2026
+
+- Estatísticas e rankings (seções 26 e 27, Fase 6): `/stats` e `/stats/players/[memberId]` calculam totais a partir de `MatchEvent` (não anulados) e `MatchPlayer` em partidas `FINISHED`. Rankings públicos: artilharia, assistências, pixotadas, traves, desarmes e cartões; filtros por pelada, mês, ano e histórico no fuso do Group. Partidas jogadas = aparições em `MatchPlayer`. Ainda não: classificação geral, V/E/D e aproveitamento (ambiguidades 10–12).
+
+### Revisão 25 — 18/10/2026
+
+- Ambiguidades 10–12 (classificação / pênaltis / goleiro) — decisões finais:
+  - **10 — Classificação geral**: ranking por aproveitamento `(vitórias / PJ) × 100`. Sem mínimo de jogos. Sem PJ aparece abaixo de quem tem PJ, com `%` como “—” (não empata com quem tem 0% em jogos). Empates de % compartilham a mesma posição; ordem secundária só pelo nome (exibição), sem desempate por desempenho.
+  - **11 — Pênaltis**: empate no placar com `penaltyWinnerTeamId` → vitória para o vencedor e derrota para o perdedor (não empate). O placar do tempo normal não muda. Empate sem decisão de pênaltis → empate (E), quando a finalização da partida permitir (ex.: 4 times).
+  - **12 — Goleiro**: aparições com `MatchPlayer.role = GOALKEEPER` não entram em PJ / V / E / D / %. Eventos do goleiro (gols, cartões, etc.) continuam nas estatísticas por evento.
+- UI: bloco “Classificação geral” em `/stats` e resumo PJ/V/E/D/% no perfil.

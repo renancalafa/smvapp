@@ -9,6 +9,7 @@ import {
 } from "@/domain/draw/balance";
 import { createRng } from "@/domain/draw/random";
 import { playerStrength } from "@/domain/draw/strength";
+import { isAwaitingKickoff } from "@/domain/match/kickoff";
 import type { DrawDecisionMethod, OverflowMode, Prisma } from "@/generated/prisma/client";
 import { writeAuditLog } from "@/server/audit";
 import type { Viewer } from "@/server/auth/dal";
@@ -520,6 +521,19 @@ export async function invalidateDraw(
       orderBy: { createdAt: "asc" },
       select: { id: true, name: true, kind: true, origin: true, players: { select: { memberId: true } } },
     });
+    // Partidas só com times confirmados (cronômetro ainda não ligado) podem ser
+    // descartadas para liberar os SessionTeam; partidas já apitadas bloqueiam via
+    // participantsFrozen acima.
+    const awaiting = await tx.match.findMany({
+      where: { gameSessionId: session.id, status: "IN_PROGRESS" },
+      select: { id: true, status: true, startedAt: true, pausedAt: true, pausedTotalMs: true },
+    });
+    for (const match of awaiting) {
+      if (!isAwaitingKickoff(match)) continue;
+      await tx.matchEvent.deleteMany({ where: { matchId: match.id } });
+      await tx.matchPlayer.deleteMany({ where: { matchId: match.id } });
+      await tx.match.delete({ where: { id: match.id } });
+    }
     await tx.sessionTeamPlayer.deleteMany({ where: { gameSessionId: session.id } });
     await tx.sessionTeam.deleteMany({ where: { gameSessionId: session.id } });
 

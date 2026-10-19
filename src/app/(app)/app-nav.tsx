@@ -3,11 +3,13 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 
-export type NavIcon = "home" | "admin" | "account";
+export type NavIcon = "home" | "live" | "stats" | "admin" | "account";
 export type NavItem = { href: string; label: string; icon: NavIcon };
 
 const ICON_PATHS: Record<NavIcon, string> = {
   home: "M3 10.5 12 3l9 7.5V20a1 1 0 0 1-1 1h-5v-6h-6v6H4a1 1 0 0 1-1-1z",
+  live: "M12 12a1.5 1.5 0 1 0 0-3 1.5 1.5 0 0 0 0 3zm-5.3-1.5a5.3 5.3 0 0 1 10.6 0m-13.2 0a8.2 8.2 0 0 1 16.4 0",
+  stats: "M4 19V9m5 10V5m5 14v-6m5 6V3",
   admin: "M12 3 4 6v6c0 4.5 3.4 8.3 8 9 4.6-.7 8-4.5 8-9V6zm0 6v4m0 3h.01",
   account: "M12 12a4 4 0 1 0 0-8 4 4 0 0 0 0 8zm-8 9a8 8 0 0 1 16 0",
 };

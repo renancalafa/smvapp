@@ -10,8 +10,18 @@ export default async function AppLayout({ children }: { children: React.ReactNod
 
   // Itens de ADMIN nem chegam ao cliente para quem não é ADMIN; a página ainda
   // verifica o papel com requireAdmin().
-  const items: NavItem[] = [
+  // Rankings fica na lateral (e no atalho da home): a barra inferior do celular
+  // já tem Início / Ao Vivo / Admin? / Conta e não deve lotar.
+  const mobileItems: NavItem[] = [
     { href: "/", label: "Início", icon: "home" },
+    { href: "/live", label: "Ao Vivo", icon: "live" },
+    ...(viewer.member.role === "ADMIN" ? [{ href: "/admin", label: "Admin", icon: "admin" } as const] : []),
+    { href: "/account", label: "Conta", icon: "account" },
+  ];
+  const desktopItems: NavItem[] = [
+    { href: "/", label: "Início", icon: "home" },
+    { href: "/live", label: "Ao Vivo", icon: "live" },
+    { href: "/stats", label: "Rankings", icon: "stats" },
     ...(viewer.member.role === "ADMIN" ? [{ href: "/admin", label: "Admin", icon: "admin" } as const] : []),
     { href: "/account", label: "Conta", icon: "account" },
   ];
@@ -23,7 +33,7 @@ export default async function AppLayout({ children }: { children: React.ReactNod
           <span className="text-lg font-semibold text-emerald-700">SMV</span>
           <span className="truncate text-sm text-zinc-500">{viewer.group.name}</span>
         </Link>
-        <SideNav items={items} />
+        <SideNav items={desktopItems} />
         <div className="mt-auto border-t border-zinc-200 pt-4">
           <p className="truncate px-3 text-sm font-medium text-zinc-900">{viewer.user.name}</p>
           <p className="truncate px-3 text-xs text-zinc-500">{viewer.user.username}</p>
@@ -52,7 +62,7 @@ export default async function AppLayout({ children }: { children: React.ReactNod
         </main>
       </div>
 
-      <BottomNav items={items} />
+      <BottomNav items={mobileItems} />
     </div>
   );
 }

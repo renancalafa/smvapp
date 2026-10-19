@@ -13,6 +13,7 @@ export type AuditAction =
   | "SESSION_SCHEDULE_UPDATED"
   | "SESSION_REGISTRATION_OPENED"
   | "SESSION_PRIORITY_CLOSED"
+  | "SESSION_FINISHED"
   | "REGISTRATION_CONFIRMED"
   | "REGISTRATION_DECLINED"
   | "REGISTRATION_WITHDRAWN"
@@ -28,7 +29,21 @@ export type AuditAction =
   | "DRAW_VOTE_CAST"
   | "DRAW_VOTING_CLOSED"
   | "DRAW_DECIDED"
-  | "DRAW_INVALIDATED";
+  | "DRAW_INVALIDATED"
+  | "MATCH_TEAMS_CONFIRMED"
+  | "MATCH_TEAMS_CHANGED"
+  | "MATCH_KICKOFF"
+  | "MATCH_STARTED"
+  | "MATCH_PAUSED"
+  | "MATCH_RESUMED"
+  | "MATCH_FINISHED"
+  | "MATCH_CANCELLED"
+  | "MATCH_EVENT_RECORDED"
+  | "MATCH_EVENT_VOIDED"
+  | "MATCH_PENALTY_SET"
+  | "MATCH_COMMAND_CONFLICT"
+  | "DEV_RESET_MATCHES"
+  | "DEV_RESET_DRAW_AND_MATCHES";
 
 /** Entidades referenciadas no AuditLog (AuditLog.entityType). */
 export type AuditEntityType =
@@ -38,7 +53,9 @@ export type AuditEntityType =
   | "GameSession"
   | "SessionRegistration"
   | "Draw"
-  | "DrawVote";
+  | "DrawVote"
+  | "Match"
+  | "MatchEvent";
 
 export async function writeAuditLog(
   tx: Prisma.TransactionClient,

@@ -5,10 +5,12 @@ import { requireAdminAction, requireViewer } from "@/server/auth/dal";
 import { formText } from "@/server/auth/validation";
 import { UserFacingError } from "@/server/errors";
 import { isUuid } from "@/server/modules/members/validation";
+import { resetSessionForDev, type DevResetLevel } from "./dev-reset";
 import {
   adminIncludeMember,
   adminPromoteRegistration,
   adminRemoveRegistration,
+  endGameSession,
   markAttendance,
   respondToSession,
 } from "./service";
@@ -136,5 +138,64 @@ export async function markAttendanceAction(
     return { status: "done", message: "Presença registrada." };
   } catch (error) {
     return failure("markAttendanceAction", error);
+  }
+}
+
+/** ADMIN: encerra a sessão e congela o placar/histórico para espectadores. */
+export async function endSessionAction(
+  _previous: SessionActionState,
+  formData: FormData,
+): Promise<SessionActionState> {
+  const viewer = await requireAdminAction();
+  const sessionId = formText(formData, "sessionId");
+  const confirmation = formText(formData, "confirmation").trim().toUpperCase();
+  if (!isUuid(sessionId)) return { status: "error", error: "Requisição inválida." };
+  if (confirmation !== "ENCERRAR") {
+    return { status: "error", error: 'Digite ENCERRAR para confirmar (maiúsculas).' };
+  }
+  try {
+    const result = await endGameSession(viewer, sessionId);
+    refresh();
+    return {
+      status: "done",
+      message: result.alreadyFinished
+        ? "Esta sessão já estava encerrada."
+        : "Sessão encerrada. O placar e o histórico ficam disponíveis em Ao Vivo.",
+    };
+  } catch (error) {
+    return failure("endSessionAction", error);
+  }
+}
+
+/** SOMENTE desenvolvimento: reset de partidas / sorteio para reteste manual. */
+export async function devResetSessionAction(
+  _previous: SessionActionState,
+  formData: FormData,
+): Promise<SessionActionState> {
+  const viewer = await requireAdminAction();
+  const sessionId = formText(formData, "sessionId");
+  const levelRaw = formText(formData, "level");
+  const confirmation = formText(formData, "confirmation").trim().toUpperCase();
+  const level: DevResetLevel | null =
+    levelRaw === "MATCHES" || levelRaw === "DRAW_AND_MATCHES" ? levelRaw : null;
+  if (!isUuid(sessionId) || !level) return { status: "error", error: "Requisição inválida." };
+  if (confirmation !== "RESETAR") {
+    return { status: "error", error: 'Digite RESETAR para confirmar (maiúsculas).' };
+  }
+  try {
+    const result = await resetSessionForDev(viewer, sessionId, level);
+    refresh();
+    if (level === "MATCHES") {
+      return {
+        status: "done",
+        message: `Partidas resetadas (${result.deletedMatches}). Sorteio e lista preservados — pode confirmar times e apitar de novo.`,
+      };
+    }
+    return {
+      status: "done",
+      message: `Sorteio e partidas resetados (sorteios: ${result.deletedDraws}, partidas: ${result.deletedMatches}). Lista de presença preservada.`,
+    };
+  } catch (error) {
+    return failure("devResetSessionAction", error);
   }
 }

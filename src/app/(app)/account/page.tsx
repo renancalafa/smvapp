@@ -31,6 +31,18 @@ export default async function AccountPage() {
 
       <div className="flex flex-col gap-2">
         <Link
+          href={`/stats/players/${viewer.member.id}`}
+          className="flex min-h-12 items-center justify-center rounded-xl border border-zinc-300 bg-white px-4 font-medium text-zinc-900 active:bg-zinc-100"
+        >
+          Minhas estatísticas
+        </Link>
+        <Link
+          href="/stats"
+          className="flex min-h-12 items-center justify-center rounded-xl border border-zinc-300 bg-white px-4 font-medium text-zinc-900 active:bg-zinc-100"
+        >
+          Rankings
+        </Link>
+        <Link
           href="/change-password"
           className="flex min-h-12 items-center justify-center rounded-xl border border-zinc-300 bg-white px-4 font-medium text-zinc-900 active:bg-zinc-100"
         >

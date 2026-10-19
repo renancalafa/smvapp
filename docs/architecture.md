@@ -50,6 +50,11 @@ O `PROJECT.md` continua sendo a fonte de verdade das regras. Este plano descreve
 - Revisão 16 (PWA: manifest, service worker só com estáticos, página offline, layout mobile-first; push preparado, sem envio): seções 28 e 29; aqui, "PWA e Web Push" na seção 1.
 - Revisão 18 (com o sorteio decidido, só o ADMIN altera a lista e a promoção é sempre manual): seções 11 e 17; aqui, "Presença e promoção automática" e "Intervenção administrativa na fila".
 - Revisão 19 (o travamento começa no início da votação, ou seja, na geração do sorteio, e vale em VOTING, TIED e DECIDED; sorteio sempre do sistema, sem pré-visualização): seções 11 e 17; aqui, as mesmas subseções e "Sorteios, votação e Panela de Aniversário".
+- Revisão 20 (Modo Pelada: Rei da Mesa 3/4 times, cronômetro por timestamps, placar por eventos, operationId + version): seções 21 a 24.
+- Revisão 21–22 (ADMIN escolhe qualquer dois times no placar; apito finaliza confronto + timer; lista congela só no apito da 1ª; sugestão Rei da Mesa sobrescrevível): seções 21 a 24; domínio `src/domain/match`.
+- Revisão 23 (Ao Vivo `/live` espectador + Encerrar sessão `SESSION_FINISHED`): navegação, polling, `getSpectatorLiveState`, `endGameSession`.
+- Revisão 24 (Estatísticas/rankings a partir de MatchEvent + MatchPlayer; `/stats`).
+- Revisão 25 (amb. 10–12: classificação por aproveitamento; pênaltis = V/D; goleiro fora de PJ/V/E/D).
 
 ## 1. Arquitetura da aplicação
 
@@ -80,7 +85,8 @@ src/
     (app)/...             # área do jogador (rankings, caixa, sessão); app-nav.tsx
     (app)/account         # conta, troca de senha, sair, instruções de instalação
     (app)/admin/...       # área admin
-    (app)/admin/live      # Modo Pelada
+    (app)/live            # Ao Vivo (espectador, PLAYER + ADMIN)
+    (app)/admin/sessions/[sessionId]/live  # Modo Pelada (ADMIN)
     api/cron/[job]/route.ts
     api/push/route.ts
   domain/                 # PURO: sem imports de next/prisma; 100% testável (Vitest)
@@ -123,7 +129,7 @@ Decisões e trade-offs:
   - Modo Pelada: versionamento otimista da Match.
   - Financeiro e Panela de Aniversário: updates condicionais por status/versão.
   - Idempotência por `operationId` para todos os comandos relevantes (seção 6).
-- **Tempo real no Modo Pelada**: com vários admins operando, cada tela de admin faz polling curto (2-3s) e sempre recebe o estado mais recente (com `version`) na resposta de cada comando. Espectadores fazem polling de 5-10s. Pusher/Ably entram só se o polling não bastar.
+- **Tempo real no Modo Pelada**: com vários admins operando, cada tela de admin faz polling curto (2-3s) e sempre recebe o estado mais recente (com `version`) na resposta de cada comando. A rota `/live` (espectadores autenticados) faz polling de ~2–3s via `router.refresh()` com `dynamic = "force-dynamic"`; o service worker não cacheia navegações nem dados de sessão. Pusher/Ably entram só se o polling não bastar.
 - **Cronômetro**: persistir `startedAt`, `pausedAt` e `pausedTotalMs`; o tempo decorrido é calculado no cliente.
 - **PWA e Web Push** (Revisão 16): sem dependências; `app/manifest.ts` + service worker manual em `public/sw.js` + Web Push com VAPID (envio ainda não implementado).
   - **Manifest**: nome e `short_name` "SMV", `display: standalone`, `start_url`, `scope` e `id` "/", `theme_color` #047857 (o mesmo do `viewport` do layout raiz). Ícones 192 e 512 em `purpose: any` e `maskable` (conteúdo dentro da zona segura), `apple-touch-icon` 180 e `favicon.ico`, todos gerados por `npm run icons` com `next/og` e versionados. O layout raiz declara `appleWebApp` (título e barra de status no iOS) e `viewportFit: cover`; o layout usa `env(safe-area-inset-*)`.
@@ -828,7 +834,11 @@ Presença e sessões: 3, 4 e 5 resolvidas na Revisão 5 (a intervenção nunca e
 
 Sorteio, votação e panela: 6. Quem dispara o sorteio e quando a lista trava? 7. Quando a votação abre e fecha? O voto pode ser alterado? O voto de quem cancela depois conta? 8. O que acontece com os times quando um participante cancela, ou alguém é promovido automaticamente, depois dos times definidos? (Resolvida nas Revisões 8 a 11. O sorteio decidido é o oficial e nenhuma mudança o invalida automaticamente; antes da primeira partida, o ADMIN pode refazê-lo como ação manual excepcional. Depois da primeira partida, os times e o conjunto de participantes ficam congelados; quem não pode jogar fica indisponível, pode voltar, e a vaga em campo é coberta por empréstimo a cada partida.) 9. Como se identificam os aniversariantes e qual a janela? Pode haver 3 ou mais? Há prazo e possibilidade de intervenção do admin? O que acontece se um escolhido cancelar?
 
-Partidas e estatísticas: 10. Critério da classificação geral (pontos, aproveitamento, mínimo de jogos, desempates). 11. Vitória nos pênaltis conta como vitória ou empate nas estatísticas? 12. Atuar como goleiro conta como partida jogada, vitória e derrota? 13. Ordem inicial dos times e primeiro confronto.
+Partidas e estatísticas: 10–12 — **resolvidas na Revisão 25**: classificação por `(V/PJ)×100` sem mínimo de jogos; pênaltis (via `penaltyWinnerTeamId`) contam V/D e não empate; goleiro (`MatchPlayer.role = GOALKEEPER`) fora de PJ/V/E/D/%, eventos preservados. 13. Ordem inicial dos times e primeiro confronto — **resolvida na Revisão 21**: o ADMIN escolhe livremente os dois times de cada partida; `initialQueuePosition` só ordena a fila de espera na reconstrução da sugestão; o Rei da Mesa sugere o próximo par a partir do histórico real, e o ADMIN pode ignorar.
+
+Implementação da Fase 5 (MVP operacional do Modo Pelada, Rev 21–23): a UI admin é um único placar. Antes do apito, a sugestão Rei da Mesa (`suggestMatchupAfterHistory` / `softFirstMatchHint`) pré-preenche o confronto; o ADMIN troca times no placar sem gravar. `kickoffMatchWithTeams` persiste o par e liga o cronômetro na mesma transação; na sequence 1 congela a lista. `confirmMatchTeams` / `startMatchClock` permanecem para compatibilidade e partidas já aguardando apito. Espectadores usam `/live` + `getSpectatorLiveState` / `getLiveBoard` (somente leitura). `endGameSession` marca `FINISHED` + `finishedAt` (audit `SESSION_FINISHED`). Ainda não: indisponível / empréstimo na UI, goleiro na hora, correção pós-finalização, geração de cobranças de diária no encerramento.
+
+Implementação da Fase 6 (Rev 24–25): domínio `src/domain/stats/aggregate.ts` (`individualResultForTeam`, `buildGeneralClassification`) + queries; UI `/stats` (classificação + rankings) e perfil; `npm run check:stats`. Eventos: `MatchEvent` não anulado. PJ/V/E/D: só `MatchPlayer.role = FIELD` em partidas `FINISHED`, com resultado pelo placar e `penaltyWinnerTeamId`.
 
 Operação: 14. Destinatários e gatilhos de MONTHLY_DECLINED e DAILY_PLAYERS_NEEDED. 15. O Modo Pelada precisa funcionar offline? O `operationId` gerado no cliente já prepara uma fila offline futura. 16. Plano da Vercel (Hobby ou Pro).
 

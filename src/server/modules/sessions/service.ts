@@ -1,4 +1,5 @@
 import "server-only";
+import { isAwaitingKickoff, matchClockHasStarted } from "@/domain/match/kickoff";
 import type { AttendanceStatus, Prisma, PriorityTier, RegistrationStatus } from "@/generated/prisma/client";
 import { writeAuditLog } from "@/server/audit";
 import type { Viewer } from "@/server/auth/dal";
@@ -414,6 +415,85 @@ export async function markAttendance(
       before: { attendance: registration.attendance },
       after: { attendance },
     });
+  });
+}
+
+export type EndGameSessionResult = { finishedAt: Date; alreadyFinished: boolean };
+
+/**
+ * Encerrar a sessão (Modo Pelada): grava FINISHED + finishedAt, preserva histórico
+ * de partidas finalizadas. Partida com cronômetro ligado bloqueia; partida só
+ * aguardando apito é descartada. Cobranças de diária ficam para o job financeiro
+ * (chargesGeneratedAt ainda null).
+ */
+export async function endGameSession(viewer: Viewer, sessionId: string): Promise<EndGameSessionResult> {
+  return withLockedSession(viewer.group.id, sessionId, async (tx, session, now) => {
+    if (session.status === "CANCELLED") throw new UserFacingError("Esta sessão foi cancelada.");
+
+    if (session.status === "FINISHED") {
+      const row = await tx.gameSession.findUniqueOrThrow({
+        where: { id: session.id },
+        select: { finishedAt: true },
+      });
+      return { finishedAt: row.finishedAt ?? now, alreadyFinished: true };
+    }
+
+    const openMatches = await tx.match.findMany({
+      where: { gameSessionId: session.id, status: "IN_PROGRESS" },
+      select: {
+        id: true,
+        sequence: true,
+        status: true,
+        startedAt: true,
+        pausedAt: true,
+        pausedTotalMs: true,
+        teamAId: true,
+        teamBId: true,
+      },
+    });
+
+    for (const match of openMatches) {
+      if (matchClockHasStarted(match)) {
+        throw new UserFacingError("Finalize a partida em andamento antes de encerrar a sessão.");
+      }
+      if (!isAwaitingKickoff(match)) {
+        throw new UserFacingError("Finalize a partida em andamento antes de encerrar a sessão.");
+      }
+      await writeAuditLog(tx, {
+        groupId: viewer.group.id,
+        actorUserId: viewer.user.id,
+        action: "MATCH_CANCELLED",
+        entityType: "Match",
+        entityId: match.id,
+        gameSessionId: session.id,
+        before: {
+          sequence: match.sequence,
+          teamAId: match.teamAId,
+          teamBId: match.teamBId,
+          awaitingKickoff: true,
+        },
+        after: { deleted: true, reason: "session_ended" },
+      });
+      await tx.matchEvent.deleteMany({ where: { matchId: match.id } });
+      await tx.matchPlayer.deleteMany({ where: { matchId: match.id } });
+      await tx.match.delete({ where: { id: match.id } });
+    }
+
+    await tx.gameSession.update({
+      where: { id: session.id },
+      data: { status: "FINISHED", finishedAt: now },
+    });
+    await writeAuditLog(tx, {
+      groupId: viewer.group.id,
+      actorUserId: viewer.user.id,
+      action: "SESSION_FINISHED",
+      entityType: "GameSession",
+      entityId: session.id,
+      gameSessionId: session.id,
+      before: { status: session.status },
+      after: { status: "FINISHED", finishedAt: now.toISOString() },
+    });
+    return { finishedAt: now, alreadyFinished: false };
   });
 }
 
