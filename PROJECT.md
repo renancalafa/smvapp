@@ -92,6 +92,8 @@ Pode:
 
 Pode haver múltiplos administradores.
 
+Um ADMIN pode promover um PLAYER a ADMIN ou rebaixar outro ADMIN a PLAYER na ficha do jogador (`/admin/players/[memberId]`, seção Permissões), com confirmação explícita. Não é possível rebaixar o último ADMIN ativo do grupo (proteção no servidor, em transação). A mudança de papel não altera modalidade, nota, presença, financeiro nem histórico; passa a valer no próximo request autenticado (o DAL relê `GroupMember.role` do banco). Toda mudança gera AuditLog `MEMBER_ROLE_CHANGED` (ator, alvo, papel anterior e novo).
+
 ### PLAYER
 
 Pode:
@@ -1642,6 +1644,10 @@ Correção do calendário financeiro. Substitui o fechamento manual da Revisão 
 ### Revisão 27 — 19/10/2026
 
 - Preparação do primeiro deploy (Vercel + Neon): pool Postgres serverless-safe (`max: 1` em produção via `@prisma/adapter-pg`); documentação `DATABASE_URL` (pooled) / `DIRECT_URL` (direct); runbook `docs/deploy-vercel-neon.md`; cron opcional em `vercel.json`; rate limit de login persistido em `LoginThrottle` (sem Redis); migrations CLI manuais (não no build); `engines.node >= 22.12`.
+
+### Revisão 28 — 19/10/2026
+
+- Gestão de papel ADMIN/PLAYER na ficha do jogador: promoção e rebaixamento com confirmação; bloqueio do último ADMIN ativo (FOR UPDATE + Serializable); AuditLog `MEMBER_ROLE_CHANGED`; sem novos papéis nem alteração de dados de jogo/financeiro. Script `npm run check:member-role`.
 
 ### Revisão 24 — 18/10/2026
 

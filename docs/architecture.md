@@ -188,6 +188,7 @@ Decisões e trade-offs:
   - Toda alteração gera AuditLog com before/after.
 - **GroupMember**: vínculo User x Group com `role`, `modality`, `baseRating` (só ADMIN lê/escreve), apelido, `status`, mais **isenção financeira explícita**: `feeExempt`, `feeExemptReason`, `feeExemptUpdatedAt`. Unique (groupId, userId).
   - Trade-off da isenção: um booleano no membro é simples e o histórico fica no AuditLog. Uma tabela de períodos (`FeeExemption` com validFrom/validTo) só se justifica quando houver cobrança de mensalidade por mês. Recomendo o booleano no MVP.
+  - **Papel (Revisão 28)**: `changeMemberRole` (PLAYER ↔ ADMIN) em `src/server/modules/members/service.ts`, UI em `/admin/players/[memberId]` (seção Permissões). Transação `Serializable` + `SELECT … FOR UPDATE` em todos os `GroupMember` com `role = ADMIN` do grupo ao rebaixar; recusa se o alvo é o último ADMIN **ativo**. AuditLog `MEMBER_ROLE_CHANGED` (`before.role` / `after.role`, ator e alvo no metadata). O DAL (`getViewer`) lê `role` do banco a cada request — sessões AuthSession existentes continuam válidas, mas a autorização já usa o papel novo. Não cria papéis além de ADMIN/PLAYER; não mexe em modalidade, nota, presença nem financeiro. Regressão: `npm run check:member-role`.
 
 ### Temporada e sessão
 

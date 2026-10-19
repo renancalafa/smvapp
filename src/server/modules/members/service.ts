@@ -1,5 +1,5 @@
 import "server-only";
-import type { MemberStatus } from "@/generated/prisma/client";
+import type { MemberRole, MemberStatus } from "@/generated/prisma/client";
 import { Prisma } from "@/generated/prisma/client";
 import { writeAuditLog } from "@/server/audit";
 import type { Viewer } from "@/server/auth/dal";
@@ -9,6 +9,9 @@ import { UserFacingError } from "@/server/errors";
 import { releaseMemberFromUpcomingSessions } from "@/server/modules/sessions/service";
 import { getMonthlyJoinPolicy } from "./queries";
 import type { CreatePlayerInput } from "./validation";
+
+const LAST_ADMIN_MESSAGE =
+  "Não é possível rebaixar o último administrador ativo do grupo. Promova outro jogador a ADMIN antes.";
 
 const DUPLICATE_USERNAME = "Já existe uma conta com esse usuário.";
 
@@ -141,6 +144,91 @@ export async function setMemberStatus(
         : 0;
     return { changed: true, releasedSessions };
   });
+}
+
+/**
+ * Promove PLAYER → ADMIN ou rebaixa ADMIN → PLAYER.
+ * Não altera modalidade, nota, status, presença, financeiro nem histórico.
+ * O papel é lido do banco a cada request (DAL): a mudança vale no próximo request autenticado.
+ * Rebaixar o último ADMIN ativo é bloqueado com trava FOR UPDATE + contagem na mesma transação.
+ */
+export async function changeMemberRole(
+  viewer: Viewer,
+  memberId: string,
+  newRole: MemberRole,
+): Promise<{ previousRole: MemberRole; newRole: MemberRole }> {
+  if (viewer.member.role !== "ADMIN") {
+    throw new UserFacingError("Acesso restrito a administradores.");
+  }
+  if (newRole !== "ADMIN" && newRole !== "PLAYER") {
+    throw new UserFacingError("Papel inválido.");
+  }
+
+  return db.$transaction(
+    async (tx) => {
+      const member = await tx.groupMember.findFirst({
+        where: { id: memberId, groupId: viewer.group.id },
+        select: {
+          id: true,
+          role: true,
+          status: true,
+          userId: true,
+          user: { select: { username: true, name: true } },
+        },
+      });
+      if (!member) throw new UserFacingError("Jogador não encontrado.");
+      if (member.role === newRole) {
+        return { previousRole: member.role, newRole };
+      }
+
+      if (newRole === "PLAYER" && member.role === "ADMIN") {
+        // Serializa demotions concorrentes: trava todas as linhas ADMIN do grupo.
+        await tx.$queryRaw`
+          SELECT "id" FROM "GroupMember"
+          WHERE "groupId" = ${viewer.group.id}::uuid AND role = 'ADMIN'
+          FOR UPDATE`;
+
+        if (member.status === "ACTIVE") {
+          const otherActiveAdmins = await tx.groupMember.count({
+            where: {
+              groupId: viewer.group.id,
+              role: "ADMIN",
+              status: "ACTIVE",
+              id: { not: member.id },
+            },
+          });
+          if (otherActiveAdmins < 1) throw new UserFacingError(LAST_ADMIN_MESSAGE);
+        }
+      }
+
+      const updated = await tx.groupMember.updateMany({
+        where: { id: member.id, role: member.role },
+        data: { role: newRole },
+      });
+      if (updated.count !== 1) {
+        throw new UserFacingError("O jogador foi alterado por outra pessoa. Recarregue a página.");
+      }
+
+      await writeAuditLog(tx, {
+        groupId: viewer.group.id,
+        actorUserId: viewer.user.id,
+        action: "MEMBER_ROLE_CHANGED",
+        entityType: "GroupMember",
+        entityId: member.id,
+        before: { role: member.role },
+        after: { role: newRole },
+        metadata: {
+          targetUserId: member.userId,
+          targetUsername: member.user.username,
+          targetName: member.user.name,
+          actorUsername: viewer.user.username,
+        },
+      });
+
+      return { previousRole: member.role, newRole };
+    },
+    { isolationLevel: "Serializable" },
+  );
 }
 
 /** Nova senha temporária, troca obrigatória e revogação de todas as sessões (seção 2). */

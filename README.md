@@ -99,5 +99,6 @@ O service worker só é registrado no build de produção (`npm run build` e `np
 | `npm run check:live-poll` | Só desenvolvimento: polling Ao Vivo / revisão / 304 (rollback) |
 | `npm run check:login-throttle` | Só desenvolvimento: rate limit de login no Postgres (rollback) |
 | `npm run check:dev-reset` | Só desenvolvimento: reset de teste bloqueado fora de `development` |
+| `npm run check:member-role` | Só desenvolvimento: promoção/rebaixamento ADMIN e último ADMIN (rollback + concorrência) |
 
 O Prisma Client é gerado em `src/generated/prisma` no `npm install` (`postinstall`); após mudar o schema, rode `npx prisma generate`. Deploy: [`docs/deploy-vercel-neon.md`](docs/deploy-vercel-neon.md).

@@ -6,6 +6,7 @@ import { getGroupMemberDetail } from "@/server/modules/members/queries";
 import { isUuid } from "@/server/modules/members/validation";
 import { MODALITY_LABEL, ROLE_LABEL, STATUS_LABEL } from "../../../labels";
 import { PlayerActions } from "./player-actions";
+import { RolePermissions } from "./role-permissions";
 
 export const metadata: Metadata = { title: "Jogador" };
 
@@ -65,11 +66,14 @@ export default async function PlayerPage({ params }: { params: Promise<{ memberI
         ))}
       </dl>
 
+      <RolePermissions memberId={member.id} username={member.user.username} role={member.role} />
+
       {member.role === "PLAYER" ? (
         <PlayerActions memberId={member.id} username={member.user.username} status={member.status} />
       ) : (
         <p className="rounded-xl border border-zinc-200 bg-white p-4 text-sm text-zinc-600">
-          Contas de administrador não são alteradas por esta tela.
+          Ativar/desativar e redefinir senha nesta tela valem só para contas com papel Jogador. Use
+          Permissões acima para alterar o papel.
         </p>
       )}
     </section>

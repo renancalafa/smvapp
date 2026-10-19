@@ -19,6 +19,7 @@
     "check:live-poll": "tsx scripts/check-live-poll.ts",
     "check:login-throttle": "tsx scripts/check-login-throttle.ts",
     "check:dev-reset": "tsx scripts/check-dev-reset.ts",
+    "check:member-role": "tsx scripts/check-member-role.ts",
     "icons": "tsx scripts/generate-icons.tsx",
     "postinstall": "prisma generate"
   },

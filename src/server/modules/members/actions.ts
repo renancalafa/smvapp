@@ -4,7 +4,13 @@ import { refresh } from "next/cache";
 import { requireAdminAction } from "@/server/auth/dal";
 import { formText } from "@/server/auth/validation";
 import { UserFacingError } from "@/server/errors";
-import { createPlayer, resetPlayerPassword, setMemberStatus, type CreatedPlayer } from "./service";
+import {
+  changeMemberRole,
+  createPlayer,
+  resetPlayerPassword,
+  setMemberStatus,
+  type CreatedPlayer,
+} from "./service";
 import { isUuid, readCreatePlayerForm, validateCreatePlayer, type CreatePlayerFormValues } from "./validation";
 
 export type CreatePlayerState =
@@ -83,5 +89,33 @@ export async function resetPasswordAction(
     };
   } catch (error) {
     return { status: "error", error: errorMessage("resetPasswordAction", error) };
+  }
+}
+
+export async function changeMemberRoleAction(
+  _previous: MemberActionState,
+  formData: FormData,
+): Promise<MemberActionState> {
+  const viewer = await requireAdminAction();
+  const memberId = formText(formData, "memberId");
+  const role = formText(formData, "role");
+  if (!isUuid(memberId) || (role !== "ADMIN" && role !== "PLAYER")) {
+    return { status: "error", error: "Requisição inválida." };
+  }
+  try {
+    const result = await changeMemberRole(viewer, memberId, role);
+    refresh();
+    if (result.previousRole === result.newRole) {
+      return { status: "done", message: "O papel já estava atualizado." };
+    }
+    return {
+      status: "done",
+      message:
+        result.newRole === "ADMIN"
+          ? "Jogador promovido a administrador. As permissões passam a valer no próximo acesso autenticado."
+          : "Administrador rebaixado a jogador. As permissões de ADMIN deixam de valer no próximo acesso autenticado.",
+    };
+  } catch (error) {
+    return { status: "error", error: errorMessage("changeMemberRoleAction", error) };
   }
 }
