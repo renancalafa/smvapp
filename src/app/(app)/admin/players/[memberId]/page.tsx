@@ -5,6 +5,7 @@ import { requireAdmin } from "@/server/auth/dal";
 import { getGroupMemberDetail } from "@/server/modules/members/queries";
 import { isUuid } from "@/server/modules/members/validation";
 import { MODALITY_LABEL, ROLE_LABEL, STATUS_LABEL } from "../../../labels";
+import { EditRatingForm } from "./edit-rating-form";
 import { PlayerActions } from "./player-actions";
 import { RolePermissions } from "./role-permissions";
 
@@ -32,7 +33,10 @@ export default async function PlayerPage({ params }: { params: Promise<{ memberI
     ["Papel", ROLE_LABEL[member.role]],
     ["Modalidade", MODALITY_LABEL[member.modality]],
     ["Situação", STATUS_LABEL[member.status]],
-    ["Nota base", String(member.baseRating)],
+    [
+      "Nota base",
+      `${"★".repeat(member.baseRating)}${"☆".repeat(5 - member.baseRating)} (${member.baseRating})`,
+    ],
     ["Nascimento", member.user.birthDate ? formatCivilDate(member.user.birthDate) : "—"],
     ["Isento da mensalidade", member.feeExempt ? "Sim" : "Não"],
     [
@@ -65,6 +69,12 @@ export default async function PlayerPage({ params }: { params: Promise<{ memberI
           </div>
         ))}
       </dl>
+
+      <EditRatingForm
+        memberId={member.id}
+        username={member.user.username}
+        baseRating={member.baseRating}
+      />
 
       <RolePermissions memberId={member.id} username={member.user.username} role={member.role} />
 

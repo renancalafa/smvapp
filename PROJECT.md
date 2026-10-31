@@ -127,6 +127,8 @@ Cada jogador possui uma nota base entre 1 e 5 utilizada inicialmente para balanc
 
 A nota base (baseRating) é visível e editável somente por ADMIN.
 
+Um ADMIN altera a nota na ficha do jogador (`/admin/players/[memberId]`, seção Editar nota), escolhendo um inteiro de 1 a 5 com a nota atual pré-selecionada e confirmação explícita antes de salvar. A mudança gera AuditLog `MEMBER_RATING_CHANGED` (ator, alvo, nota anterior e nova). Não altera modalidade, papel, status, presença, estatísticas nem financeiro. Sorteios e times já gravados preservam o `strengthSnapshot` da época; o próximo sorteio lê a nota atual de `GroupMember.baseRating`.
+
 Jogadores não visualizam notas, nem as próprias nem as dos outros, inclusive de forma indireta (por exemplo, força somada dos times em um sorteio).
 
 O modelo deve permitir que futuramente a força utilizada pelo algoritmo considere também desempenho e outras métricas.
@@ -1648,6 +1650,10 @@ Correção do calendário financeiro. Substitui o fechamento manual da Revisão 
 ### Revisão 28 — 19/10/2026
 
 - Gestão de papel ADMIN/PLAYER na ficha do jogador: promoção e rebaixamento com confirmação; bloqueio do último ADMIN ativo (FOR UPDATE + Serializable); AuditLog `MEMBER_ROLE_CHANGED`; sem novos papéis nem alteração de dados de jogo/financeiro. Script `npm run check:member-role`.
+
+### Revisão 29 — 31/10/2026
+
+- Edição da nota base (`baseRating` 1–5) por ADMIN na ficha do jogador: UI “Editar nota” com pré-seleção e confirmação; `changeMemberRating` com FOR UPDATE + `updateMany` otimista; AuditLog `MEMBER_RATING_CHANGED`; sorteios existentes não recalculam (`strengthSnapshot`); sorteios futuros usam a nota atual. Script `npm run check:member-rating`.
 
 ### Revisão 24 — 18/10/2026
 

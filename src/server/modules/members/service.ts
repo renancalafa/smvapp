@@ -231,6 +231,78 @@ export async function changeMemberRole(
   );
 }
 
+/**
+ * Altera a nota base (1–5) de qualquer membro do grupo.
+ * Só ADMIN; não recalcula sorteios/times existentes (eles usam strengthSnapshot).
+ * Sorteios futuros leem GroupMember.baseRating no momento da geração.
+ */
+export async function changeMemberRating(
+  viewer: Viewer,
+  memberId: string,
+  newRating: number,
+): Promise<{ previousRating: number; newRating: number }> {
+  if (viewer.member.role !== "ADMIN") {
+    throw new UserFacingError("Acesso restrito a administradores.");
+  }
+  if (!Number.isInteger(newRating) || newRating < 1 || newRating > 5) {
+    throw new UserFacingError("A nota base deve ser um inteiro de 1 a 5.");
+  }
+
+  return db.$transaction(async (tx) => {
+    const locked = await tx.$queryRaw<{ id: string }[]>`
+      SELECT "id" FROM "GroupMember"
+      WHERE "id" = ${memberId}::uuid AND "groupId" = ${viewer.group.id}::uuid
+      FOR UPDATE`;
+    if (locked.length === 0) throw new UserFacingError("Jogador não encontrado.");
+
+    const member = await tx.groupMember.findUniqueOrThrow({
+      where: { id: memberId },
+      select: {
+        id: true,
+        baseRating: true,
+        role: true,
+        modality: true,
+        status: true,
+        userId: true,
+        user: { select: { username: true, name: true } },
+      },
+    });
+
+    if (member.baseRating === newRating) {
+      return { previousRating: member.baseRating, newRating };
+    }
+
+    const updated = await tx.groupMember.updateMany({
+      where: { id: member.id, baseRating: member.baseRating },
+      data: { baseRating: newRating },
+    });
+    if (updated.count !== 1) {
+      throw new UserFacingError("O jogador foi alterado por outra pessoa. Recarregue a página.");
+    }
+
+    await writeAuditLog(tx, {
+      groupId: viewer.group.id,
+      actorUserId: viewer.user.id,
+      action: "MEMBER_RATING_CHANGED",
+      entityType: "GroupMember",
+      entityId: member.id,
+      before: { baseRating: member.baseRating },
+      after: { baseRating: newRating },
+      metadata: {
+        targetUserId: member.userId,
+        targetUsername: member.user.username,
+        targetName: member.user.name,
+        actorUsername: viewer.user.username,
+        role: member.role,
+        modality: member.modality,
+        status: member.status,
+      },
+    });
+
+    return { previousRating: member.baseRating, newRating };
+  });
+}
+
 /** Nova senha temporária, troca obrigatória e revogação de todas as sessões (seção 2). */
 export async function resetPlayerPassword(viewer: Viewer, memberId: string): Promise<string> {
   const temporaryPassword = generateTemporaryPassword();

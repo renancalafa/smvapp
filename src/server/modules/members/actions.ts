@@ -5,6 +5,7 @@ import { requireAdminAction } from "@/server/auth/dal";
 import { formText } from "@/server/auth/validation";
 import { UserFacingError } from "@/server/errors";
 import {
+  changeMemberRating,
   changeMemberRole,
   createPlayer,
   resetPlayerPassword,
@@ -12,6 +13,12 @@ import {
   type CreatedPlayer,
 } from "./service";
 import { isUuid, readCreatePlayerForm, validateCreatePlayer, type CreatePlayerFormValues } from "./validation";
+
+function parseBaseRating(raw: string): number | null {
+  const value = Number(raw.trim());
+  if (!Number.isInteger(value) || value < 1 || value > 5) return null;
+  return value;
+}
 
 export type CreatePlayerState =
   | { status: "error"; error: string; values: CreatePlayerFormValues }
@@ -117,5 +124,30 @@ export async function changeMemberRoleAction(
     };
   } catch (error) {
     return { status: "error", error: errorMessage("changeMemberRoleAction", error) };
+  }
+}
+
+export async function changeMemberRatingAction(
+  _previous: MemberActionState,
+  formData: FormData,
+): Promise<MemberActionState> {
+  const viewer = await requireAdminAction();
+  const memberId = formText(formData, "memberId");
+  const baseRating = parseBaseRating(formText(formData, "baseRating"));
+  if (!isUuid(memberId) || baseRating === null) {
+    return { status: "error", error: "Escolha uma nota de 1 a 5." };
+  }
+  try {
+    const result = await changeMemberRating(viewer, memberId, baseRating);
+    refresh();
+    if (result.previousRating === result.newRating) {
+      return { status: "done", message: "A nota já estava atualizada." };
+    }
+    return {
+      status: "done",
+      message: `Nota alterada de ${result.previousRating} para ${result.newRating}. Sorteios já feitos não mudam; o próximo usa a nota nova.`,
+    };
+  } catch (error) {
+    return { status: "error", error: errorMessage("changeMemberRatingAction", error) };
   }
 }
