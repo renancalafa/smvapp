@@ -15,6 +15,7 @@ export const LOCKED_SESSION_SELECT = {
   id: true,
   groupId: true,
   status: true,
+  origin: true,
   scheduledFor: true,
   startsAt: true,
   endsAt: true,

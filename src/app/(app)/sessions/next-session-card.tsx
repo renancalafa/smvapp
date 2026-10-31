@@ -1,7 +1,7 @@
 import Link from "next/link";
 import type { Viewer } from "@/server/auth/dal";
 import type { SessionBoard } from "@/server/modules/sessions/queries";
-import { formatSessionTitle, formatTime, phaseDescription } from "./format";
+import { extraordinaryLabel, formatSessionTitle, formatTime, phaseDescription } from "./format";
 import { MySessionStatus } from "./my-session-status";
 
 const DRAW_STATUS_TEXT = {
@@ -30,15 +30,19 @@ export function NextSessionCard({
   const { session } = board;
   const timeZone = viewer.group.timezone;
   const free = Math.max(board.capacity - board.participants.length, 0);
+  const kind = extraordinaryLabel(session.origin);
 
   return (
     <article className="flex flex-col gap-4 rounded-2xl border border-emerald-200 bg-white p-4 shadow-sm">
       <div>
-        <p className="text-xs font-semibold uppercase tracking-wide text-emerald-700">Próxima pelada</p>
+        <p className="text-xs font-semibold uppercase tracking-wide text-emerald-700">
+          {kind ? "Próximo treino" : "Próxima pelada"}
+        </p>
         <h2 className="mt-1 text-xl font-semibold capitalize text-zinc-900">{formatSessionTitle(session.startsAt, timeZone)}</h2>
         <p className="text-sm text-zinc-600">
           {formatTime(session.startsAt, timeZone)} às {formatTime(session.endsAt, timeZone)}
           {session.venueName ? ` · ${session.venueName}` : ""}
+          {kind ? ` · ${kind}` : ""}
         </p>
         <p className="mt-2 text-sm text-zinc-600">{phaseDescription(board.phase, session, timeZone)}</p>
       </div>

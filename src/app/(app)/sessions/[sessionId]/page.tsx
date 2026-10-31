@@ -8,7 +8,7 @@ import { isUuid } from "@/server/modules/members/validation";
 import { getSessionBoard } from "@/server/modules/sessions/queries";
 import { syncSessionsForRead } from "@/server/modules/sessions/sync";
 import { DrawSection } from "../draw/draw-section";
-import { formatSessionTitle, formatTime, phaseDescription } from "../format";
+import { extraordinaryLabel, formatSessionTitle, formatTime, phaseDescription } from "../format";
 import { MatchPanel } from "../match/match-panel";
 import { MySessionStatus } from "../my-session-status";
 import { RegistrationList } from "../registration-list";
@@ -27,6 +27,7 @@ export default async function SessionPage({ params }: { params: Promise<{ sessio
   const { session } = board;
   const timeZone = viewer.group.timezone;
   const active = board.phase !== "CANCELLED" && board.phase !== "CLOSED";
+  const kind = extraordinaryLabel(session.origin);
   const draw = await getActiveDraw(session.id, viewer.member.id, false);
   const mine = board.participants.find((registration) => registration.memberId === viewer.member.id);
   const canVote =
@@ -45,6 +46,7 @@ export default async function SessionPage({ params }: { params: Promise<{ sessio
         <p className="text-sm text-zinc-600">
           {formatTime(session.startsAt, timeZone)} às {formatTime(session.endsAt, timeZone)}
           {session.venueName ? ` · ${session.venueName}` : ""}
+          {kind ? ` · ${kind}` : ""}
         </p>
         <p className="mt-1 text-sm text-zinc-600">{phaseDescription(board.phase, session, timeZone)}</p>
       </div>

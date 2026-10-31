@@ -9,7 +9,7 @@ import { advanceLockedSession, lockSession } from "./engine";
 // Job ensureUpcomingSession + transições programadas. Roda por avaliação preguiçosa
 // (antes das leituras de sessão) e pelo /api/cron/tick; tudo é idempotente.
 
-async function resolveSeasonId(tx: Prisma.TransactionClient, groupId: string, date: CivilDate): Promise<string> {
+export async function resolveSeasonId(tx: Prisma.TransactionClient, groupId: string, date: CivilDate): Promise<string> {
   const day = civilDateToDb(date);
   const existing = await tx.season.findFirst({
     where: { groupId, startsOn: { lte: day }, endsOn: { gte: day } },

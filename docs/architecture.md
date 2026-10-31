@@ -770,7 +770,7 @@ Disparo do tick:
 - Vercel Cron no plano Pro (precisão de minuto): recomendado.
 - No Hobby, os crons são diários e imprecisos; alternativas são Upstash QStash agendando os horários exatos ou um cron externo chamando o tick com `CRON_SECRET`.
 
-Estado atual (Fase 3): o tick executa `ensureUpcomingSessions` e `advanceDueSessions` (abertura da lista e fim da prioridade, com promoções e WAITLIST_PROMOTED no outbox). As mesmas funções rodam antes das telas de sessão, então o tick é uma garantia extra, não um requisito. LIST_OPENED, cancelamento, sessões extraordinárias, reposicionamento, `operationId` e `dispatchNotifications` ainda não foram implementados. Desativar um membro o remove (REMOVED, com promoção da fila) das sessões futuras ainda abertas a mudanças.
+Estado atual (Fase 3): o tick executa `ensureUpcomingSessions` e `advanceDueSessions` (abertura da lista e fim da prioridade, com promoções e WAITLIST_PROMOTED no outbox). As mesmas funções rodam antes das telas de sessão, então o tick é uma garantia extra, não um requisito. Sessões extraordinárias (criação ADMIN + cancelamento pré-gameplay com AuditLog e outbox SESSION_CANCELLED) estão implementadas. LIST_OPENED, reposicionamento, `operationId` e `dispatchNotifications` ainda não foram implementados. Desativar um membro o remove (REMOVED, com promoção da fila) das sessões futuras ainda abertas a mudanças.
 
 ## 9. Preparação para SaaS
 

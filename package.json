@@ -20,6 +20,7 @@
     "check:login-throttle": "tsx scripts/check-login-throttle.ts",
     "check:dev-reset": "tsx scripts/check-dev-reset.ts",
     "check:member-role": "tsx scripts/check-member-role.ts",
+    "check:extraordinary": "tsx scripts/check-extraordinary.ts",
     "icons": "tsx scripts/generate-icons.tsx",
     "postinstall": "prisma generate"
   },

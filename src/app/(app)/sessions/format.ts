@@ -1,5 +1,9 @@
 import type { SessionPhase } from "@/server/modules/sessions/queries";
 
+export function extraordinaryLabel(origin: "AUTOMATIC" | "EXTRAORDINARY"): string | null {
+  return origin === "EXTRAORDINARY" ? "Extraordinária" : null;
+}
+
 export function formatDateTime(instant: Date, timeZone: string): string {
   return new Intl.DateTimeFormat("pt-BR", {
     weekday: "short",

@@ -9,7 +9,7 @@ import { getSessionBoard } from "@/server/modules/sessions/queries";
 import { syncSessionsForRead } from "@/server/modules/sessions/sync";
 import { drawStatusText } from "../../../../sessions/draw/draw-section";
 import { OptionCard } from "../../../../sessions/draw/option-card";
-import { formatDateTime, formatSessionTitle } from "../../../../sessions/format";
+import { extraordinaryLabel, formatDateTime, formatSessionTitle } from "../../../../sessions/format";
 import {
   CloseVotingForm,
   GenerateDrawForm,
@@ -53,7 +53,10 @@ export default async function AdminDrawPage({ params }: { params: Promise<{ sess
           ‹ Sessão
         </Link>
         <h1 className="text-2xl font-semibold text-zinc-900">Sorteio</h1>
-        <p className="text-sm capitalize text-zinc-600">{formatSessionTitle(board.session.startsAt, timeZone)}</p>
+        <p className="text-sm capitalize text-zinc-600">
+          {formatSessionTitle(board.session.startsAt, timeZone)}
+          {extraordinaryLabel(board.session.origin) ? ` · ${extraordinaryLabel(board.session.origin)}` : ""}
+        </p>
         {formation.hasMatches && (
           <p className="mt-2 rounded-lg bg-zinc-100 px-3 py-2 text-sm text-zinc-700">
             As partidas já começaram: o sorteio e os times são histórico e não mudam mais.

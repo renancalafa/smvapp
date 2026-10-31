@@ -12,6 +12,7 @@ export type SpectatorSessionSummary = {
   endsAt: string;
   venueName: string | null;
   finishedAt: string | null;
+  origin: "AUTOMATIC" | "EXTRAORDINARY";
   status: "SCHEDULED" | "OPEN" | "LOCKED" | "IN_PROGRESS" | "FINISHED" | "CANCELLED";
 };
 
@@ -34,6 +35,7 @@ export type SpectatorLiveSnapshot = {
 type SessionCandidate = {
   id: string;
   status: SpectatorSessionSummary["status"];
+  origin: SpectatorSessionSummary["origin"];
   startsAt: Date;
   endsAt: Date;
   maxExtraMinutes: number;
@@ -49,6 +51,7 @@ type Focus =
 const SESSION_SELECT = {
   id: true,
   status: true,
+  origin: true,
   startsAt: true,
   endsAt: true,
   maxExtraMinutes: true,
@@ -64,6 +67,7 @@ function toSummary(session: SessionCandidate): SpectatorSessionSummary {
     endsAt: session.endsAt.toISOString(),
     venueName: session.venueName,
     finishedAt: session.finishedAt?.toISOString() ?? null,
+    origin: session.origin,
     status: session.status,
   };
 }

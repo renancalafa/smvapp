@@ -4,7 +4,7 @@ import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { pollIntervalMs, shouldPollWhileVisible } from "@/domain/live/polling";
 import type { SpectatorLiveSnapshot } from "@/server/modules/matches/spectator";
-import { formatSessionTitle, formatTime } from "../sessions/format";
+import { extraordinaryLabel, formatSessionTitle, formatTime } from "../sessions/format";
 import { SpectatorBoard } from "./spectator-board";
 
 async function fetchLiveSnapshot(
@@ -137,6 +137,8 @@ export function LiveSpectator({
   }, [snapshot.pollPhase, scheduleNext]);
 
   const { state } = snapshot;
+  const sessionKind =
+    state.kind === "live" || state.kind === "ended" ? extraordinaryLabel(state.session.origin) : null;
 
   return (
     <section className="flex flex-col gap-4">
@@ -165,6 +167,7 @@ export function LiveSpectator({
               {formatTime(new Date(state.session.startsAt), timeZone)} às{" "}
               {formatTime(new Date(state.session.endsAt), timeZone)}
               {state.session.venueName ? ` · ${state.session.venueName}` : ""}
+              {sessionKind ? ` · ${sessionKind}` : ""}
             </p>
           </div>
           <SpectatorBoard board={state.board} sessionEnded={state.kind === "ended"} />

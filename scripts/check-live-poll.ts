@@ -119,6 +119,7 @@ async function loadFocusSession(tx: Tx, sessionId: string) {
     select: {
       id: true,
       status: true,
+      origin: true,
       startsAt: true,
       endsAt: true,
       maxExtraMinutes: true,

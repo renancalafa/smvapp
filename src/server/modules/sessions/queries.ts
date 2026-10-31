@@ -105,10 +105,10 @@ async function buildBoard(session: SessionRow, now: Date): Promise<SessionBoard>
   };
 }
 
-/** Próxima sessão ainda não encerrada (inclui cancelada, para avisar o jogador). */
+/** Próxima sessão ainda aberta (exclui canceladas e encerradas). */
 export async function getNextSession(groupId: string, now = new Date()): Promise<SessionBoard | null> {
   const session = await db.gameSession.findFirst({
-    where: { groupId, status: { not: "FINISHED" }, endsAt: { gt: now } },
+    where: { groupId, status: { notIn: ["FINISHED", "CANCELLED"] }, endsAt: { gt: now } },
     orderBy: { startsAt: "asc" },
     select: SESSION_SELECT,
   });
@@ -123,13 +123,13 @@ export async function getSessionBoard(groupId: string, sessionId: string, now = 
 export async function listSessions(groupId: string, now = new Date()) {
   const [upcoming, recent] = await Promise.all([
     db.gameSession.findMany({
-      where: { groupId, endsAt: { gt: now } },
+      where: { groupId, status: { not: "CANCELLED" }, endsAt: { gt: now } },
       orderBy: { startsAt: "asc" },
       take: 10,
       select: { ...SESSION_SELECT, _count: { select: { registrations: { where: { status: "PARTICIPANT" } } } } },
     }),
     db.gameSession.findMany({
-      where: { groupId, endsAt: { lte: now } },
+      where: { groupId, OR: [{ endsAt: { lte: now } }, { status: "CANCELLED" }] },
       orderBy: { startsAt: "desc" },
       take: 10,
       select: { ...SESSION_SELECT, _count: { select: { registrations: { where: { status: "PARTICIPANT" } } } } },

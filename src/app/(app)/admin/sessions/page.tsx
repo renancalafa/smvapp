@@ -1,9 +1,11 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import { requireAdmin } from "@/server/auth/dal";
+import { db } from "@/server/db";
 import { listSessions, sessionPhase } from "@/server/modules/sessions/queries";
 import { syncSessionsForRead } from "@/server/modules/sessions/sync";
 import { formatDateTime } from "../../sessions/format";
+import { CreateExtraordinaryForm } from "./create-extraordinary-form";
 
 export const metadata: Metadata = { title: "Sessões" };
 
@@ -19,8 +21,15 @@ export default async function AdminSessionsPage() {
   const viewer = await requireAdmin();
   await syncSessionsForRead(viewer.group.id);
   const now = new Date();
-  const { upcoming, recent } = await listSessions(viewer.group.id, now);
+  const [{ upcoming, recent }, settings] = await Promise.all([
+    listSessions(viewer.group.id, now),
+    db.groupSettings.findUnique({
+      where: { groupId: viewer.group.id },
+      select: { maxPlayers: true },
+    }),
+  ]);
   const timeZone = viewer.group.timezone;
+  const defaultMaxPlayers = settings?.maxPlayers ?? 20;
 
   const renderList = (sessions: typeof upcoming, empty: string) =>
     sessions.length === 0 ? (
@@ -35,6 +44,7 @@ export default async function AdminSessionsPage() {
                 <p className="text-sm text-zinc-500">
                   {PHASE_LABEL[sessionPhase(session, now)]}
                   {session.origin === "EXTRAORDINARY" ? " · Extraordinária" : ""}
+                  {session.venueName ? ` · ${session.venueName}` : ""}
                 </p>
               </div>
               <span className="shrink-0 text-sm tabular-nums text-zinc-600">
@@ -54,9 +64,10 @@ export default async function AdminSessionsPage() {
         </Link>
         <h1 className="text-2xl font-semibold text-zinc-900">Sessões</h1>
         <p className="text-sm text-zinc-500">
-          As sessões semanais são criadas automaticamente conforme a configuração do grupo.
+          As sessões de quinta são criadas automaticamente. Use uma sessão extraordinária para treinos antes do lançamento.
         </p>
       </div>
+      <CreateExtraordinaryForm timeZone={timeZone} defaultMaxPlayers={defaultMaxPlayers} />
       <h2 className="text-sm font-medium text-zinc-500">Próximas</h2>
       {renderList(upcoming, "Nenhuma sessão futura criada ainda.")}
       <h2 className="text-sm font-medium text-zinc-500">Anteriores</h2>

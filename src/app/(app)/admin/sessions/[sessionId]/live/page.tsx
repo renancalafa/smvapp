@@ -6,7 +6,7 @@ import { getLiveBoard } from "@/server/modules/matches/queries";
 import { isUuid } from "@/server/modules/members/validation";
 import { getSessionBoard } from "@/server/modules/sessions/queries";
 import { syncSessionsForRead } from "@/server/modules/sessions/sync";
-import { formatSessionTitle } from "../../../../sessions/format";
+import { extraordinaryLabel, formatSessionTitle } from "../../../../sessions/format";
 import { EndSessionForm } from "./end-session-form";
 import { LiveControls } from "./live-controls";
 
@@ -36,6 +36,7 @@ export default async function LiveSessionPage({ params }: { params: Promise<{ se
         <h1 className="text-2xl font-semibold text-zinc-900">Modo Pelada</h1>
         <p className="text-sm capitalize text-zinc-600">
           {formatSessionTitle(board.session.startsAt, viewer.group.timezone)}
+          {extraordinaryLabel(board.session.origin) ? ` · ${extraordinaryLabel(board.session.origin)}` : ""}
         </p>
         {markedFinished && (
           <p className="mt-2 rounded-lg bg-zinc-900 px-3 py-2 text-sm font-medium text-white">Sessão encerrada</p>

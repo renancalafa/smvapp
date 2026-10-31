@@ -7,8 +7,16 @@ import { getLiveBoard } from "@/server/modules/matches/queries";
 import { isUuid } from "@/server/modules/members/validation";
 import { getAdminRoster, getSessionBoard } from "@/server/modules/sessions/queries";
 import { syncSessionsForRead } from "@/server/modules/sessions/sync";
-import { displayName, formatDateTime, formatSessionTitle, formatTime, phaseDescription } from "../../../sessions/format";
+import {
+  displayName,
+  extraordinaryLabel,
+  formatDateTime,
+  formatSessionTitle,
+  formatTime,
+  phaseDescription,
+} from "../../../sessions/format";
 import { RegistrationList } from "../../../sessions/registration-list";
+import { CancelExtraordinaryForm } from "./cancel-extraordinary-form";
 import { DevTestTools } from "./dev-tools";
 import { IncludeForm } from "./include-form";
 import { RegistrationActions } from "./registration-actions";
@@ -30,9 +38,15 @@ export default async function AdminSessionPage({ params }: { params: Promise<{ s
 
   const { session } = board;
   const timeZone = viewer.group.timezone;
+  const kind = extraordinaryLabel(session.origin);
   const canChangeList =
     board.phase !== "CANCELLED" && board.phase !== "CLOSED" && !live?.participantsFrozen;
   const canMarkAttendance = board.phase !== "CANCELLED" && now >= session.startsAt;
+  const canCancelExtraordinary =
+    session.origin === "EXTRAORDINARY" &&
+    board.phase !== "CANCELLED" &&
+    board.phase !== "CLOSED" &&
+    !live?.participantsFrozen;
   const hasFreeSpot = board.participants.length < board.capacity;
   const actions = (registration: (typeof board.participants)[number]) => (
     <RegistrationActions
@@ -55,8 +69,10 @@ export default async function AdminSessionPage({ params }: { params: Promise<{ s
         </Link>
         <h1 className="text-2xl font-semibold capitalize text-zinc-900">{formatSessionTitle(session.startsAt, timeZone)}</h1>
         <p className="text-sm text-zinc-600">
-          {formatTime(session.startsAt, timeZone)} às {formatTime(session.endsAt, timeZone)} · lista abre{" "}
-          {formatDateTime(session.registrationOpensAt, timeZone)} · prazo dos mensalistas{" "}
+          {formatTime(session.startsAt, timeZone)} às {formatTime(session.endsAt, timeZone)}
+          {session.venueName ? ` · ${session.venueName}` : ""}
+          {kind ? ` · ${kind}` : ""}
+          {" · "}lista abre {formatDateTime(session.registrationOpensAt, timeZone)} · prazo dos mensalistas{" "}
           {formatDateTime(session.priorityDeadlineAt, timeZone)}
         </p>
         <p className="mt-1 text-sm text-zinc-600">{phaseDescription(board.phase, session, timeZone)}</p>
@@ -139,6 +155,8 @@ export default async function AdminSessionPage({ params }: { params: Promise<{ s
         title="Removidos pelo ADMIN"
         names={board.removed.map((registration) => `${displayName(registration)} — ${registration.manualOverrideReason ?? ""}`)}
       />
+
+      {canCancelExtraordinary && <CancelExtraordinaryForm sessionId={session.id} />}
 
       {process.env.NODE_ENV === "development" && (
         <DevTestToolsSection

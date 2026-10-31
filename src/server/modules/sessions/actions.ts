@@ -1,11 +1,19 @@
 "use server";
 
 import { refresh } from "next/cache";
+import { redirect } from "next/navigation";
 import { requireAdminAction, requireViewer } from "@/server/auth/dal";
 import { formText } from "@/server/auth/validation";
 import { UserFacingError } from "@/server/errors";
 import { isUuid } from "@/server/modules/members/validation";
 import { resetSessionForDev, type DevResetLevel } from "./dev-reset";
+import { cancelExtraordinarySession, createExtraordinarySession } from "./extraordinary";
+import {
+  CANCEL_REASON_MAX_LENGTH,
+  parseExtraordinaryForm,
+  readExtraordinaryFormValues,
+  type ExtraordinaryFormValues,
+} from "./extraordinary-input";
 import {
   adminIncludeMember,
   adminPromoteRegistration,
@@ -16,6 +24,10 @@ import {
 } from "./service";
 
 export type SessionActionState = { status: "error"; error: string } | { status: "done"; message: string } | undefined;
+
+export type CreateExtraordinaryActionState =
+  | { status: "error"; error: string; values: ExtraordinaryFormValues }
+  | undefined;
 
 const UNEXPECTED_ERROR = "Não foi possível concluir agora. Tente novamente em instantes.";
 const REASON_MAX_LENGTH = 300;
@@ -197,5 +209,50 @@ export async function devResetSessionAction(
     };
   } catch (error) {
     return failure("devResetSessionAction", error);
+  }
+}
+
+/** ADMIN: agenda sessão EXTRAORDINARY (treino) com snapshot de GroupSettings. */
+export async function createExtraordinarySessionAction(
+  _previous: CreateExtraordinaryActionState,
+  formData: FormData,
+): Promise<CreateExtraordinaryActionState> {
+  const viewer = await requireAdminAction();
+  const values = readExtraordinaryFormValues(formData);
+  const parsed = parseExtraordinaryForm(values, viewer.group.timezone);
+  if (!parsed.ok) return { status: "error", error: parsed.error, values };
+  let sessionId: string;
+  try {
+    ({ sessionId } = await createExtraordinarySession(viewer, parsed.input));
+  } catch (error) {
+    if (error instanceof UserFacingError) {
+      return { status: "error", error: error.message, values };
+    }
+    console.error("createExtraordinarySessionAction", error);
+    return { status: "error", error: UNEXPECTED_ERROR, values };
+  }
+  refresh();
+  redirect(`/admin/sessions/${sessionId}`);
+}
+
+/** ADMIN: cancela sessão extraordinária antes do gameplay. */
+export async function cancelExtraordinarySessionAction(
+  _previous: SessionActionState,
+  formData: FormData,
+): Promise<SessionActionState> {
+  const viewer = await requireAdminAction();
+  const sessionId = formText(formData, "sessionId");
+  const reason = formText(formData, "reason").trim().replace(/\s+/g, " ");
+  if (!isUuid(sessionId)) return { status: "error", error: "Requisição inválida." };
+  if (!reason) return { status: "error", error: `Informe o motivo (até ${CANCEL_REASON_MAX_LENGTH} caracteres).` };
+  if (reason.length > CANCEL_REASON_MAX_LENGTH) {
+    return { status: "error", error: `O motivo pode ter no máximo ${CANCEL_REASON_MAX_LENGTH} caracteres.` };
+  }
+  try {
+    await cancelExtraordinarySession(viewer, sessionId, reason);
+    refresh();
+    return { status: "done", message: "Sessão extraordinária cancelada." };
+  } catch (error) {
+    return failure("cancelExtraordinarySessionAction", error);
   }
 }
