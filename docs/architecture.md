@@ -345,7 +345,8 @@ stateDiagram-v2
 
 ### Intervenção administrativa na fila
 
-- Comandos de ADMIN (`operationId`, `reason` obrigatório): incluir como participante, remover (status REMOVED) e reposicionar na fila.
+- **Confirmar pelo jogador (Revisão 30)**: `adminConfirmOnBehalf` reutiliza o mesmo caminho de alocação do self-CONFIRM (`confirmMemberLocked` → WAITLISTED + `rebalanceLockedSession`/`allocate`). Respeita abertura da lista, prioridade, capacidade e fila; bloqueado com votação iniciada / lista congelada / cancelada. AuditLog `REGISTRATION_ADMIN_CONFIRMED_ON_BEHALF`. UI em `/admin/sessions/[sessionId]`. Regressão: `npm run check:admin-confirm-on-behalf`.
+- Comandos de ADMIN de intervenção excepcional (`reason` obrigatório): incluir como participante (`adminIncludeMember`, UI “Incluir excepcionalmente”), remover (status REMOVED) e reposicionar na fila (ainda não implementado).
 - Reposicionar altera `queueSortAt` e, se necessário, `priorityTier`. Nunca altera `queuedAt`, que é o fato original.
 - A função `allocate` ordena por (`priorityTier`, `queueSortAt`, id) e é estável: participante incluído pelo admin não é rebaixado por recálculos automáticos.
 - Cada intervenção grava AuditLog com actor, timestamp, before/after da inscrição e reason, além dos campos `manualOverride*` na inscrição.

@@ -17,6 +17,7 @@ import {
 } from "../../../sessions/format";
 import { RegistrationList } from "../../../sessions/registration-list";
 import { CancelExtraordinaryForm } from "./cancel-extraordinary-form";
+import { ConfirmOnBehalfForm } from "./confirm-on-behalf-form";
 import { DevTestTools } from "./dev-tools";
 import { IncludeForm } from "./include-form";
 import { RegistrationActions } from "./registration-actions";
@@ -133,6 +134,23 @@ export default async function AdminSessionPage({ params }: { params: Promise<{ s
       />
       <RegistrationList title="Lista de espera" registrations={board.waitlist} empty="Ninguém na lista de espera." extra={actions} />
 
+      {canChangeList && !board.attendanceLocked && (
+        <ConfirmOnBehalfForm
+          sessionId={session.id}
+          candidates={roster.confirmable.map((member) => ({
+            value: member.id,
+            label: `${member.nickname ? `${member.user.name} (${member.nickname})` : member.user.name} · ${
+              member.modality === "MONTHLY" ? "Mensalista" : "Diarista"
+            }`,
+          }))}
+        />
+      )}
+      {canChangeList && board.attendanceLocked && (
+        <p className="rounded-xl border border-zinc-200 bg-zinc-50 px-4 py-3 text-sm text-zinc-600">
+          Votação iniciada: “Confirmar pelo jogador” fica indisponível (mesmas regras do jogador). Use inclusão
+          excepcional ou promoção com motivo.
+        </p>
+      )}
       {canChangeList && (
         <IncludeForm
           sessionId={session.id}

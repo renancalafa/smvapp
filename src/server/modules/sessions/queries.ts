@@ -152,6 +152,11 @@ export async function getAdminRoster(groupId: string, board: SessionBoard) {
   );
   return {
     noResponseMonthly: members.filter((member) => member.modality === "MONTHLY" && !registered.has(member.id)),
+    /** Ainda não estão na lista (nem espera): candidatos a confirmação normal em nome do jogador. */
+    confirmable: members.filter((member) => {
+      const status = registered.get(member.id);
+      return status !== "PARTICIPANT" && status !== "WAITLISTED" && status !== "REMOVED";
+    }),
     includable: members.filter((member) => registered.get(member.id) !== "PARTICIPANT"),
   };
 }

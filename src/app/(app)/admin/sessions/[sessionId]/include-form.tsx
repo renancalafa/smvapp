@@ -21,10 +21,11 @@ export function IncludeForm({
   const [state, formAction, pending] = useActionState(adminIncludeAction, undefined);
 
   return (
-    <form action={formAction} className="flex flex-col gap-3 rounded-xl border border-zinc-200 bg-white p-4">
-      <h2 className="font-medium text-zinc-900">Incluir participante</h2>
-      <p className="text-sm text-zinc-500">
-        Intervenção excepcional contra a ordem da fila. O horário original de confirmação é preservado.
+    <form action={formAction} className="flex flex-col gap-3 rounded-xl border border-amber-200 bg-amber-50/50 p-4">
+      <h2 className="font-medium text-zinc-900">Incluir excepcionalmente</h2>
+      <p className="text-sm text-zinc-600">
+        Intervenção administrativa: coloca o jogador direto como participante, podendo ignorar prioridade e ordem da
+        espera. Prefira “Confirmar pelo jogador” quando o pedido for só confirmar presença. Motivo obrigatório.
       </p>
       <input type="hidden" name="sessionId" value={sessionId} />
       <SelectField
@@ -44,7 +45,7 @@ export function IncludeForm({
       <TextField label="Motivo" name="reason" required maxLength={300} />
       <FormError message={state?.status === "error" ? state.error : undefined} />
       {state?.status === "done" && <p className="text-sm text-emerald-700">{state.message}</p>}
-      <SubmitButton pending={pending} label="Incluir" pendingLabel="Incluindo…" />
+      <SubmitButton pending={pending} label="Incluir excepcionalmente" pendingLabel="Incluindo…" variant="secondary" />
     </form>
   );
 }

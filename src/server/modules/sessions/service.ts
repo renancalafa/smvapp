@@ -70,6 +70,88 @@ export type SelfResponse = "CONFIRM" | "DECLINE";
 
 export type SelfResponseResult = { status: RegistrationStatus };
 
+type ConfirmMemberRow = { id: string; modality: "MONTHLY" | "DAILY" };
+
+/**
+ * Confirmação normal (jogador ou ADMIN em nome do jogador): entra WAITLISTED e
+ * `rebalanceLockedSession`/`allocate` decide PARTICIPANT vs espera. Não bypassa fila.
+ */
+async function confirmMemberLocked(
+  tx: Tx,
+  session: LockedSession,
+  now: Date,
+  input: {
+    groupId: string;
+    actorUserId: string;
+    member: ConfirmMemberRow;
+    source: "SELF" | "ADMIN";
+    auditAction: "REGISTRATION_CONFIRMED" | "REGISTRATION_ADMIN_CONFIRMED_ON_BEHALF";
+    reason: string | null;
+    targetUsername?: string;
+    actorUsername?: string;
+    removedMessage: string;
+  },
+): Promise<SelfResponseResult> {
+  const existing = await tx.sessionRegistration.findUnique({
+    where: { gameSessionId_memberId: { gameSessionId: session.id, memberId: input.member.id } },
+    select: { id: true, status: true, priorityTier: true, queuedAt: true, queueSortAt: true },
+  });
+  if (existing?.status === "REMOVED") {
+    throw new UserFacingError(input.removedMessage);
+  }
+  if (existing && QUEUED.includes(existing.status)) {
+    return { status: existing.status };
+  }
+
+  const priorityTier: PriorityTier =
+    input.member.modality === "MONTHLY" && allocationPhase(session, now) === "PRIORITY"
+      ? "MONTHLY_PRIORITY"
+      : "GENERAL";
+  const fields = {
+    status: "WAITLISTED" as const,
+    queuedAt: now,
+    queueSortAt: now,
+    priorityTier,
+    modalitySnapshot: input.member.modality,
+    source: input.source,
+    respondedAt: now,
+    promotedAt: null,
+    withdrawnAt: null,
+    manualOverrideAt: null,
+    manualOverrideByUserId: null,
+    manualOverrideReason: null,
+  };
+  const registration = existing
+    ? await tx.sessionRegistration.update({ where: { id: existing.id }, data: fields, select: { id: true } })
+    : await tx.sessionRegistration.create({
+        data: { ...fields, gameSessionId: session.id, memberId: input.member.id },
+        select: { id: true },
+      });
+  const { promoted } = await rebalanceLockedSession(tx, session, now, new Set([registration.id]));
+  const status: RegistrationStatus = promoted.includes(registration.id) ? "PARTICIPANT" : "WAITLISTED";
+  await writeAuditLog(tx, {
+    groupId: input.groupId,
+    actorUserId: input.actorUserId,
+    action: input.auditAction,
+    entityType: "SessionRegistration",
+    entityId: registration.id,
+    gameSessionId: session.id,
+    before: snapshot(existing),
+    after: { status, priorityTier, queuedAt: now.toISOString(), source: input.source },
+    reason: input.reason ?? undefined,
+    metadata:
+      input.auditAction === "REGISTRATION_ADMIN_CONFIRMED_ON_BEHALF"
+        ? {
+            targetMemberId: input.member.id,
+            targetUsername: input.targetUsername ?? null,
+            actorUsername: input.actorUsername ?? null,
+            resultingStatus: status,
+          }
+        : undefined,
+  });
+  return { status };
+}
+
 /**
  * CONFIRM: entra na alocação com novo queuedAt (participante se houver vaga elegível,
  * senão lista de espera). Mensalista antes do prazo entra com prioridade.
@@ -99,42 +181,15 @@ export async function respondToSession(
     }
 
     if (response === "CONFIRM") {
-      if (existing && QUEUED.includes(existing.status)) return { status: existing.status };
-      const priorityTier: PriorityTier =
-        member.modality === "MONTHLY" && allocationPhase(session, now) === "PRIORITY" ? "MONTHLY_PRIORITY" : "GENERAL";
-      const fields = {
-        status: "WAITLISTED" as const,
-        queuedAt: now,
-        queueSortAt: now,
-        priorityTier,
-        modalitySnapshot: member.modality,
-        source: "SELF" as const,
-        respondedAt: now,
-        promotedAt: null,
-        withdrawnAt: null,
-        manualOverrideAt: null,
-        manualOverrideByUserId: null,
-        manualOverrideReason: null,
-      };
-      const registration = existing
-        ? await tx.sessionRegistration.update({ where: { id: existing.id }, data: fields, select: { id: true } })
-        : await tx.sessionRegistration.create({
-            data: { ...fields, gameSessionId: session.id, memberId: member.id },
-            select: { id: true },
-          });
-      const { promoted } = await rebalanceLockedSession(tx, session, now, new Set([registration.id]));
-      const status: RegistrationStatus = promoted.includes(registration.id) ? "PARTICIPANT" : "WAITLISTED";
-      await writeAuditLog(tx, {
+      return confirmMemberLocked(tx, session, now, {
         groupId: viewer.group.id,
         actorUserId: viewer.user.id,
-        action: "REGISTRATION_CONFIRMED",
-        entityType: "SessionRegistration",
-        entityId: registration.id,
-        gameSessionId: session.id,
-        before: snapshot(existing),
-        after: { status, priorityTier, queuedAt: now.toISOString() },
+        member,
+        source: "SELF",
+        auditAction: "REGISTRATION_CONFIRMED",
+        reason: null,
+        removedMessage: "Você foi removido desta sessão por um administrador. Fale com um ADMIN.",
       });
-      return { status };
     }
 
     if (existing && QUEUED.includes(existing.status)) {
@@ -178,6 +233,62 @@ export async function respondToSession(
       after: { status: "DECLINED" },
     });
     return { status: "DECLINED" };
+  });
+}
+
+/**
+ * ADMIN confirma presença em nome de um jogador ativo, com as mesmas regras de
+ * alocação do self-CONFIRM (prioridade, capacidade, fila). Não bypassa a espera.
+ * Bloqueado com votação iniciada / lista fechada / sessão cancelada — igual ao jogador.
+ */
+export async function adminConfirmOnBehalf(
+  viewer: Viewer,
+  sessionId: string,
+  input: { memberId: string; reason: string },
+): Promise<SelfResponseResult> {
+  if (viewer.member.role !== "ADMIN") {
+    throw new UserFacingError("Acesso restrito a administradores.");
+  }
+  const reason = input.reason.trim().replace(/\s+/g, " ");
+  if (!reason) throw new UserFacingError("Informe o motivo da confirmação.");
+  if (reason.length > 300) throw new UserFacingError("O motivo pode ter no máximo 300 caracteres.");
+
+  return withLockedSession(viewer.group.id, sessionId, async (tx, session, now) => {
+    await assertListChangesAllowed(tx, session, now);
+    if (await drawVotingStarted(tx, session.id)) {
+      throw new UserFacingError(
+        "Votação iniciada. Use “Incluir excepcionalmente” ou “Promover” se precisar alterar a lista.",
+      );
+    }
+    if (now < session.registrationOpensAt) {
+      throw new UserFacingError("A lista desta sessão ainda não abriu.");
+    }
+
+    const member = await tx.groupMember.findFirst({
+      where: { id: input.memberId, groupId: viewer.group.id },
+      select: {
+        id: true,
+        status: true,
+        modality: true,
+        user: { select: { username: true } },
+      },
+    });
+    if (!member) throw new UserFacingError("Jogador não encontrado.");
+    if (member.status !== "ACTIVE") {
+      throw new UserFacingError("Jogadores inativos não participam das sessões.");
+    }
+
+    return confirmMemberLocked(tx, session, now, {
+      groupId: viewer.group.id,
+      actorUserId: viewer.user.id,
+      member: { id: member.id, modality: member.modality },
+      source: "ADMIN",
+      auditAction: "REGISTRATION_ADMIN_CONFIRMED_ON_BEHALF",
+      reason,
+      targetUsername: member.user.username,
+      actorUsername: viewer.user.username,
+      removedMessage: "Esse jogador foi removido desta sessão. Use inclusão excepcional se precisar recolocar.",
+    });
   });
 }
 

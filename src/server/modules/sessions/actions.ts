@@ -15,6 +15,7 @@ import {
   type ExtraordinaryFormValues,
 } from "./extraordinary-input";
 import {
+  adminConfirmOnBehalf,
   adminIncludeMember,
   adminPromoteRegistration,
   adminRemoveRegistration,
@@ -127,9 +128,36 @@ export async function adminIncludeAction(
   try {
     await adminIncludeMember(viewer, sessionId, { memberId, reason, replaceRegistrationId: replace || null });
     refresh();
-    return { status: "done", message: "Jogador incluído como participante." };
+    return { status: "done", message: "Jogador incluído como participante (intervenção excepcional)." };
   } catch (error) {
     return failure("adminIncludeAction", error);
+  }
+}
+
+export async function adminConfirmOnBehalfAction(
+  _previous: SessionActionState,
+  formData: FormData,
+): Promise<SessionActionState> {
+  const viewer = await requireAdminAction();
+  const sessionId = formText(formData, "sessionId");
+  const memberId = formText(formData, "memberId");
+  const reason = readReason(formData);
+  if (!isUuid(sessionId) || !isUuid(memberId)) {
+    return { status: "error", error: "Escolha o jogador a confirmar." };
+  }
+  if (!reason) return { status: "error", error: `Informe o motivo (até ${REASON_MAX_LENGTH} caracteres).` };
+  try {
+    const result = await adminConfirmOnBehalf(viewer, sessionId, { memberId, reason });
+    refresh();
+    if (result.status === "PARTICIPANT") {
+      return { status: "done", message: "Confirmado pelo jogador: entrou como participante." };
+    }
+    if (result.status === "WAITLISTED") {
+      return { status: "done", message: "Confirmado pelo jogador: entrou na lista de espera." };
+    }
+    return { status: "done", message: `Confirmação registrada (${result.status}).` };
+  } catch (error) {
+    return failure("adminConfirmOnBehalfAction", error);
   }
 }
 

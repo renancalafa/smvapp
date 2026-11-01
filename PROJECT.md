@@ -325,9 +325,15 @@ Exemplo:
 
 "Você entrou na pelada! Uma vaga foi liberada para hoje."
 
+### Confirmação pelo ADMIN em nome do jogador
+
+ADMIN pode confirmar presença **pelo jogador** (pedido do mensalista/diarista), na ficha da sessão (`/admin/sessions/[sessionId]`, “Confirmar pelo jogador”).
+
+Essa ação usa **as mesmas regras** da confirmação do próprio jogador (abertura da lista, prioridade dos mensalistas, capacidade, ordem da espera e promoção automática). O resultado pode ser PARTICIPANT ou WAITLISTED. Exige reason e gera AuditLog `REGISTRATION_ADMIN_CONFIRMED_ON_BEHALF` (ator ADMIN, alvo, sessão, motivo e status resultante). Não altera a sessão autenticada do jogador. Quem já está PARTICIPANT ou WAITLISTED não muda de posição. Com a votação iniciada, esta ação fica bloqueada (igual ao jogador); use intervenção excepcional ou promoção explícita.
+
 ### Intervenção administrativa na fila
 
-ADMIN pode, excepcionalmente, incluir, remover ou reposicionar um participante contrariando a ordem normal da fila.
+ADMIN pode, excepcionalmente, incluir, remover ou reposicionar um participante contrariando a ordem normal da fila (“Incluir excepcionalmente” na UI).
 
 É uma intervenção manual excepcional e exige:
 
@@ -337,6 +343,8 @@ ADMIN pode, excepcionalmente, incluir, remover ou reposicionar um participante c
 O timestamp original de confirmação do jogador é preservado; a intervenção altera apenas a posição efetiva.
 
 Uma intervenção administrativa nunca pode fazer a sessão ultrapassar sua capacidade. Se a sessão estiver cheia, o ADMIN deve remover ou reposicionar outro participante como parte da mesma intervenção.
+
+Não use inclusão excepcional só para “confirmar a pedido”: use “Confirmar pelo jogador”.
 
 ### Antes da votação do sorteio
 
@@ -1654,6 +1662,10 @@ Correção do calendário financeiro. Substitui o fechamento manual da Revisão 
 ### Revisão 29 — 31/10/2026
 
 - Edição da nota base (`baseRating` 1–5) por ADMIN na ficha do jogador: UI “Editar nota” com pré-seleção e confirmação; `changeMemberRating` com FOR UPDATE + `updateMany` otimista; AuditLog `MEMBER_RATING_CHANGED`; sorteios existentes não recalculam (`strengthSnapshot`); sorteios futuros usam a nota atual. Script `npm run check:member-rating`.
+
+### Revisão 30 — 31/10/2026
+
+- Confirmação ADMIN em nome do jogador (`adminConfirmOnBehalf`): mesmas regras de alocação do self-CONFIRM; AuditLog `REGISTRATION_ADMIN_CONFIRMED_ON_BEHALF`; UI “Confirmar pelo jogador” vs “Incluir excepcionalmente” (`adminIncludeMember` inalterado). Script `npm run check:admin-confirm-on-behalf`.
 
 ### Revisão 24 — 18/10/2026
 
