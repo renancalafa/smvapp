@@ -14,7 +14,10 @@ Runbook do primeiro deploy do SMV. **Não** rode `migrate reset` em produção. 
 | --- | --- | --- |
 | `DATABASE_URL` | Neon **pooled** (`…-pooler…`, `sslmode=require`) | Production (e Preview se quiser banco separado) |
 | `DIRECT_URL` | Neon **direct** (sem `-pooler`) | Só necessário na máquina/CI que roda `migrate` / `bootstrap` — pode ficar só no shell local, não precisa estar na Vercel se o build não migrar |
-| `CRON_SECRET` | Segredo longo aleatório | Production (obrigatório para o cron) |
+| `CRON_SECRET` | Segredo longo aleatório | Production. Protege `/api/cron/tick`; sem ele a rota responde 401. Necessário só se algum agendador chamar a rota (hoje não há cron, veja o passo 6) |
+| `NEXT_PUBLIC_VAPID_PUBLIC_KEY` | Chave pública VAPID (`npx web-push generate-vapid-keys`) | Production; sem ela o push fica desligado |
+| `VAPID_PRIVATE_KEY` | Chave privada VAPID do mesmo par (Sensitive) | Production |
+| `VAPID_SUBJECT` | `mailto:voce@dominio` | Production |
 | `NODE_ENV` | definido pela Vercel como `production` | — |
 
 Não coloquem `.env` no Git. O runtime da app usa só `DATABASE_URL` (pool serverless com `max: 1` em `src/server/db.ts`).
@@ -76,15 +79,23 @@ npm run bootstrap -- --username seu.usuario --name "Seu Nome" --modality MONTHLY
 ### 5. Configurar a Vercel
 
 1. Importe o repositório; Framework: Next.js; Build: `npm run build` (padrão; **sem** `migrate deploy`).
-2. Defina `DATABASE_URL` (pooled) e `CRON_SECRET` em Production.
+2. Defina em Production:
+   - `DATABASE_URL` (pooled);
+   - `CRON_SECRET`, se algum agendador for chamar `/api/cron/tick` (passo 6);
+   - para notificações push: `NEXT_PUBLIC_VAPID_PUBLIC_KEY`, `VAPID_PRIVATE_KEY` (marque como Sensitive) e `VAPID_SUBJECT`, de um par gerado só para produção (`docs/push-notifications.md`). Sem as três, o app funciona normalmente com o push desligado. Variáveis novas ou alteradas só valem depois de um novo deploy.
 3. Deploy a partir do branch aprovado.
 4. Abra `https://<dominio>/login`, entre com a senha temporária e troque a senha.
 
-### 6. Cron (recomendado)
+### 6. Cron (desligado no plano Hobby)
 
-O arquivo `vercel.json` agenda `GET /api/cron/tick` (abertura de lista / sessões semanais). A Vercel envia `Authorization: Bearer $CRON_SECRET` automaticamente quando `CRON_SECRET` está definido.
+Hoje **não há cron**: o `vercel.json` que agendava `GET /api/cron/tick` a cada 15 minutos foi removido (commit `8132322`), porque o plano Hobby só aceita cron no máximo uma vez por dia. As páginas chamam `syncSessionsForRead` sob demanda (abertura de lista, sessões semanais, prazos), então o app funciona sem ele; a diferença é que nada acontece enquanto ninguém abre o app.
 
-Sem cron, as páginas ainda chamam `syncSessionsForRead` sob demanda — o tick é garantia extra.
+Para reativar:
+
+- **Plano Pro**: recrie o `vercel.json` com `{ "crons": [{ "path": "/api/cron/tick", "schedule": "*/15 * * * *" }] }` e defina `CRON_SECRET`; a Vercel envia `Authorization: Bearer $CRON_SECRET` sozinha.
+- **Hobby**: um cron diário é aceito, mas não substitui o tick de 15 minutos. Outra opção é um agendador externo chamando a rota com o cabeçalho `Authorization: Bearer <CRON_SECRET>`.
+
+A rota continua protegida: sem `CRON_SECRET` definido, ou com segredo errado, responde 401.
 
 ### 7. Smoke test pós-deploy
 
@@ -93,7 +104,8 @@ Sem cron, as páginas ainda chamam `syncSessionsForRead` sob demanda — o tick 
 - [ ] `/live` atualiza (poll; aba oculta para)
 - [ ] `/stats` carrega
 - [ ] Ferramentas “dev reset” **não** aparecem
-- [ ] `GET /api/cron/tick` sem secret → 401; com secret → `{ ok: true, … }`
+- [ ] `GET /api/cron/tick` sem secret → 401; com secret (se `CRON_SECRET` estiver definido) → `{ ok: true, … }`
+- [ ] Conta → Ativar notificações → Enviar notificação de teste chega no Android e no iPhone instalado (`docs/push-notifications.md`)
 
 ## Rollback (cuidados)
 

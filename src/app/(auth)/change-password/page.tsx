@@ -1,7 +1,7 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import { requireViewerAllowingPasswordChange } from "@/server/auth/dal";
-import { logoutAction } from "@/server/auth/actions";
+import { LogoutForm } from "@/components/logout-form";
 import { ChangePasswordForm } from "./change-password-form";
 
 export const metadata: Metadata = { title: "Trocar senha" };
@@ -27,11 +27,7 @@ export default async function ChangePasswordPage() {
             Voltar
           </Link>
         )}
-        <form action={logoutAction}>
-          <button type="submit" className="flex min-h-11 items-center px-1 text-zinc-600 hover:underline">
-            Sair
-          </button>
-        </form>
+        <LogoutForm buttonClassName="flex min-h-11 items-center px-1 text-zinc-600 hover:underline" />
       </div>
     </>
   );

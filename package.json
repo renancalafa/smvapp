@@ -23,6 +23,9 @@
     "check:member-role": "tsx scripts/check-member-role.ts",
     "check:member-rating": "tsx scripts/check-member-rating.ts",
     "check:extraordinary": "tsx scripts/check-extraordinary.ts",
+    "check:push": "tsx scripts/check-push.ts",
+    "check:push-client": "tsx scripts/check-push-client.ts",
+    "check:sw-push": "tsx scripts/check-sw-push.ts",
     "icons": "tsx scripts/generate-icons.tsx",
     "postinstall": "prisma generate"
   },
@@ -31,13 +34,15 @@
     "@prisma/client": "7.10.0",
     "next": "16.3.8",
     "react": "19.2.8",
-    "react-dom": "19.2.8"
+    "react-dom": "19.2.8",
+    "web-push": "3.6.7"
   },
   "devDependencies": {
     "@tailwindcss/postcss": "^4",
     "@types/node": "^20",
     "@types/react": "^19",
     "@types/react-dom": "^19",
+    "@types/web-push": "3.6.4",
     "dotenv": "17.4.2",
     "eslint": "^9",
     "eslint-config-next": "16.3.8",

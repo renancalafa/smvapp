@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { logoutAction } from "@/server/auth/actions";
+import { LogoutForm } from "@/components/logout-form";
 import { requireViewer } from "@/server/auth/dal";
 import { BottomNav, SideNav, type NavItem } from "./app-nav";
 
@@ -37,14 +37,10 @@ export default async function AppLayout({ children }: { children: React.ReactNod
         <div className="mt-auto border-t border-zinc-200 pt-4">
           <p className="truncate px-3 text-sm font-medium text-zinc-900">{viewer.user.name}</p>
           <p className="truncate px-3 text-xs text-zinc-500">{viewer.user.username}</p>
-          <form action={logoutAction} className="mt-2">
-            <button
-              type="submit"
-              className="flex min-h-11 w-full items-center rounded-lg px-3 text-sm font-medium text-zinc-600 hover:bg-zinc-100 hover:text-zinc-900"
-            >
-              Sair
-            </button>
-          </form>
+          <LogoutForm
+            className="mt-2"
+            buttonClassName="flex min-h-11 w-full items-center rounded-lg px-3 text-sm font-medium text-zinc-600 hover:bg-zinc-100 hover:text-zinc-900"
+          />
         </div>
       </aside>
 

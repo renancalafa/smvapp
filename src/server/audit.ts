@@ -47,7 +47,8 @@ export type AuditAction =
   | "MATCH_PENALTY_SET"
   | "MATCH_COMMAND_CONFLICT"
   | "DEV_RESET_MATCHES"
-  | "DEV_RESET_DRAW_AND_MATCHES";
+  | "DEV_RESET_DRAW_AND_MATCHES"
+  | "PUSH_TEST_SENT";
 
 /** Entidades referenciadas no AuditLog (AuditLog.entityType). */
 export type AuditEntityType =
@@ -59,7 +60,8 @@ export type AuditEntityType =
   | "Draw"
   | "DrawVote"
   | "Match"
-  | "MatchEvent";
+  | "MatchEvent"
+  | "PushSubscription";
 
 export async function writeAuditLog(
   tx: Prisma.TransactionClient,

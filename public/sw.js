@@ -10,6 +10,9 @@
 //
 // Ao mudar a lista de pré-cache ou a política, troque CACHE_VERSION: o activate apaga
 // os caches antigos.
+//
+// Web Push (PROJECT.md, seção 29): payload JSON { title, body, url } com url interna.
+// Payload ausente ou inválido mostra um aviso genérico (o Chrome exige notificação visível).
 
 const CACHE_VERSION = "v2";
 const CACHE_PREFIX = "smv-static-";
@@ -97,4 +100,80 @@ self.addEventListener("fetch", (event) => {
   if (isStaticAsset(url) && !url.search) {
     event.respondWith(cacheFirst(request));
   }
+});
+
+const DEFAULT_NOTIFICATION = {
+  title: "SMV",
+  body: "Há uma novidade na pelada. Toque para abrir.",
+  url: "/",
+};
+const MAX_TITLE_LENGTH = 80;
+const MAX_BODY_LENGTH = 180;
+
+function clampText(value, max, fallback) {
+  if (typeof value !== "string") return fallback;
+  const text = value.trim();
+  if (!text) return fallback;
+  return text.length <= max ? text : `${text.slice(0, max - 1)}…`;
+}
+
+/** Caminho ("/x") ou URL absoluta da própria origem; qualquer outra coisa abre a página inicial. */
+function safeInternalUrl(value) {
+  const home = new URL("/", self.location.origin).href;
+  if (typeof value !== "string") return home;
+  const isPath = value.startsWith("/") && !value.startsWith("//") && !value.startsWith("/\\");
+  if (!isPath && !value.startsWith(`${self.location.origin}/`)) return home;
+  const url = new URL(value, self.location.origin);
+  return url.origin === self.location.origin ? url.href : home;
+}
+
+function parsePushPayload(data) {
+  let raw = null;
+  if (data) {
+    try {
+      raw = data.json();
+    } catch {
+      raw = null;
+    }
+  }
+  if (typeof raw !== "object" || raw === null) raw = {};
+  return {
+    title: clampText(raw.title, MAX_TITLE_LENGTH, DEFAULT_NOTIFICATION.title),
+    body: clampText(raw.body, MAX_BODY_LENGTH, DEFAULT_NOTIFICATION.body),
+    url: safeInternalUrl(raw.url ?? DEFAULT_NOTIFICATION.url),
+  };
+}
+
+self.addEventListener("push", (event) => {
+  const payload = parsePushPayload(event.data);
+  event.waitUntil(
+    self.registration.showNotification(payload.title, {
+      body: payload.body,
+      icon: "/icons/icon-192.png",
+      lang: "pt-BR",
+      data: { url: payload.url },
+    }),
+  );
+});
+
+async function openOrFocus(targetUrl) {
+  const windows = await self.clients.matchAll({ type: "window", includeUncontrolled: true });
+  const exact = windows.find((client) => client.url === targetUrl);
+  if (exact) return exact.focus();
+  const sameOrigin = windows.find((client) => new URL(client.url).origin === self.location.origin);
+  if (sameOrigin) {
+    try {
+      const navigated = await sameOrigin.navigate(targetUrl);
+      if (navigated) return navigated.focus();
+    } catch {
+      // navigate() falha em janelas não controladas por este worker; abre uma nova.
+    }
+  }
+  return self.clients.openWindow(targetUrl);
+}
+
+self.addEventListener("notificationclick", (event) => {
+  event.notification.close();
+  const data = event.notification.data;
+  event.waitUntil(openOrFocus(safeInternalUrl(data && data.url)));
 });

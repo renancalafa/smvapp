@@ -88,7 +88,6 @@ src/
     (app)/live            # Ao Vivo (espectador, PLAYER + ADMIN)
     (app)/admin/sessions/[sessionId]/live  # Modo Pelada (ADMIN)
     api/cron/[job]/route.ts
-    api/push/route.ts
   domain/                 # PURO: sem imports de next/prisma; 100% testável (Vitest)
     presence/allocate.ts
     teams/strength.ts     # interface StrengthProvider
@@ -99,15 +98,19 @@ src/
     finance/monthlyFee.ts # previsão/congelamento da mensalidade e divisão em centavos
     finance/cycleDates.ts # referência, freezesAt e prazos do ciclo; ciclo-alvo de uma diária
     schedule/sessionDates.ts
+    push/subscription.ts  # validação da inscrição, hosts de push permitidos, payload mínimo
   server/
     db.ts
     auth/
     commands/             # executor idempotente + versionamento otimista
     modules/<modulo>/     # service.ts, policy.ts, schemas.ts (zod), queries.ts, dto.ts
+    modules/notifications/  # push.ts (web-push), handlers.ts, actions.ts
   components/
   lib/
     pwa/config.ts         # nome, cores, URL do service worker
     pwa/service-worker-registrar.tsx
+    pwa/platform.ts       # iOS / app instalado
+    pwa/push-client.ts    # chave VAPID em bytes, espera do service worker
 public/
   sw.js                   # service worker (JS puro, sem build)
   offline.html            # fallback sem conexão (autocontido)
@@ -131,7 +134,7 @@ Decisões e trade-offs:
   - Idempotência por `operationId` para todos os comandos relevantes (seção 6).
 - **Tempo real no Modo Pelada**: com vários admins operando, cada tela de admin faz polling curto (2-3s) e sempre recebe o estado mais recente (com `version`) na resposta de cada comando. A rota `/live` (espectadores autenticados) faz polling de ~2–3s via `router.refresh()` com `dynamic = "force-dynamic"`; o service worker não cacheia navegações nem dados de sessão. Pusher/Ably entram só se o polling não bastar.
 - **Cronômetro**: persistir `startedAt`, `pausedAt` e `pausedTotalMs`; o tempo decorrido é calculado no cliente.
-- **PWA e Web Push** (Revisão 16): sem dependências; `app/manifest.ts` + service worker manual em `public/sw.js` + Web Push com VAPID (envio ainda não implementado).
+- **PWA e Web Push** (Revisão 16): `app/manifest.ts` + service worker manual em `public/sw.js` + Web Push com VAPID pela biblioteca `web-push` (única dependência do PWA; Etapa 1 implementada, veja abaixo).
   - **Manifest**: nome e `short_name` "SMV", `display: standalone`, `start_url`, `scope` e `id` "/", `theme_color` #047857 (o mesmo do `viewport` do layout raiz). Ícones 192 e 512 em `purpose: any` e `maskable` (conteúdo dentro da zona segura), `apple-touch-icon` 180 e `favicon.ico`, todos gerados por `npm run icons` com `next/og` e versionados. O layout raiz declara `appleWebApp` (título e barra de status no iOS) e `viewportFit: cover`; o layout usa `env(safe-area-inset-*)`.
   - **Service worker**: registrado só em produção, com escopo "/" e `updateViaCache: "none"`; `/sw.js` é servido com `Cache-Control: no-cache, no-store`. Em desenvolvimento, o registrador remove registros antigos, porque os chunks do dev server não têm hash. Política de cache:
     - pré-cache: `/offline.html` e os ícones;
@@ -142,13 +145,17 @@ Decisões e trade-offs:
   - **Dados sensíveis**: o service worker não guarda nada que dependa de usuário. As páginas logadas já saem com `Cache-Control: private, no-store` (rotas dinâmicas por usarem cookies), então também não ficam no cache HTTP. Por isso o logout não precisa limpar caches.
   - **Proxy**: o matcher ignora caminhos com extensão, então manifest, `sw.js`, `offline.html`, ícones e favicon são públicos. Nenhum deles tem dado de usuário.
   - **Navegação**: no celular, barra inferior fixa (alvos de 64px de altura); no desktop (`md`), coluna lateral com usuário e "Sair". A lista de itens é montada no servidor: o item Admin só é enviado ao cliente para ADMIN, e `/admin` continua protegido por `requireAdmin()`.
-  - **Web Push, preparação** (ainda não implementado):
-    - o schema já tem `PushSubscription`, `Notification` (outbox com `dedupeKey`) e `NotificationDelivery`;
-    - o service worker de escopo "/" é o que receberá `push` e `notificationclick`; não haverá um segundo service worker;
-    - variáveis reservadas em `.env.example`: `NEXT_PUBLIC_VAPID_PUBLIC_KEY`, `VAPID_PRIVATE_KEY` e `VAPID_SUBJECT`;
-    - fluxo previsto: a tela Conta pede permissão por gesto do usuário (exigência do iOS) e chama `pushManager.subscribe` com a chave pública; uma Server Action grava `PushSubscription` (endpoint, `p256dh`, `auth`) do usuário logado. Os services criam `Notification` na mesma transação do evento; o dispatcher (`after()` ou cron) envia com VAPID, registra `NotificationDelivery` e apaga a inscrição em 404/410. No SW, `push` mostra a notificação e `notificationclick` abre a URL do payload só se for da mesma origem;
-    - payload mínimo (título, texto curto, URL), sem valores financeiros (PROJECT.md, seção 29);
+  - **Web Push, Etapa 1** (detalhes, variáveis e testes em `docs/push-notifications.md`):
+    - sem migration: usa `PushSubscription` como está (endpoint único, uma linha por aparelho, várias por usuário);
+    - a tela Conta pede permissão só no clique (exigência do iOS), chama `pushManager.subscribe` com a chave pública e grava a inscrição por Server Action; mostra permissão, estado do aparelho e número de aparelhos; desativa e envia teste;
+    - Server Actions exigem sessão válida sem senha temporária; remover e testar filtram por `(userId, endpoint)`, então ninguém escolhe destinatário. Só endpoints HTTPS de serviços de push conhecidos são aceitos (o servidor faz POST neles);
+    - envio com `web-push` e VAPID (`NEXT_PUBLIC_VAPID_PUBLIC_KEY`, `VAPID_PRIVATE_KEY`, `VAPID_SUBJECT`; a privada só no servidor); 404/410 apagam a inscrição;
+    - teste limitado a 1 a cada 30 s por usuário e aparelho, via `AuditLog` (`PUSH_TEST_SENT`) com `FOR UPDATE` na inscrição, sem migration;
+    - "Sair" cancela a inscrição deste navegador e apaga só a linha dele antes de revogar a sessão; falhas não impedem o logout;
+    - no SW, `push` mostra a notificação (payload ausente ou inválido vira aviso genérico) e `notificationclick` foca ou abre a URL, só se for da mesma origem; o cache não mudou;
+    - payload mínimo (título, texto curto, caminho interno), sem valores financeiros (PROJECT.md, seção 29);
     - no iOS, push só funciona com o app instalado (16.4+).
+  - **Web Push, próxima etapa** (não implementada): os services criam `Notification` na mesma transação do evento; o dispatcher (`after()` ou cron) envia, registra `NotificationDelivery` e apaga a inscrição em 404/410.
 - **Banco na Vercel**: Postgres gerenciado (Neon, Supabase ou Prisma Postgres) com URL pooled para runtime e URL direta para migrations.
 - **Fuso horário**: `timestamptz` em UTC; `Group.timezone = America/Sao_Paulo`.
 - **Dinheiro**: valores em **centavos inteiros** (`Int`). Trade-off: `Decimal` do Prisma é exato, mas devolve objetos Decimal.js incômodos na UI e nos testes. Centavos inteiros são exatos e simples. A formatação em reais fica só na apresentação.

@@ -1,29 +1,18 @@
 "use client";
 
 import { useSyncExternalStore } from "react";
+import { isIos, isStandalone, subscribeToDisplayMode } from "@/lib/pwa/platform";
 
 type Platform = "installed" | "ios" | "other";
 
-const STANDALONE_QUERY = "(display-mode: standalone)";
-
 function getPlatform(): Platform {
-  const iosStandalone = (navigator as Navigator & { standalone?: boolean }).standalone === true;
-  if (iosStandalone || window.matchMedia(STANDALONE_QUERY).matches) return "installed";
-  const isIos =
-    /iPad|iPhone|iPod/.test(navigator.userAgent) ||
-    (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1);
-  return isIos ? "ios" : "other";
-}
-
-function subscribe(onChange: () => void) {
-  const query = window.matchMedia(STANDALONE_QUERY);
-  query.addEventListener("change", onChange);
-  return () => query.removeEventListener("change", onChange);
+  if (isStandalone()) return "installed";
+  return isIos() ? "ios" : "other";
 }
 
 /** Instruções de instalação; some quando o app já está aberto como instalado. */
 export function InstallHint() {
-  const platform = useSyncExternalStore<Platform | null>(subscribe, getPlatform, () => null);
+  const platform = useSyncExternalStore<Platform | null>(subscribeToDisplayMode, getPlatform, () => null);
   if (platform === null || platform === "installed") return null;
 
   return (

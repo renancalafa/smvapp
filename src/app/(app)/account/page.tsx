@@ -1,14 +1,17 @@
 import type { Metadata } from "next";
 import Link from "next/link";
-import { logoutAction } from "@/server/auth/actions";
+import { LogoutForm } from "@/components/logout-form";
 import { requireViewer } from "@/server/auth/dal";
+import { countPushSubscriptions, getVapidPublicKey } from "@/server/modules/notifications/push";
 import { MODALITY_LABEL, ROLE_LABEL, STATUS_LABEL } from "../labels";
 import { InstallHint } from "./install-hint";
+import { PushSettings } from "./push-settings";
 
 export const metadata: Metadata = { title: "Conta" };
 
 export default async function AccountPage() {
   const viewer = await requireViewer();
+  const pushDeviceCount = await countPushSubscriptions(viewer.user.id);
 
   return (
     <section className="flex flex-col gap-4">
@@ -29,6 +32,8 @@ export default async function AccountPage() {
 
       <InstallHint />
 
+      <PushSettings vapidPublicKey={getVapidPublicKey()} deviceCount={pushDeviceCount} />
+
       <div className="flex flex-col gap-2">
         <Link
           href={`/stats/players/${viewer.member.id}`}
@@ -48,14 +53,7 @@ export default async function AccountPage() {
         >
           Trocar senha
         </Link>
-        <form action={logoutAction}>
-          <button
-            type="submit"
-            className="flex min-h-12 w-full items-center justify-center rounded-xl px-4 font-medium text-red-700 active:bg-red-50"
-          >
-            Sair
-          </button>
-        </form>
+        <LogoutForm buttonClassName="flex min-h-12 w-full items-center justify-center rounded-xl px-4 font-medium text-red-700 active:bg-red-50" />
       </div>
     </section>
   );

@@ -2,10 +2,17 @@
 
 import { headers } from "next/headers";
 import { redirect } from "next/navigation";
+import { cleanupPushOnLogout } from "@/server/modules/notifications/handlers";
 import { requireViewerAllowingPasswordChange } from "./dal";
 import { clientIpFromHeaders } from "./login-throttle";
 import { changePassword, login, logout } from "./service";
-import { deleteSessionCookie, readSessionToken, revokeSessionByToken, setSessionCookie } from "./session";
+import {
+  deleteSessionCookie,
+  readSessionToken,
+  revokeSessionByToken,
+  setSessionCookie,
+  validateSessionToken,
+} from "./session";
 import { formText } from "./validation";
 
 export type LoginFormState = { error: string; username: string } | undefined;
@@ -74,9 +81,19 @@ export async function changePasswordAction(
   redirect("/");
 }
 
-export async function logoutAction(): Promise<void> {
+/** `pushEndpoint` vem do LogoutForm: a inscrição deste aparelho, já cancelada no navegador. */
+export async function logoutAction(formData?: FormData): Promise<void> {
   const token = await readSessionToken();
   if (token) {
+    const pushEndpoint = formData ? formText(formData, "pushEndpoint") : "";
+    if (pushEndpoint) {
+      try {
+        const session = await validateSessionToken(token);
+        await cleanupPushOnLogout(session?.user.id ?? null, pushEndpoint);
+      } catch (error) {
+        console.error("logoutAction: limpeza do push", error);
+      }
+    }
     try {
       await logout(token);
     } catch (error) {
