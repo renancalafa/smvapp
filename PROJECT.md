@@ -932,7 +932,7 @@ A experiência principal será em smartphones.
 
 Também deve funcionar normalmente pelo navegador em desktop.
 
-O app instalado se chama SMV e abre em tela cheia (modo standalone), sem a barra do navegador.
+O app instalado se chama Safadeza e Ma Vontade FC e abre em tela cheia (modo standalone), sem a barra do navegador.
 
 No celular, a navegação fica numa barra inferior com botões grandes para o toque. No desktop, fica numa coluna lateral.
 
@@ -1631,7 +1631,7 @@ Correção do calendário financeiro. Substitui o fechamento manual da Revisão 
 
 ### Revisão 16 — 10/10/2026
 
-- PWA instalável com o nome SMV, navegação mobile-first (barra inferior no celular, coluna lateral no desktop) e página "Sem conexão". O aparelho guarda só arquivos estáticos públicos, nunca páginas logadas, dados pessoais ou financeiros (seção 28).
+- PWA instalável com o nome Safadeza e Ma Vontade FC, navegação mobile-first (barra inferior no celular, coluna lateral no desktop) e página "Sem conexão". O aparelho guarda só arquivos estáticos públicos, nunca páginas logadas, dados pessoais ou financeiros (seção 28).
 - Notificações push levam só título, texto curto e link, sem valores financeiros (seção 29).
 
 ### Revisão 17 — 10/10/2026

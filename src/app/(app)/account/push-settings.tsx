@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState, useSyncExternalStore } from "react";
+import { APP_NAME } from "@/lib/pwa/config";
 import { isIos, isStandalone, subscribeToDisplayMode } from "@/lib/pwa/platform";
 import {
   readDeviceSubscription,
@@ -30,8 +31,8 @@ const STALE_HELP =
   "Toque em “Ativar notificações” para reativar.";
 
 const DENIED_HELP =
-  "As notificações estão bloqueadas para o SMV. Libere nas configurações do site no navegador " +
-  "(ícone ao lado do endereço) ou, no iPhone, em Ajustes › Notificações › SMV.";
+  `As notificações estão bloqueadas para o ${APP_NAME}. Libere nas configurações do site no navegador ` +
+  `(ícone ao lado do endereço) ou, no iPhone, em Ajustes › Notificações › ${APP_NAME}.`;
 
 function getSupport(): Support {
   if (process.env.NODE_ENV !== "production") return "development";
@@ -160,7 +161,7 @@ export function PushSettings({
       "Em desenvolvimento o service worker não é registrado. Para testar, use a versão de produção (npm run build e npm start).";
   } else if (support === "ios-install") {
     notice =
-      "No iPhone e no iPad, as notificações só funcionam com o SMV instalado na Tela de Início (iOS 16.4 ou mais recente). Instale o app e abra pelo ícone.";
+      `No iPhone e no iPad, as notificações só funcionam com o ${APP_NAME} instalado na Tela de Início (iOS 16.4 ou mais recente). Instale o app e abra pelo ícone.`;
   } else if (support === "unsupported") {
     notice = "Este navegador não oferece notificações push.";
   } else if (support === "supported" && !vapidPublicKey) {

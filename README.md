@@ -80,7 +80,7 @@ O service worker só é registrado no build de produção (`npm run build` e `np
 - **Android**: com o celular no cabo USB e a depuração USB ativada, abra `chrome://inspect/#devices` no Chrome do PC, ative "Port forwarding" de `3000` para `localhost:3000` e abra http://localhost:3000 no Chrome do celular.
 - **iPhone**: precisa de HTTPS de verdade: um deploy de preview ou um túnel HTTPS para o `npm start` local (por exemplo `cloudflared tunnel --url http://localhost:3000`). Se o login pelo túnel falhar por origem diferente, inclua o domínio do túnel em `experimental.serverActions.allowedOrigins` no `next.config.ts`, só localmente.
 
-Ícones: `npm run icons` regenera `public/icons/*` e `src/app/favicon.ico`.
+Ícones: `npm run icons` redimensiona `public/icons/logo.png` para os ícones do PWA e para `src/app/favicon.ico`. O arquivo original não é reescrito.
 
 ## Scripts
 

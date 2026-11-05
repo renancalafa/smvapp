@@ -28,7 +28,7 @@
     "check:dispatch": "tsx scripts/check-dispatch.ts",
     "check:push-client": "tsx scripts/check-push-client.ts",
     "check:sw-push": "tsx scripts/check-sw-push.ts",
-    "icons": "tsx scripts/generate-icons.tsx",
+    "icons": "tsx scripts/generate-icons.ts",
     "postinstall": "prisma generate"
   },
   "dependencies": {

@@ -1,4 +1,4 @@
-export const APP_NAME = "SMV";
+export const APP_NAME = "Safadeza e Ma Vontade FC";
 export const APP_DESCRIPTION = "Sistema de Gestão da Pelada";
 
 /** emerald-700: cor da barra do sistema no app instalado. */

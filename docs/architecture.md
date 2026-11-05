@@ -115,7 +115,7 @@ src/
 public/
   sw.js                   # service worker (JS puro, sem build)
   offline.html            # fallback sem conexão (autocontido)
-  icons/                  # gerados por scripts/generate-icons.tsx (npm run icons)
+  icons/                  # gerados por scripts/generate-icons.ts (npm run icons) a partir de public/icons/logo.png
 ```
 
 Decisões e trade-offs:
@@ -136,7 +136,7 @@ Decisões e trade-offs:
 - **Tempo real no Modo Pelada**: com vários admins operando, cada tela de admin faz polling curto (2-3s) e sempre recebe o estado mais recente (com `version`) na resposta de cada comando. A rota `/live` (espectadores autenticados) faz polling de ~2–3s via `router.refresh()` com `dynamic = "force-dynamic"`; o service worker não cacheia navegações nem dados de sessão. Pusher/Ably entram só se o polling não bastar.
 - **Cronômetro**: persistir `startedAt`, `pausedAt` e `pausedTotalMs`; o tempo decorrido é calculado no cliente.
 - **PWA e Web Push** (Revisão 16): `app/manifest.ts` + service worker manual em `public/sw.js` + Web Push com VAPID pela biblioteca `web-push` (única dependência do PWA; Etapa 1 implementada, veja abaixo).
-  - **Manifest**: nome e `short_name` "SMV", `display: standalone`, `start_url`, `scope` e `id` "/", `theme_color` #047857 (o mesmo do `viewport` do layout raiz). Ícones 192 e 512 em `purpose: any` e `maskable` (conteúdo dentro da zona segura), `apple-touch-icon` 180 e `favicon.ico`, todos gerados por `npm run icons` com `next/og` e versionados. O layout raiz declara `appleWebApp` (título e barra de status no iOS) e `viewportFit: cover`; o layout usa `env(safe-area-inset-*)`.
+  - **Manifest**: nome e `short_name` "Safadeza e Ma Vontade FC", `display: standalone`, `start_url`, `scope` e `id` "/", `theme_color` #047857 (o mesmo do `viewport` do layout raiz). Ícones 192 e 512 em `purpose: any` e `maskable` (a arte inteira na zona segura), `apple-touch-icon` 180 e `favicon.ico`, gerados por `npm run icons` a partir de `public/icons/logo.png`, sem corte nem esticamento. O layout raiz declara `appleWebApp` (título e barra de status no iOS) e `viewportFit: cover`; o layout usa `env(safe-area-inset-*)`.
   - **Service worker**: registrado só em produção, com escopo "/" e `updateViaCache: "none"`; `/sw.js` é servido com `Cache-Control: no-cache, no-store`. Em desenvolvimento, o registrador remove registros antigos, porque os chunks do dev server não têm hash. Política de cache:
     - pré-cache: `/offline.html` e os ícones;
     - cache-first só para `/_next/static/*` (nomes com hash, imutáveis), sem query string, resposta 200 da mesma origem; o cache é podado em 300 entradas;

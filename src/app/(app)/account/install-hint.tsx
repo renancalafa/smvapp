@@ -1,6 +1,7 @@
 "use client";
 
 import { useSyncExternalStore } from "react";
+import { APP_NAME } from "@/lib/pwa/config";
 import { isIos, isStandalone, subscribeToDisplayMode } from "@/lib/pwa/platform";
 
 type Platform = "installed" | "ios" | "other";
@@ -17,7 +18,7 @@ export function InstallHint() {
 
   return (
     <div className="rounded-xl border border-emerald-200 bg-emerald-50 p-4 text-sm text-emerald-900">
-      <p className="font-medium">Instale o SMV no celular</p>
+      <p className="font-medium">Instale o {APP_NAME} no celular</p>
       {platform === "ios" ? (
         <p className="mt-1">
           No Safari, toque em Compartilhar e depois em “Adicionar à Tela de Início”. No iPhone, as
