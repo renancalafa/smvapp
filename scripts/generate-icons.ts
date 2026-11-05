@@ -7,16 +7,16 @@ import { crc32, deflateSync, inflateSync } from "node:zlib";
 const SOURCE = "public/icons/logo.png";
 
 const ICONS = [
-  { file: "public/icons/icon-192.png", size: 192, maskable: false },
-  { file: "public/icons/icon-512.png", size: 512, maskable: false },
-  { file: "public/icons/maskable-192.png", size: 192, maskable: true },
-  { file: "public/icons/maskable-512.png", size: 512, maskable: true },
-  { file: "public/icons/apple-touch-icon.png", size: 180, maskable: false },
+  { file: "public/icons/icon-192.png", size: 192, maskable: false, opaque: false },
+  { file: "public/icons/icon-512.png", size: 512, maskable: false, opaque: false },
+  { file: "public/icons/maskable-192.png", size: 192, maskable: true, opaque: true },
+  { file: "public/icons/maskable-512.png", size: 512, maskable: true, opaque: true },
+  { file: "public/icons/apple-touch-icon.png", size: 180, maskable: false, opaque: true },
 ] as const;
 
 const FAVICON_SIZES = [16, 32, 48];
 
-type RgbImage = { width: number; height: number; rgb: Uint8Array };
+type RgbaImage = { width: number; height: number; rgba: Uint8Array };
 
 function paeth(left: number, up: number, upLeft: number): number {
   const estimate = left + up - upLeft;
@@ -28,7 +28,7 @@ function paeth(left: number, up: number, upLeft: number): number {
   return upLeft;
 }
 
-function decodePng(buffer: Buffer): RgbImage {
+function decodePng(buffer: Buffer): RgbaImage {
   if (buffer.toString("hex", 0, 8) !== "89504e470d0a1a0a") {
     throw new Error(`${SOURCE} não é um PNG.`);
   }
@@ -60,7 +60,7 @@ function decodePng(buffer: Buffer): RgbImage {
   const channels = colorType === 6 ? 4 : 3;
   const raw = inflateSync(Buffer.concat(idat));
   const stride = width * channels;
-  const rgb = new Uint8Array(width * height * 3);
+  const rgba = new Uint8Array(width * height * 4);
   let source = 0;
   let previous = new Uint8Array(stride);
   for (let y = 0; y < height; y += 1) {
@@ -83,15 +83,15 @@ function decodePng(buffer: Buffer): RgbImage {
     }
     for (let x = 0; x < width; x += 1) {
       const from = x * channels;
-      const alpha = channels === 4 ? current[from + 3] / 255 : 1;
-      const to = (y * width + x) * 3;
-      rgb[to] = Math.round(current[from] * alpha + 255 * (1 - alpha));
-      rgb[to + 1] = Math.round(current[from + 1] * alpha + 255 * (1 - alpha));
-      rgb[to + 2] = Math.round(current[from + 2] * alpha + 255 * (1 - alpha));
+      const to = (y * width + x) * 4;
+      rgba[to] = current[from];
+      rgba[to + 1] = current[from + 1];
+      rgba[to + 2] = current[from + 2];
+      rgba[to + 3] = channels === 4 ? current[from + 3] : 255;
     }
     previous = current;
   }
-  return { width, height, rgb };
+  return { width, height, rgba };
 }
 
 function chunk(type: string, data: Buffer): Buffer {
@@ -103,31 +103,19 @@ function chunk(type: string, data: Buffer): Buffer {
   return Buffer.concat([length, typeBuffer, data, checksum]);
 }
 
-function encodePng(image: RgbImage, rgba: boolean): Buffer {
-  const channels = rgba ? 4 : 3;
-  const stride = image.width * channels;
+function encodePng(image: RgbaImage): Buffer {
+  const stride = image.width * 4;
   const raw = Buffer.alloc((stride + 1) * image.height);
   for (let y = 0; y < image.height; y += 1) {
     const start = y * (stride + 1);
     raw[start] = 0;
-    if (!rgba) {
-      raw.set(image.rgb.subarray(y * image.width * 3, (y + 1) * image.width * 3), start + 1);
-      continue;
-    }
-    for (let x = 0; x < image.width; x += 1) {
-      const from = (y * image.width + x) * 3;
-      const to = start + 1 + x * 4;
-      raw[to] = image.rgb[from];
-      raw[to + 1] = image.rgb[from + 1];
-      raw[to + 2] = image.rgb[from + 2];
-      raw[to + 3] = 255;
-    }
+    raw.set(image.rgba.subarray(y * stride, (y + 1) * stride), start + 1);
   }
   const header = Buffer.alloc(13);
   header.writeUInt32BE(image.width, 0);
   header.writeUInt32BE(image.height, 4);
   header[8] = 8;
-  header[9] = rgba ? 6 : 2;
+  header[9] = 6;
   return Buffer.concat([
     Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]),
     chunk("IHDR", header),
@@ -136,26 +124,24 @@ function encodePng(image: RgbImage, rgba: boolean): Buffer {
   ]);
 }
 
-/** Cabe a imagem inteira num quadrado, com a cor do canto se a origem não for quadrada. */
-function containSquare(image: RgbImage): RgbImage {
+/** Cabe a imagem inteira num quadrado. A margem extra fica transparente. */
+function containSquare(image: RgbaImage): RgbaImage {
   if (image.width === image.height) return image;
   const size = Math.max(image.width, image.height);
-  const rgb = new Uint8Array(size * size * 3);
-  const background = image.rgb.subarray(0, 3);
-  for (let index = 0; index < rgb.length; index += 3) rgb.set(background, index);
+  const rgba = new Uint8Array(size * size * 4);
   const offsetX = Math.floor((size - image.width) / 2);
   const offsetY = Math.floor((size - image.height) / 2);
   for (let y = 0; y < image.height; y += 1) {
-    const from = y * image.width * 3;
-    const to = ((y + offsetY) * size + offsetX) * 3;
-    rgb.set(image.rgb.subarray(from, from + image.width * 3), to);
+    const from = y * image.width * 4;
+    const to = ((y + offsetY) * size + offsetX) * 4;
+    rgba.set(image.rgba.subarray(from, from + image.width * 4), to);
   }
-  return { width: size, height: size, rgb };
+  return { width: size, height: size, rgba };
 }
 
 /** Média da área de origem de cada pixel de destino. Reduz sem esticar e sem cortar. */
-function scaleSquare(image: RgbImage, size: number): RgbImage {
-  const rgb = new Uint8Array(size * size * 3);
+function scaleSquare(image: RgbaImage, size: number): RgbaImage {
+  const rgba = new Uint8Array(size * size * 4);
   for (let y = 0; y < size; y += 1) {
     const y0 = (y * image.height) / size;
     const y1 = ((y + 1) * image.height) / size;
@@ -165,6 +151,7 @@ function scaleSquare(image: RgbImage, size: number): RgbImage {
       let red = 0;
       let green = 0;
       let blue = 0;
+      let alpha = 0;
       let weight = 0;
       const firstX = Math.floor(x0);
       const lastX = Math.min(image.width - 1, Math.ceil(x1) - 1);
@@ -174,38 +161,61 @@ function scaleSquare(image: RgbImage, size: number): RgbImage {
         const yWeight = Math.min(sourceY + 1, y1) - Math.max(sourceY, y0);
         for (let sourceX = firstX; sourceX <= lastX; sourceX += 1) {
           const sampleWeight = yWeight * (Math.min(sourceX + 1, x1) - Math.max(sourceX, x0));
-          const index = (sourceY * image.width + sourceX) * 3;
-          red += image.rgb[index] * sampleWeight;
-          green += image.rgb[index + 1] * sampleWeight;
-          blue += image.rgb[index + 2] * sampleWeight;
+          const index = (sourceY * image.width + sourceX) * 4;
+          const sampleAlpha = image.rgba[index + 3] * sampleWeight;
+          red += image.rgba[index] * sampleAlpha;
+          green += image.rgba[index + 1] * sampleAlpha;
+          blue += image.rgba[index + 2] * sampleAlpha;
+          alpha += sampleAlpha;
           weight += sampleWeight;
         }
       }
-      const index = (y * size + x) * 3;
-      rgb[index] = Math.round(red / weight);
-      rgb[index + 1] = Math.round(green / weight);
-      rgb[index + 2] = Math.round(blue / weight);
+      const index = (y * size + x) * 4;
+      const coverage = alpha / 255;
+      rgba[index] = coverage > 0 ? Math.round(red / alpha) : 0;
+      rgba[index + 1] = coverage > 0 ? Math.round(green / alpha) : 0;
+      rgba[index + 2] = coverage > 0 ? Math.round(blue / alpha) : 0;
+      rgba[index + 3] = Math.round((alpha / weight));
     }
   }
-  return { width: size, height: size, rgb };
+  return { width: size, height: size, rgba };
+}
+
+/** Fundo opaco preto onde o original é transparente. O iPhone e o ícone maskable exigem isso. */
+function onBlack(image: RgbaImage): RgbaImage {
+  const rgba = new Uint8Array(image.rgba);
+  for (let index = 0; index < rgba.length; index += 4) {
+    const alpha = rgba[index + 3] / 255;
+    rgba[index] = Math.round(rgba[index] * alpha);
+    rgba[index + 1] = Math.round(rgba[index + 1] * alpha);
+    rgba[index + 2] = Math.round(rgba[index + 2] * alpha);
+    rgba[index + 3] = 255;
+  }
+  return { width: image.width, height: image.height, rgba };
 }
 
 /**
- * Ícone maskable: a arte inteira fica na zona segura central (80%).
- * O Android corta o que fica fora; aqui só entra margem da cor de fundo.
+ * Ícone maskable: a arte inteira fica na zona segura central (80%), sobre preto.
+ * O Android corta o que fica fora; a margem não corta o escudo.
  */
-function maskableSquare(image: RgbImage, size: number): RgbImage {
+function maskableSquare(image: RgbaImage, size: number): RgbaImage {
   const inner = Math.round(size * 0.8);
   const scaled = scaleSquare(image, inner);
-  const rgb = new Uint8Array(size * size * 3);
-  const background = image.rgb.subarray(0, 3);
-  for (let index = 0; index < rgb.length; index += 3) rgb.set(background, index);
+  const rgba = new Uint8Array(size * size * 4);
+  for (let index = 3; index < rgba.length; index += 4) rgba[index] = 255;
   const offset = Math.floor((size - inner) / 2);
   for (let y = 0; y < inner; y += 1) {
-    const from = y * inner * 3;
-    rgb.set(scaled.rgb.subarray(from, from + inner * 3), ((y + offset) * size + offset) * 3);
+    for (let x = 0; x < inner; x += 1) {
+      const from = (y * inner + x) * 4;
+      const alpha = scaled.rgba[from + 3] / 255;
+      const to = ((y + offset) * size + (x + offset)) * 4;
+      rgba[to] = Math.round(scaled.rgba[from] * alpha);
+      rgba[to + 1] = Math.round(scaled.rgba[from + 1] * alpha);
+      rgba[to + 2] = Math.round(scaled.rgba[from + 2] * alpha);
+      rgba[to + 3] = 255;
+    }
   }
-  return { width: size, height: size, rgb };
+  return { width: size, height: size, rgba };
 }
 
 function toIco(images: { size: number; png: Buffer }[]): Buffer {
@@ -232,11 +242,12 @@ function toIco(images: { size: number; png: Buffer }[]): Buffer {
 async function main() {
   const square = containSquare(decodePng(await readFile(SOURCE)));
   for (const icon of ICONS) {
-    const image = icon.maskable ? maskableSquare(square, icon.size) : scaleSquare(square, icon.size);
-    await writeFile(icon.file, encodePng(image, false));
+    const scaled = icon.maskable ? maskableSquare(square, icon.size) : scaleSquare(square, icon.size);
+    const image = icon.opaque ? onBlack(scaled) : scaled;
+    await writeFile(icon.file, encodePng(image));
     console.log(`${icon.file} ${image.width}x${image.height}`);
   }
-  const favicons = FAVICON_SIZES.map((size) => ({ size, png: encodePng(scaleSquare(square, size), true) }));
+  const favicons = FAVICON_SIZES.map((size) => ({ size, png: encodePng(scaleSquare(square, size)) }));
   await writeFile("src/app/favicon.ico", toIco(favicons));
   console.log("src/app/favicon.ico");
 }

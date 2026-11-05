@@ -14,7 +14,7 @@
 // Web Push (PROJECT.md, seção 29): payload JSON { title, body, url } com url interna.
 // Payload ausente ou inválido mostra um aviso genérico (o Chrome exige notificação visível).
 
-const CACHE_VERSION = "v3";
+const CACHE_VERSION = "v4";
 const CACHE_PREFIX = "smv-static-";
 const STATIC_CACHE = `${CACHE_PREFIX}${CACHE_VERSION}`;
 const OFFLINE_URL = "/offline.html";
