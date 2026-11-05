@@ -13,6 +13,7 @@ import {
   ATTENDANCE_LOCKED_MESSAGE,
   drawVotingStarted,
   lockSession,
+  monthlyMayJoinWaitlistDuringVoting,
   queuePromotionNotification,
   rebalanceLockedSession,
   type LockedSession,
@@ -157,7 +158,8 @@ async function confirmMemberLocked(
  * senão lista de espera). Mensalista antes do prazo entra com prioridade.
  * DECLINE: quem estava na lista sai (WITHDRAWN, liberando a vaga); quem não tinha
  * respondido registra a recusa (DECLINED).
- * Com a votação iniciada, o jogador não muda mais a lista (só o ADMIN). A verificação
+ * Com a votação iniciada, o jogador não muda mais a lista (só o ADMIN), exceto o mensalista
+ * que confirma durante um sorteio antecipado: até o prazo, entra na lista de espera. A verificação
  * roda depois do lock da sessão, o mesmo da geração do sorteio: ou a resposta vem antes
  * da votação, ou é rejeitada.
  */
@@ -168,9 +170,13 @@ export async function respondToSession(
 ): Promise<SelfResponseResult> {
   return withLockedSession(viewer.group.id, sessionId, async (tx, session, now) => {
     await assertListChangesAllowed(tx, session, now);
-    if (await drawVotingStarted(tx, session.id)) throw new UserFacingError(ATTENDANCE_LOCKED_MESSAGE);
+    const votingStarted = await drawVotingStarted(tx, session.id);
+    if (votingStarted && response !== "CONFIRM") throw new UserFacingError(ATTENDANCE_LOCKED_MESSAGE);
     if (now < session.registrationOpensAt) throw new UserFacingError("A lista desta sessão ainda não abriu.");
     const member = await loadActiveMember(tx, viewer.group.id, viewer.member.id);
+    if (votingStarted && !monthlyMayJoinWaitlistDuringVoting(session, now, member.modality)) {
+      throw new UserFacingError(ATTENDANCE_LOCKED_MESSAGE);
+    }
 
     const existing = await tx.sessionRegistration.findUnique({
       where: { gameSessionId_memberId: { gameSessionId: session.id, memberId: member.id } },
@@ -239,7 +245,8 @@ export async function respondToSession(
 /**
  * ADMIN confirma presença em nome de um jogador ativo, com as mesmas regras de
  * alocação do self-CONFIRM (prioridade, capacidade, fila). Não bypassa a espera.
- * Bloqueado com votação iniciada / lista fechada / sessão cancelada — igual ao jogador.
+ * Bloqueado com votação iniciada / lista fechada / sessão cancelada — igual ao jogador,
+ * inclusive na exceção do mensalista durante o sorteio antecipado (só lista de espera).
  */
 export async function adminConfirmOnBehalf(
   viewer: Viewer,
@@ -255,11 +262,7 @@ export async function adminConfirmOnBehalf(
 
   return withLockedSession(viewer.group.id, sessionId, async (tx, session, now) => {
     await assertListChangesAllowed(tx, session, now);
-    if (await drawVotingStarted(tx, session.id)) {
-      throw new UserFacingError(
-        "Votação iniciada. Use “Incluir excepcionalmente” ou “Promover” se precisar alterar a lista.",
-      );
-    }
+    const votingStarted = await drawVotingStarted(tx, session.id);
     if (now < session.registrationOpensAt) {
       throw new UserFacingError("A lista desta sessão ainda não abriu.");
     }
@@ -276,6 +279,11 @@ export async function adminConfirmOnBehalf(
     if (!member) throw new UserFacingError("Jogador não encontrado.");
     if (member.status !== "ACTIVE") {
       throw new UserFacingError("Jogadores inativos não participam das sessões.");
+    }
+    if (votingStarted && !monthlyMayJoinWaitlistDuringVoting(session, now, member.modality)) {
+      throw new UserFacingError(
+        "Votação iniciada. Use “Incluir excepcionalmente” ou “Promover” se precisar alterar a lista.",
+      );
     }
 
     return confirmMemberLocked(tx, session, now, {
@@ -427,10 +435,13 @@ export async function adminIncludeMember(
   });
 }
 
+export const PRIORITY_PROMOTION_MESSAGE =
+  "Antes do prazo dos mensalistas, só mensalistas com prioridade podem ser promovidos. Para outra exceção, use “Incluir excepcionalmente”.";
+
 /**
  * Promoção explícita da lista de espera. É o único caminho de promoção depois que a
- * votação começa; antes dela, permite ao ADMIN contrariar a ordem da fila. Nunca excede a
- * capacidade.
+ * votação começa; antes dela, permite ao ADMIN contrariar a ordem da fila. Antes do prazo
+ * dos mensalistas, só promove quem tem MONTHLY_PRIORITY. Nunca excede a capacidade.
  */
 export async function adminPromoteRegistration(
   viewer: Viewer,
@@ -457,6 +468,9 @@ export async function adminPromoteRegistration(
     }
     if (registration.member.status !== "ACTIVE") {
       throw new UserFacingError("Jogadores inativos não participam das sessões.");
+    }
+    if (allocationPhase(session, now) === "PRIORITY" && registration.priorityTier !== "MONTHLY_PRIORITY") {
+      throw new UserFacingError(PRIORITY_PROMOTION_MESSAGE);
     }
     const participants = await tx.sessionRegistration.count({
       where: { gameSessionId: session.id, status: "PARTICIPANT" },

@@ -346,6 +346,8 @@ Uma intervenção administrativa nunca pode fazer a sessão ultrapassar sua capa
 
 Não use inclusão excepcional só para “confirmar a pedido”: use “Confirmar pelo jogador”.
 
+Antes do prazo dos mensalistas, “Promover” da lista de espera só aceita mensalistas com prioridade; promover um diarista nesse período só por inclusão excepcional, com motivo.
+
 ### Antes da votação do sorteio
 
 Enquanto a votação não começou, a lista funciona normalmente: jogadores confirmam, recusam, desistem e entram na lista de espera, e a promoção automática continua valendo.
@@ -356,7 +358,7 @@ O sorteio é sempre gerado pelo sistema, e gerar o sorteio abre a votação no m
 
 A votação começa quando o sistema gera o sorteio e continua valendo enquanto esse sorteio estiver ativo: em votação, empatado ou decidido. A partir daí:
 
-- o jogador NÃO altera mais a lista: não confirma, não recusa, não desiste e não entra na lista de espera. O app mostra: "Votação iniciada. Alterações na lista somente com um administrador.";
+- o jogador NÃO altera mais a lista: não confirma, não recusa, não desiste e não entra na lista de espera. O app mostra: "Votação iniciada. Alterações na lista somente com um administrador." (única exceção: o mensalista durante um sorteio antecipado, abaixo);
 - o ADMIN continua podendo incluir, remover e promover jogadores, como intervenção manual (reason obrigatório e AuditLog);
 - a promoção automática da lista de espera fica desligada: uma vaga liberada continua livre até o ADMIN promover alguém explicitamente;
 - nenhuma mudança na lista invalida ou altera o sorteio, suas opções e votos, nem os times da sessão; o ADMIN decide se a situação justifica refazê-lo (seção 17).
@@ -366,6 +368,19 @@ O jogador que não puder mais ir avisa um ADMIN, que o remove da sessão.
 Se o ADMIN invalidar o sorteio sem gerar outro, a lista volta a funcionar como antes da votação: os jogadores voltam a alterá-la e a fila volta a promover automaticamente, inclusive para as vagas que estavam livres. Se o novo sorteio for gerado na mesma ação, as vagas livres são preenchidas pela fila antes da geração e a nova votação trava a lista de novo.
 
 Uma resposta do jogador e a geração do sorteio nunca se cruzam: ou a resposta é registrada antes de a votação começar, ou é rejeitada.
+
+### Sorteio antecipado (sessão cheia antes do prazo)
+
+Em regra, o sorteio só é gerado depois do prazo dos mensalistas. A exceção: o ADMIN pode antecipá-lo quando a sessão está cheia (participantes = capacidade). Uma vaga livre antes do prazo ainda é dos mensalistas que não confirmaram, então com 17 de 20, por exemplo, vale o prazo. A formação segue as regras de sempre (seção 12): 15 ou 20 participantes formam 3 ou 4 times completos; com 16 a 19 (sessão cheia com capacidade nessa faixa), antes do prazo só é possível a formação com rotativos (FLEXIBLE_ROTATION), com os rotativos marcados manualmente pelo ADMIN; times fixos (FIXED_TEAMS) continuam só depois do prazo, porque reduziriam a capacidade e devolveriam à espera mensalistas que confirmaram a tempo. O app pede confirmação ao ADMIN explicando a trava antecipada, e o AuditLog do sorteio registra `earlyDraw`.
+
+Com a sessão cheia, um mensalista que confirma depois já não ganharia vaga: só entraria na lista de espera. Por isso, durante o sorteio antecipado:
+
+- até o prazo dos mensalistas, o mensalista que ainda não está na lista pode confirmar (ou o ADMIN, por "Confirmar pelo jogador"), mas entra SOMENTE na lista de espera, com prioridade sobre os diaristas; o sorteio, os votos e os participantes não mudam;
+- diaristas não confirmam e ninguém desiste sozinho, como em qualquer votação;
+- nenhuma promoção é automática, nem quando uma vaga é liberada pelo ADMIN;
+- antes do prazo, a promoção pelo ADMIN só aceita mensalistas com prioridade (para qualquer outra exceção, "Incluir excepcionalmente", com motivo);
+- quando o prazo passa, a prioridade se encerra sem promover ninguém; a partir daí vale a trava normal, inclusive para mensalistas;
+- se o ADMIN invalidar o sorteio antes do prazo, a fila volta a promover automaticamente, só mensalistas com prioridade; um novo sorteio antes do prazo exige de novo a sessão cheia.
 
 ### Depois do início das partidas
 
@@ -383,7 +398,7 @@ Também é possível:
 
 15 jogadores → 3 times de 5.
 
-Quando houver entre 16 e 19 participantes, após o deadline das 15:00, o ADMIN escolhe entre:
+Quando houver entre 16 e 19 participantes, após o deadline das 15:00, o ADMIN escolhe entre (antes do deadline, só FLEXIBLE_ROTATION e só com a sessão cheia, para o sorteio antecipado da seção 11):
 
 ### FIXED_TEAMS
 
@@ -1666,6 +1681,10 @@ Correção do calendário financeiro. Substitui o fechamento manual da Revisão 
 ### Revisão 30 — 31/10/2026
 
 - Confirmação ADMIN em nome do jogador (`adminConfirmOnBehalf`): mesmas regras de alocação do self-CONFIRM; AuditLog `REGISTRATION_ADMIN_CONFIRMED_ON_BEHALF`; UI “Confirmar pelo jogador” vs “Incluir excepcionalmente” (`adminIncludeMember` inalterado). Script `npm run check:admin-confirm-on-behalf`.
+
+### Revisão 31 — 05/11/2026
+
+- Sorteio antecipado (seção 11, "Sorteio antecipado"): antes do prazo dos mensalistas, o ADMIN pode gerar o sorteio só com a sessão cheia; a formação segue `planDraw` (3 ou 4 times completos, ou 3 times + rotativos marcados pelo ADMIN). Antes do prazo, só FLEXIBLE_ROTATION e com a sessão cheia; FIXED_TEAMS só depois do prazo. AuditLog `DRAW_GENERATED` com `earlyDraw`. Até o prazo, mensalistas ainda confirmam (sozinhos ou por “Confirmar pelo jogador”), mas só para a lista de espera; diaristas e desistências continuam travados; nenhuma promoção automática com sorteio ativo. Antes do prazo, a promoção pelo ADMIN só aceita mensalistas com prioridade. Sem migration. Script `npm run check:early-draw`.
 
 ### Revisão 24 — 18/10/2026
 

@@ -49,6 +49,13 @@ export default async function AdminSessionPage({ params }: { params: Promise<{ s
     board.phase !== "CLOSED" &&
     !live?.participantsFrozen;
   const hasFreeSpot = board.participants.length < board.capacity;
+  // Antes do prazo, a promoção do ADMIN respeita a prioridade dos mensalistas.
+  const promotable = (registration: (typeof board.participants)[number]) =>
+    board.phase !== "PRIORITY" || registration.priorityTier === "MONTHLY_PRIORITY";
+  const earlyDrawWaitlist = board.attendanceLocked && board.phase === "PRIORITY";
+  const confirmable = earlyDrawWaitlist
+    ? roster.confirmable.filter((member) => member.modality === "MONTHLY")
+    : roster.confirmable;
   const actions = (registration: (typeof board.participants)[number]) => (
     <RegistrationActions
       sessionId={session.id}
@@ -57,7 +64,7 @@ export default async function AdminSessionPage({ params }: { params: Promise<{ s
       attendance={registration.attendance}
       canChangeList={canChangeList}
       canMarkAttendance={canMarkAttendance}
-      hasFreeSpot={hasFreeSpot}
+      hasFreeSpot={hasFreeSpot && promotable(registration)}
     />
   );
   const presentCount = board.participants.filter((registration) => registration.attendance === "PRESENT").length;
@@ -134,10 +141,15 @@ export default async function AdminSessionPage({ params }: { params: Promise<{ s
       />
       <RegistrationList title="Lista de espera" registrations={board.waitlist} empty="Ninguém na lista de espera." extra={actions} />
 
-      {canChangeList && !board.attendanceLocked && (
+      {canChangeList && (!board.attendanceLocked || earlyDrawWaitlist) && (
         <ConfirmOnBehalfForm
           sessionId={session.id}
-          candidates={roster.confirmable.map((member) => ({
+          note={
+            earlyDrawWaitlist
+              ? "Sorteio antecipado: até o prazo, só mensalistas podem ser confirmados, e entram na lista de espera."
+              : undefined
+          }
+          candidates={confirmable.map((member) => ({
             value: member.id,
             label: `${member.nickname ? `${member.user.name} (${member.nickname})` : member.user.name} · ${
               member.modality === "MONTHLY" ? "Mensalista" : "Diarista"
@@ -145,7 +157,7 @@ export default async function AdminSessionPage({ params }: { params: Promise<{ s
           }))}
         />
       )}
-      {canChangeList && board.attendanceLocked && (
+      {canChangeList && board.attendanceLocked && !earlyDrawWaitlist && (
         <p className="rounded-xl border border-zinc-200 bg-zinc-50 px-4 py-3 text-sm text-zinc-600">
           Votação iniciada: “Confirmar pelo jogador” fica indisponível (mesmas regras do jogador). Use inclusão
           excepcional ou promoção com motivo.

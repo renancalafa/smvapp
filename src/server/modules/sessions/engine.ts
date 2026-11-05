@@ -67,7 +67,8 @@ export const ATTENDANCE_LOCKED_MESSAGE = "Votação iniciada. Alterações na li
 
 /**
  * Votação iniciada: há um sorteio ativo em VOTING, TIED ou DECIDED. A lista só muda por
- * intervenção do ADMIN e a fila deixa de promover automaticamente (seção 11). O sorteio
+ * intervenção do ADMIN (salvo `monthlyMayJoinWaitlistDuringVoting`) e a fila deixa de
+ * promover automaticamente (seção 11). O sorteio
  * nasce em VOTING (gerar e abrir a votação são o mesmo passo); um invalidado deixa de contar.
  */
 export async function drawVotingStarted(tx: Tx, sessionId: string): Promise<boolean> {
@@ -75,6 +76,19 @@ export async function drawVotingStarted(tx: Tx, sessionId: string): Promise<bool
     where: { gameSessionId: sessionId, invalidatedAt: null, status: { in: ["VOTING", "TIED", "DECIDED"] } },
   });
   return active > 0;
+}
+
+/**
+ * Exceção do sorteio antecipado: com a votação iniciada, um mensalista ainda pode confirmar
+ * até o prazo dos mensalistas, mas só entra na lista de espera (rebalanceLockedSession não
+ * promove com a votação iniciada). Diaristas e desistências continuam travados.
+ */
+export function monthlyMayJoinWaitlistDuringVoting(
+  session: Pick<LockedSession, "priorityClosedAt" | "priorityDeadlineAt">,
+  now: Date,
+  modality: "MONTHLY" | "DAILY",
+): boolean {
+  return modality === "MONTHLY" && allocationPhase(session, now) === "PRIORITY";
 }
 
 /** Mudanças na lista: sessão não cancelada, não encerrada e sem partidas. */

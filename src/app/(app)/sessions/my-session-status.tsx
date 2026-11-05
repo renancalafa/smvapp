@@ -11,6 +11,14 @@ export function MySessionStatus({ board, viewer }: { board: SessionBoard; viewer
   const isMonthly = viewer.member.modality === "MONTHLY";
   const open = board.phase === "PRIORITY" || board.phase === "GENERAL";
   const locked = board.attendanceLocked;
+  // Sorteio antecipado: até o prazo, o mensalista ainda entra na lista de espera.
+  const lateMonthlyWaitlist =
+    locked &&
+    board.phase === "PRIORITY" &&
+    isMonthly &&
+    mine?.status !== "PARTICIPANT" &&
+    mine?.status !== "WAITLISTED" &&
+    mine?.status !== "REMOVED";
 
   let text: string;
   switch (mine?.status) {
@@ -46,8 +54,22 @@ export function MySessionStatus({ board, viewer }: { board: SessionBoard; viewer
   return (
     <div className="flex flex-col gap-3">
       <p className="text-sm font-medium text-zinc-900">{text}</p>
-      {open && locked && (
+      {open && locked && !lateMonthlyWaitlist && (
         <p className="rounded-lg bg-amber-50 px-3 py-2 text-sm text-amber-900">{ATTENDANCE_LOCKED_MESSAGE}</p>
+      )}
+      {open && lateMonthlyWaitlist && (
+        <>
+          <p className="rounded-lg bg-amber-50 px-3 py-2 text-sm text-amber-900">
+            Sorteio antecipado: a sessão está cheia e os times já foram sorteados. Até o prazo dos mensalistas, você
+            ainda pode entrar na lista de espera, à frente dos diaristas.
+          </p>
+          <RespondButtons
+            sessionId={board.session.id}
+            myStatus={mine?.status ?? null}
+            canDecline={false}
+            confirmLabel="Entrar na lista de espera"
+          />
+        </>
       )}
       {open && !locked && mine?.status !== "REMOVED" && (
         <RespondButtons sessionId={board.session.id} myStatus={mine?.status ?? null} canDecline={!mine} />

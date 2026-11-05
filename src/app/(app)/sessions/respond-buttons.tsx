@@ -10,11 +10,13 @@ export function RespondButtons({
   sessionId,
   myStatus,
   canDecline,
+  confirmLabel = "Vou jogar",
 }: {
   sessionId: string;
   myStatus: RegistrationStatus | null;
   /** Recusar só faz sentido para quem ainda não respondeu (o mensalista avisa que não vai). */
   canDecline: boolean;
+  confirmLabel?: string;
 }) {
   const [state, formAction, pending] = useActionState(respondAction, undefined);
   const inList = myStatus === "PARTICIPANT" || myStatus === "WAITLISTED";
@@ -44,7 +46,7 @@ export function RespondButtons({
               <input type="hidden" name="sessionId" value={sessionId} />
               <input type="hidden" name="response" value="CONFIRM" />
               <button type="submit" disabled={pending} className={`${BUTTON} bg-emerald-700 text-white active:bg-emerald-800`}>
-                {pending ? "Enviando…" : "Vou jogar"}
+                {pending ? "Enviando…" : confirmLabel}
               </button>
             </form>
             {canDecline && (

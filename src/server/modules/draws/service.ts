@@ -3,6 +3,10 @@ import { randomBytes } from "node:crypto";
 import {
   DRAW_ALGORITHM_VERSION,
   DrawGenerationError,
+  EARLY_DRAW_REQUIREMENT,
+  EARLY_FIXED_TEAMS_MESSAGE,
+  EARLY_FORMATION_REQUIREMENT,
+  earlyDrawAllowed,
   generateDrawOptions,
   planDraw,
   type DrawPlayer,
@@ -15,7 +19,9 @@ import { writeAuditLog } from "@/server/audit";
 import type { Viewer } from "@/server/auth/dal";
 import { UserFacingError } from "@/server/errors";
 import {
+  allocationPhase,
   assertListChangesAllowed,
+  effectiveCapacity,
   LOCKED_SESSION_SELECT,
   participantsFrozen,
   rebalanceLockedSession,
@@ -77,9 +83,6 @@ async function createDrawLocked(
   now: Date,
   input: { actorUserId: string; replacesDrawId: string | null },
 ): Promise<{ drawId: string; status: "VOTING" | "DECIDED" }> {
-  if (!session.priorityClosedAt) {
-    throw new UserFacingError("O sorteio só pode ser feito depois do prazo dos mensalistas.");
-  }
   const config = await tx.gameSession.findUniqueOrThrow({
     where: { id: session.id },
     select: { drawOptionsCount: true, drawMinOptionDifference: true, birthdayDraft: { select: { status: true } } },
@@ -92,6 +95,12 @@ async function createDrawLocked(
   }
 
   const participants = await loadParticipants(tx, session.id);
+  // Antes do prazo, só com a sessão cheia; a contagem é feita com a sessão travada, então
+  // nenhuma confirmação ou desistência concorrente a altera. A formação segue planDraw.
+  const earlyDraw = allocationPhase(session, now) === "PRIORITY";
+  if (earlyDraw && !earlyDrawAllowed({ participants: participants.length, capacity: effectiveCapacity(session) })) {
+    throw new UserFacingError(EARLY_DRAW_REQUIREMENT);
+  }
   const plan = planDraw({
     participants: participants.length,
     teamSize: session.teamSize,
@@ -197,6 +206,7 @@ async function createDrawLocked(
       algorithmVersion: DRAW_ALGORITHM_VERSION,
       seed,
       replacesDrawId: input.replacesDrawId,
+      earlyDraw,
     },
   });
 
@@ -297,13 +307,18 @@ export async function setOverflowMode(viewer: Viewer, sessionId: string, mode: O
   await withLockedSession(viewer.group.id, sessionId, async (tx, session, now) => {
     await assertListChangesAllowed(tx, session, now);
     await assertNoActiveDraw(tx, session.id);
-    if (!session.priorityClosedAt) {
-      throw new UserFacingError("A formação só é escolhida depois do prazo dos mensalistas.");
-    }
-    if (session.overflowMode === mode) return;
     const participants = await tx.sessionRegistration.count({
       where: { gameSessionId: session.id, status: "PARTICIPANT" },
     });
+    // Antes do prazo, só rotativos e com a sessão cheia (para o sorteio antecipado): times
+    // fixos reduzem a capacidade e devolveriam à espera mensalistas que confirmaram a tempo.
+    if (allocationPhase(session, now) === "PRIORITY") {
+      if (mode === "FIXED_TEAMS") throw new UserFacingError(EARLY_FIXED_TEAMS_MESSAGE);
+      if (!earlyDrawAllowed({ participants, capacity: effectiveCapacity(session) })) {
+        throw new UserFacingError(EARLY_FORMATION_REQUIREMENT);
+      }
+    }
+    if (session.overflowMode === mode) return;
     const three = session.teamSize * 3;
     const four = session.teamSize * 4;
     if (!session.overflowMode && (participants <= three || participants >= four)) {

@@ -1,10 +1,11 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { planDraw } from "@/domain/draw/balance";
+import { EARLY_DRAW_REQUIREMENT, earlyDrawAllowed, planDraw } from "@/domain/draw/balance";
 import { requireAdmin } from "@/server/auth/dal";
 import { getActiveDraw, getDrawHistory, getFormation, type DrawView } from "@/server/modules/draws/queries";
 import { isUuid } from "@/server/modules/members/validation";
+import { allocationPhase, effectiveCapacity } from "@/server/modules/sessions/engine";
 import { getSessionBoard } from "@/server/modules/sessions/queries";
 import { syncSessionsForRead } from "@/server/modules/sessions/sync";
 import { drawStatusText } from "../../../../sessions/draw/draw-section";
@@ -43,6 +44,8 @@ export default async function AdminDrawPage({ params }: { params: Promise<{ sess
   const four = formation.teamSize * 4;
   const overflowRange = participants > three && participants < four;
   const plan = planDraw({ participants, teamSize: formation.teamSize, overflowMode: formation.overflowMode });
+  const beforeDeadline = allocationPhase(formation, new Date()) === "PRIORITY";
+  const earlyAllowed = beforeDeadline && earlyDrawAllowed({ participants, capacity: effectiveCapacity(formation) });
   const rotatorsMarked = formation.participants.filter((participant) => participant.isRotating).length;
   const showRotators = formation.overflowMode === "FLEXIBLE_ROTATION" && plan.ok && plan.rotatorsRequired > 0;
 
@@ -72,14 +75,21 @@ export default async function AdminDrawPage({ params }: { params: Promise<{ sess
             ? `${plan.teamCount} times de ${formation.teamSize}${plan.rotatorsRequired > 0 ? ` + ${plan.rotatorsRequired} rotativo(s)` : ""}`
             : plan.error}
         </p>
-        {!formation.priorityClosedAt && (
-          <p className="text-sm text-amber-700">O sorteio fica disponível depois do prazo dos mensalistas.</p>
+        {beforeDeadline && !draw && (
+          <p className="text-sm text-amber-700">
+            {earlyAllowed
+              ? `Sessão cheia: o sorteio pode ser antecipado, antes do prazo dos mensalistas (${formatDateTime(formation.priorityDeadlineAt, timeZone)}).${
+                  overflowRange ? " Antes do prazo, só a formação com rotativos; times fixos só depois dele." : ""
+                }`
+              : `${EARLY_DRAW_REQUIREMENT} Caso contrário, o sorteio e a formação ficam disponíveis depois do prazo.`}
+          </p>
         )}
         {(overflowRange || formation.overflowMode) && (
           <OverflowModeForm
             sessionId={sessionId}
             current={formation.overflowMode}
-            disabled={!canCommand || draw !== null || !formation.priorityClosedAt}
+            disabled={!canCommand || draw !== null || (beforeDeadline && !earlyAllowed)}
+            fixedDisabled={beforeDeadline}
           />
         )}
         {showRotators && (
@@ -101,7 +111,9 @@ export default async function AdminDrawPage({ params }: { params: Promise<{ sess
             </div>
           </div>
         )}
-        {!draw && canCommand && formation.priorityClosedAt && plan.ok && <GenerateDrawForm sessionId={sessionId} />}
+        {!draw && canCommand && (!beforeDeadline || earlyAllowed) && plan.ok && (
+          <GenerateDrawForm sessionId={sessionId} early={beforeDeadline} />
+        )}
       </section>
 
       {draw ? (

@@ -22,11 +22,14 @@ function Feedback({ state }: { state: DrawActionState }) {
   );
 }
 
-export function GenerateDrawForm({ sessionId }: { sessionId: string }) {
+export function GenerateDrawForm({ sessionId, early }: { sessionId: string; early: boolean }) {
   const [state, formAction, pending] = useActionState(generateDrawAction, undefined);
   function confirmGenerate(event: FormEvent<HTMLFormElement>) {
-    const message =
-      "Gerar o sorteio e abrir a votação? A partir daí só os administradores alteram a lista de presença.";
+    const message = early
+      ? "Antecipar o sorteio, antes do prazo dos mensalistas? A lista de presença trava agora: ninguém desiste " +
+        "nem entra como participante sem um administrador, e a fila não promove automaticamente. Até o prazo, " +
+        "mensalistas que ainda não confirmaram só podem entrar na lista de espera; diaristas ficam travados."
+      : "Gerar o sorteio e abrir a votação? A partir daí só os administradores alteram a lista de presença.";
     if (!window.confirm(message)) event.preventDefault();
   }
   return (
@@ -35,8 +38,14 @@ export function GenerateDrawForm({ sessionId }: { sessionId: string }) {
       <p className="text-sm text-zinc-600">
         O sistema gera as opções e abre a votação no mesmo passo. Com a votação aberta, a lista fica travada para os
         jogadores e a fila não promove automaticamente.
+        {early &&
+          " Sorteio antecipado: até o prazo, mensalistas que ainda não confirmaram entram só na lista de espera."}
       </p>
-      <SubmitButton pending={pending} label="Gerar sorteio" pendingLabel="Sorteando…" />
+      <SubmitButton
+        pending={pending}
+        label={early ? "Antecipar sorteio" : "Gerar sorteio"}
+        pendingLabel="Sorteando…"
+      />
       <Feedback state={state} />
     </form>
   );
@@ -122,15 +131,23 @@ export function OverflowModeForm({
   sessionId,
   current,
   disabled,
+  fixedDisabled,
 }: {
   sessionId: string;
   current: "FIXED_TEAMS" | "FLEXIBLE_ROTATION" | null;
   disabled: boolean;
+  /** Antes do prazo dos mensalistas, times fixos tirariam vagas de mensalistas. */
+  fixedDisabled: boolean;
 }) {
   const [state, formAction, pending] = useActionState(setOverflowModeAction, undefined);
   const modes = [
-    { value: "FIXED_TEAMS", label: "Times fixos", hint: "Limita a 15; os excedentes voltam à fila." },
-    { value: "FLEXIBLE_ROTATION", label: "Com rotativos", hint: "Mantém todos; você escolhe os rotativos." },
+    {
+      value: "FIXED_TEAMS",
+      label: "Times fixos",
+      hint: fixedDisabled ? "Só depois do prazo dos mensalistas." : "Limita a 15; os excedentes voltam à fila.",
+      blocked: fixedDisabled,
+    },
+    { value: "FLEXIBLE_ROTATION", label: "Com rotativos", hint: "Mantém todos; você escolhe os rotativos.", blocked: false },
   ] as const;
   return (
     <form action={formAction} className="flex flex-col gap-2">
@@ -142,7 +159,7 @@ export function OverflowModeForm({
             type="submit"
             name="mode"
             value={mode.value}
-            disabled={disabled || pending}
+            disabled={disabled || mode.blocked || pending}
             aria-pressed={current === mode.value}
             className={`flex min-h-16 flex-col items-start rounded-lg border px-3 py-2 text-left disabled:opacity-60 ${
               current === mode.value ? "border-emerald-600 bg-emerald-50" : "border-zinc-300 bg-white"

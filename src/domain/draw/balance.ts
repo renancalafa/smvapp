@@ -158,3 +158,21 @@ export function planDraw(input: {
   }
   return { ok: true, teamCount: 3, rotatorsRequired: participants - three };
 }
+
+/**
+ * Sorteio antecipado (antes do prazo dos mensalistas): só com a sessão cheia, porque uma vaga
+ * livre ainda é dos mensalistas que não confirmaram. A formação (times completos ou rotativos)
+ * segue `planDraw`, como depois do prazo.
+ */
+export function earlyDrawAllowed(input: { participants: number; capacity: number }): boolean {
+  return input.participants === input.capacity;
+}
+
+export const EARLY_DRAW_REQUIREMENT =
+  "Antes do prazo dos mensalistas, o sorteio só pode ser feito com a sessão cheia.";
+
+export const EARLY_FIXED_TEAMS_MESSAGE =
+  "Times fixos só depois do prazo dos mensalistas: reduzir a capacidade agora tiraria vagas de mensalistas.";
+
+export const EARLY_FORMATION_REQUIREMENT =
+  "Antes do prazo dos mensalistas, a formação com rotativos só pode ser escolhida com a sessão cheia.";

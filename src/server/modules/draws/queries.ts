@@ -189,7 +189,15 @@ export async function getFormation(sessionId: string) {
   const [session, participants, matches] = await Promise.all([
     db.gameSession.findUniqueOrThrow({
       where: { id: sessionId },
-      select: { teamSize: true, overflowMode: true, priorityClosedAt: true, drawOptionsCount: true, drawMinOptionDifference: true },
+      select: {
+        teamSize: true,
+        maxPlayers: true,
+        overflowMode: true,
+        priorityClosedAt: true,
+        priorityDeadlineAt: true,
+        drawOptionsCount: true,
+        drawMinOptionDifference: true,
+      },
     }),
     db.sessionRegistration.findMany({
       where: { gameSessionId: sessionId, status: "PARTICIPANT" },

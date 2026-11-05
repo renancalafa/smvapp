@@ -7,7 +7,15 @@ import { adminConfirmOnBehalfAction } from "@/server/modules/sessions/actions";
 type Option = { value: string; label: string };
 
 /** Confirmação normal em nome do jogador (mesmas regras de alocação do self-CONFIRM). */
-export function ConfirmOnBehalfForm({ sessionId, candidates }: { sessionId: string; candidates: Option[] }) {
+export function ConfirmOnBehalfForm({
+  sessionId,
+  candidates,
+  note,
+}: {
+  sessionId: string;
+  candidates: Option[];
+  note?: string;
+}) {
   const [state, formAction, pending] = useActionState(adminConfirmOnBehalfAction, undefined);
 
   return (
@@ -17,6 +25,7 @@ export function ConfirmOnBehalfForm({ sessionId, candidates }: { sessionId: stri
         Confirmação normal: respeita prioridade dos mensalistas, capacidade e ordem da lista de espera. O resultado
         pode ser participante ou espera — igual ao jogador confirmando no app.
       </p>
+      {note && <p className="rounded-lg bg-amber-50 px-3 py-2 text-sm text-amber-900">{note}</p>}
       <input type="hidden" name="sessionId" value={sessionId} />
       <SelectField
         label="Jogador"
