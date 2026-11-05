@@ -4,6 +4,7 @@ import { writeAuditLog } from "@/server/audit";
 import type { Viewer } from "@/server/auth/dal";
 import { db } from "@/server/db";
 import { UserFacingError } from "@/server/errors";
+import { commitThenSchedulePush } from "@/server/modules/notifications/schedule";
 import { formatSessionDay, lockSession, participantsFrozen } from "./engine";
 import {
   CANCEL_REASON_MAX_LENGTH,
@@ -182,7 +183,8 @@ export async function cancelExtraordinarySession(
     throw new UserFacingError(`O motivo pode ter no máximo ${CANCEL_REASON_MAX_LENGTH} caracteres.`);
   }
 
-  await db.$transaction(async (tx) => {
+  await commitThenSchedulePush(
+    db.$transaction(async (tx) => {
     const locked = await lockSession(tx, sessionId);
     if (!locked || locked.groupId !== viewer.group.id) {
       throw new UserFacingError("Sessão não encontrada.");
@@ -249,5 +251,6 @@ export async function cancelExtraordinarySession(
         },
       });
     }
-  });
+  }),
+  );
 }

@@ -1,5 +1,6 @@
 import { createHash, timingSafeEqual } from "node:crypto";
 import { db } from "@/server/db";
+import { schedulePushDispatch } from "@/server/modules/notifications/schedule";
 import { advanceDueSessions, ensureUpcomingSessions } from "@/server/modules/sessions/schedule";
 
 // Agendador externo (ex.: Vercel Cron) chama com "Authorization: Bearer $CRON_SECRET".
@@ -23,5 +24,6 @@ export async function GET(request: Request) {
     created += await ensureUpcomingSessions(group.id, now);
     advanced += await advanceDueSessions(group.id, now);
   }
+  schedulePushDispatch();
   return Response.json({ ok: true, created, advanced });
 }

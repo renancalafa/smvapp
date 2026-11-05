@@ -156,23 +156,25 @@ export async function advanceLockedSession(tx: Tx, session: LockedSession, now: 
   return current;
 }
 
-/** Outbox para o push futuro (seção 29); nada é enviado ainda. */
+/** Outbox; o envio fica para o dispatcher depois do commit. */
 export async function queuePromotionNotification(
   tx: Tx,
   session: LockedSession,
-  now: Date,
-  input: { registrationId: string; recipientUserId: string },
+  input: { registrationId: string; recipientUserId: string; promotedAt: Date },
 ): Promise<void> {
-  await tx.notification.create({
-    data: {
-      groupId: session.groupId,
-      recipientUserId: input.recipientUserId,
-      type: "WAITLIST_PROMOTED",
-      title: "Você entrou na pelada!",
-      body: `Uma vaga foi liberada para ${formatSessionDay(session)}.`,
-      data: { url: `/sessions/${session.id}`, gameSessionId: session.id },
-      dedupeKey: `WAITLIST_PROMOTED:${input.registrationId}:${now.toISOString()}`,
-    },
+  await tx.notification.createMany({
+    data: [
+      {
+        groupId: session.groupId,
+        recipientUserId: input.recipientUserId,
+        type: "WAITLIST_PROMOTED",
+        title: "Você entrou na pelada!",
+        body: `Uma vaga foi liberada para ${formatSessionDay(session)}.`,
+        data: { url: `/sessions/${session.id}`, gameSessionId: session.id },
+        dedupeKey: `WAITLIST_PROMOTED:${input.registrationId}:${input.promotedAt.toISOString()}`,
+      },
+    ],
+    skipDuplicates: true,
   });
 }
 
@@ -247,9 +249,10 @@ export async function rebalanceLockedSession(
       before: { status: "WAITLISTED" },
       after: { status: "PARTICIPANT", promotedAt: now.toISOString() },
     });
-    await queuePromotionNotification(tx, session, now, {
+    await queuePromotionNotification(tx, session, {
       registrationId: id,
       recipientUserId: byId.get(id)!.member.userId,
+      promotedAt: now,
     });
   }
   return { promoted: promote };

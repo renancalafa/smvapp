@@ -156,7 +156,7 @@ Decisões e trade-offs:
     - no SW, `push` mostra a notificação (payload ausente ou inválido vira aviso genérico) e `notificationclick` foca ou abre a URL, só se for da mesma origem; o cache não mudou;
     - payload mínimo (título, texto curto, caminho interno), sem valores financeiros (PROJECT.md, seção 29);
     - no iOS, push só funciona com o app instalado (16.4+).
-  - **Web Push, próxima etapa** (não implementada): os services criam `Notification` na mesma transação do evento; o dispatcher (`after()` ou cron) envia, registra `NotificationDelivery` e apaga a inscrição em 404/410.
+  - **Web Push, Etapa 2 Fase A**: dispatcher `dispatchPending` (lote, claim atômico, 404/410, backoff); `after()` depois do commit em `withLockedSession`, cancelamento extraordinário, `syncSessionsForRead` e `/api/cron/tick`. Kill switch `PUSH_DISPATCH_ENABLED` e corte obrigatório `DISPATCH_AFTER` (outbox antigo nunca é enviado). Desligado até ativação explícita. Tipos novos (LIST_OPENED, votação, lembrete) ainda não.
 - **Banco na Vercel**: Postgres gerenciado (Neon, Supabase ou Prisma Postgres) com URL pooled para runtime e URL direta para migrations.
 - **Fuso horário**: `timestamptz` em UTC; `Group.timezone = America/Sao_Paulo`.
 - **Dinheiro**: valores em **centavos inteiros** (`Int`). Trade-off: `Decimal` do Prisma é exato, mas devolve objetos Decimal.js incômodos na UI e nos testes. Centavos inteiros são exatos e simples. A formatação em reais fica só na apresentação.
@@ -780,7 +780,7 @@ Disparo do tick:
 - Vercel Cron no plano Pro (precisão de minuto): recomendado.
 - No Hobby, os crons são diários e imprecisos; alternativas são Upstash QStash agendando os horários exatos ou um cron externo chamando o tick com `CRON_SECRET`.
 
-Estado atual (Fase 3): o tick executa `ensureUpcomingSessions` e `advanceDueSessions` (abertura da lista e fim da prioridade, com promoções e WAITLIST_PROMOTED no outbox). As mesmas funções rodam antes das telas de sessão, então o tick é uma garantia extra, não um requisito. Sessões extraordinárias (criação ADMIN + cancelamento pré-gameplay com AuditLog e outbox SESSION_CANCELLED) estão implementadas. LIST_OPENED, reposicionamento, `operationId` e `dispatchNotifications` ainda não foram implementados. Desativar um membro o remove (REMOVED, com promoção da fila) das sessões futuras ainda abertas a mudanças.
+Estado atual (Fase 3): o tick executa `ensureUpcomingSessions` e `advanceDueSessions` (abertura da lista e fim da prioridade, com promoções e WAITLIST_PROMOTED no outbox). As mesmas funções rodam antes das telas de sessão, então o tick é uma garantia extra, não um requisito. Sessões extraordinárias (criação ADMIN + cancelamento pré-gameplay com AuditLog e outbox SESSION_CANCELLED) estão implementadas. `dispatchNotifications` existe como `dispatchPending` (Etapa 2 Fase A), desligado sem `PUSH_DISPATCH_ENABLED=true` e `DISPATCH_AFTER`. LIST_OPENED, reposicionamento e `operationId` ainda não foram implementados. Desativar um membro o remove (REMOVED, com promoção da fila) das sessões futuras ainda abertas a mudanças.
 
 ## 9. Preparação para SaaS
 

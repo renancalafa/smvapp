@@ -5,6 +5,7 @@ import { writeAuditLog } from "@/server/audit";
 import type { Viewer } from "@/server/auth/dal";
 import { db } from "@/server/db";
 import { UserFacingError } from "@/server/errors";
+import { commitThenSchedulePush } from "@/server/modules/notifications/schedule";
 import {
   advanceLockedSession,
   allocationPhase,
@@ -29,13 +30,15 @@ export async function withLockedSession<T>(
   sessionId: string,
   run: (tx: Tx, session: LockedSession, now: Date) => Promise<T>,
 ): Promise<T> {
-  return db.$transaction(async (tx) => {
-    const locked = await lockSession(tx, sessionId);
-    if (!locked || locked.groupId !== groupId) throw new UserFacingError("Sessão não encontrada.");
-    const now = new Date();
-    const session = await advanceLockedSession(tx, locked, now);
-    return run(tx, session, now);
-  });
+  return commitThenSchedulePush(
+    db.$transaction(async (tx) => {
+      const locked = await lockSession(tx, sessionId);
+      if (!locked || locked.groupId !== groupId) throw new UserFacingError("Sessão não encontrada.");
+      const now = new Date();
+      const session = await advanceLockedSession(tx, locked, now);
+      return run(tx, session, now);
+    }),
+  );
 }
 
 function snapshot(registration: {
@@ -501,9 +504,10 @@ export async function adminPromoteRegistration(
       after: { status: "PARTICIPANT", promotedAt: now.toISOString() },
       reason,
     });
-    await queuePromotionNotification(tx, session, now, {
+    await queuePromotionNotification(tx, session, {
       registrationId: registration.id,
       recipientUserId: registration.member.userId,
+      promotedAt: now,
     });
     await rebalanceLockedSession(tx, session, now);
   });

@@ -1,4 +1,5 @@
 import "server-only";
+import { schedulePushDispatch } from "@/server/modules/notifications/schedule";
 import { syncGroupSessions } from "./schedule";
 
 /**
@@ -11,4 +12,7 @@ export async function syncSessionsForRead(groupId: string): Promise<void> {
   } catch (error) {
     console.error("syncSessionsForRead", error);
   }
+  // Sessões avançadas em transações já commitadas (promoção no prazo) entram no outbox
+  // mesmo se um passo posterior falhar.
+  schedulePushDispatch();
 }

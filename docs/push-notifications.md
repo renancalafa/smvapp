@@ -1,6 +1,6 @@
 # Notificações push — Etapa 1
 
-O que existe hoje: o usuário logado ativa as notificações em cada aparelho pela tela **Conta**, vê o estado, envia uma notificação de teste para o próprio aparelho e desativa. Ainda **não** há envio automático (lista aberta, promoção da fila, lembretes); isso fica para a próxima etapa, usando o outbox `Notification` / `NotificationDelivery`.
+O que existe hoje: o usuário logado ativa as notificações em cada aparelho pela tela **Conta**, vê o estado, envia uma notificação de teste para o próprio aparelho e desativa. A Etapa 2 Fase A implementa o dispatcher do outbox (`dispatchPending`, `after()`, corte `DISPATCH_AFTER`), **desligado por padrão**. Lista aberta, votação e lembrete ainda não são enfileirados.
 
 Sem migration: o modelo `PushSubscription` (endpoint único, `p256dh`, `auth`, `userAgent`, `lastSuccessAt`, índice por `userId`) já cobre tudo. O teste não grava `Notification`, porque o enum `NotificationType` não tem um tipo de teste e o envio é direto.
 
@@ -12,6 +12,8 @@ Sem migration: o modelo `PushSubscription` (endpoint único, `p256dh`, `auth`, `
 | Gravar, remover, contar, enviar teste (`web-push` + VAPID) | `src/server/modules/notifications/push.ts` |
 | Regras das ações (login, dono, entrada) | `src/server/modules/notifications/handlers.ts` |
 | Server Actions | `src/server/modules/notifications/actions.ts` |
+| Dispatcher do outbox | `src/server/modules/notifications/dispatch.ts` |
+| `after()` pós-commit | `src/server/modules/notifications/schedule.ts` |
 | Tela Conta | `src/app/(app)/account/push-settings.tsx` |
 | Service worker (`push`, `notificationclick`) | `public/sw.js` |
 
@@ -125,11 +127,29 @@ Preview deployments têm outra origem: as inscrições feitas lá são separadas
 - **Sessão encerrada por outros meios** (expirada, senha redefinida, outro login no mesmo navegador): o aparelho continua inscrito na conta anterior até alguém desativar ou outra conta ativar nele.
 - **Histórico de testes no AuditLog**: o intervalo usa linhas `PUSH_TEST_SENT`, no máximo duas por minuto por aparelho. O AuditLog não é lido em nenhuma tela hoje; se um dia for, filtre essa ação.
 - **`pushsubscriptionchange` não é tratado**: se o navegador renovar a inscrição sozinho, o servidor só descobre quando o usuário abrir a tela Conta (que religa a inscrição atual) ou quando o envio antigo der 404/410.
-- **Envio síncrono**: o teste é enviado dentro da Server Action. Os envios automáticos da próxima etapa devem usar o outbox e `after()`.
+- **Envio síncrono**: o teste é enviado dentro da Server Action. Os envios automáticos usam o outbox e `after()` (Etapa 2, Fase A).
+
+## Etapa 2, Fase A — dispatcher (desligado por padrão)
+
+O outbox `Notification` / `NotificationDelivery` já existia. A Fase A drena esse outbox **depois** do commit (`after()`), com claim atômico, lote limitado e corte obrigatório. Ainda **não** cria tipos novos (lista aberta, votação, lembrete). Promoções da fila e cancelamento extraordinário já enfileiram; o envio só acontece se o dispatcher estiver ligado.
+
+| Variável | Efeito |
+| --- | --- |
+| `PUSH_DISPATCH_ENABLED` | Só `"true"` liga. Qualquer outra coisa (inclusive ausente) é kill switch. |
+| `DISPATCH_AFTER` | ISO-8601 obrigatório. Notificações com `createdAt` anterior **nunca** são enviadas. |
+
+Os dois precisam estar certos **e** as chaves VAPID configuradas. Sem isso, `dispatchPending()` é no-op. Não ative em produção sem definir `DISPATCH_AFTER` no instante da ativação (senão o outbox antigo seria enviado).
+
+```bash
+npm run check:dispatch   # banco local, transação desfeita + um teste concorrente limpo ao final
+```
+
+`check:dispatch` recusa rodar se `DATABASE_URL` não for localhost.
 
 ## Vercel Hobby
 
 - O teste não depende de cron: roda na própria requisição e leva poucas centenas de milissegundos, dentro do limite de duração de funções de qualquer plano.
-- **Cron no Hobby roda no máximo uma vez por dia**, sem horário preciso. Isso não afeta a Etapa 1, mas impede um dispatcher de reenvio frequente na próxima etapa: nesse plano, o envio deve acontecer com `after()` na requisição que gera o evento, e o cron diário só faz reenvios e limpeza.
+- **Cron no Hobby roda no máximo uma vez por dia**, sem horário preciso. O dispatcher da Fase A envia com `after()` na requisição que gerou o evento (ou na leitura preguiçosa / tick); o cron só reforça o drain e os reenvios.
+- Lotes pequenos (10 envios, concorrência 3, orçamento de 8 s, timeout de 4 s por envio) cabem no tempo de função do Hobby.
 - O plano Hobby é para uso pessoal, não comercial. Se o SMV virar SaaS (PROJECT.md, seção 1), será preciso o Pro.
 - Confira os limites atuais na documentação da Vercel antes de planejar a próxima etapa; eles mudam com o tempo.
