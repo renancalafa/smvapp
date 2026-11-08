@@ -44,6 +44,8 @@ export type DispatchOptions = {
   concurrency?: number;
   budgetMs?: number;
   sendTimeoutMs?: number;
+  /** Quando definido, só esta notificação entra na seleção. Os demais filtros continuam valendo. */
+  onlyNotificationId?: string;
 };
 
 type WorkItem = {
@@ -157,8 +159,10 @@ async function dispatchPendingUnsafe(options: DispatchOptions): Promise<Dispatch
   const started = Date.now();
   const timedSend = sendWithTimeout(send, options.sendTimeoutMs ?? DISPATCH_SEND_TIMEOUT_MS);
 
+  const onlyNotificationId = options.onlyNotificationId?.trim();
   const rows = await client.notification.findMany({
     where: {
+      ...(onlyNotificationId ? { id: onlyNotificationId } : {}),
       createdAt: { gte: config.cutoff },
       recipient: { disabledAt: null },
       OR: [
