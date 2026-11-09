@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import Link from "next/link";
+import { darkLinkCard, darkMuted, darkTitle } from "@/lib/ui/dark-surfaces";
 import { requireAdmin } from "@/server/auth/dal";
 import { db } from "@/server/db";
 
@@ -14,30 +15,24 @@ export default async function AdminPage() {
 
   return (
     <section className="flex flex-col gap-4">
-      <h1 className="text-2xl font-semibold text-zinc-900">Administração</h1>
-      <Link
-        href="/admin/players"
-        className="flex min-h-16 items-center justify-between rounded-xl border border-zinc-200 bg-white px-4 py-3 active:bg-zinc-50"
-      >
+      <h1 className={darkTitle}>Administração</h1>
+      <Link href="/admin/players" className={darkLinkCard}>
         <span>
-          <span className="block font-medium text-zinc-900">Jogadores</span>
-          <span className="block text-sm text-zinc-500">
+          <span className="block font-medium text-white">Jogadores</span>
+          <span className={`block ${darkMuted}`}>
             {active} ativos de {total}
           </span>
         </span>
-        <span aria-hidden="true" className="text-zinc-400">
+        <span aria-hidden="true" className="text-white/40">
           ›
         </span>
       </Link>
-      <Link
-        href="/admin/sessions"
-        className="flex min-h-16 items-center justify-between rounded-xl border border-zinc-200 bg-white px-4 py-3 active:bg-zinc-50"
-      >
+      <Link href="/admin/sessions" className={darkLinkCard}>
         <span>
-          <span className="block font-medium text-zinc-900">Sessões</span>
-          <span className="block text-sm text-zinc-500">Lista de presença, fila de espera e presença real</span>
+          <span className="block font-medium text-white">Sessões</span>
+          <span className={`block ${darkMuted}`}>Lista de presença, fila de espera e presença real</span>
         </span>
-        <span aria-hidden="true" className="text-zinc-400">
+        <span aria-hidden="true" className="text-white/40">
           ›
         </span>
       </Link>

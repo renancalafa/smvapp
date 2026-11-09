@@ -3,6 +3,15 @@
 import { useActionState, type FormEvent } from "react";
 import { FormError, SelectField, SubmitButton, TextField } from "@/components/form-fields";
 import {
+  darkAlertError,
+  darkAlertSuccess,
+  darkAlertWarn,
+  darkBody,
+  darkCardPad,
+  darkMutedXs,
+  darkTitleMd,
+} from "@/lib/ui/dark-surfaces";
+import {
   closeVotingAction,
   generateDrawAction,
   invalidateDrawAction,
@@ -16,7 +25,7 @@ function Feedback({ state }: { state: DrawActionState }) {
   if (!state) return null;
   if (state.status === "error") return <FormError message={state.error} />;
   return (
-    <p role="status" className="rounded-lg bg-emerald-50 px-3 py-2 text-sm text-emerald-800">
+    <p role="status" className={darkAlertSuccess}>
       {state.message}
     </p>
   );
@@ -35,7 +44,7 @@ export function GenerateDrawForm({ sessionId, early }: { sessionId: string; earl
   return (
     <form action={formAction} onSubmit={confirmGenerate} className="flex flex-col gap-2">
       <input type="hidden" name="sessionId" value={sessionId} />
-      <p className="text-sm text-zinc-600">
+      <p className={darkBody}>
         O sistema gera as opções e abre a votação no mesmo passo. Com a votação aberta, a lista fica travada para os
         jogadores e a fila não promove automaticamente.
         {early &&
@@ -77,9 +86,9 @@ export function ResolveTieForm({
 }) {
   const [state, formAction, pending] = useActionState(resolveTieAction, undefined);
   return (
-    <form action={formAction} className="flex flex-col gap-3 rounded-xl border border-amber-200 bg-amber-50 p-4">
-      <h3 className="font-medium text-zinc-900">Registrar a decisão do empate</h3>
-      <p className="text-sm text-zinc-600">O sistema não desempata. Registre a opção que os administradores escolheram.</p>
+    <form action={formAction} className={`flex flex-col gap-3 p-4 ${darkAlertWarn}`}>
+      <h3 className={darkTitleMd}>Registrar a decisão do empate</h3>
+      <p className={darkBody}>O sistema não desempata. Registre a opção que os administradores escolheram.</p>
       <input type="hidden" name="sessionId" value={sessionId} />
       <input type="hidden" name="drawId" value={drawId} />
       <SelectField
@@ -96,7 +105,15 @@ export function ResolveTieForm({
   );
 }
 
-export function InvalidateDrawForm({ sessionId, drawId, decided }: { sessionId: string; drawId: string; decided: boolean }) {
+export function InvalidateDrawForm({
+  sessionId,
+  drawId,
+  decided,
+}: {
+  sessionId: string;
+  drawId: string;
+  decided: boolean;
+}) {
   const [state, formAction, pending] = useActionState(invalidateDrawAction, undefined);
   function confirmInvalidate(event: FormEvent<HTMLFormElement>) {
     const message = decided
@@ -105,10 +122,10 @@ export function InvalidateDrawForm({ sessionId, drawId, decided }: { sessionId: 
     if (!window.confirm(message)) event.preventDefault();
   }
   return (
-    <details className="rounded-xl border border-red-200 bg-white p-4">
-      <summary className="cursor-pointer font-medium text-red-700">Refazer sorteio…</summary>
+    <details className={`border border-red-300/30 p-4 ${darkCardPad}`}>
+      <summary className="cursor-pointer font-medium text-red-200">Refazer sorteio…</summary>
       <form action={formAction} onSubmit={confirmInvalidate} className="mt-3 flex flex-col gap-3">
-        <p className="text-sm text-zinc-600">
+        <p className={darkBody}>
           Ação excepcional, só antes da primeira partida, registrada no histórico com o motivo. O sorteio atual, suas
           opções e votos ficam no histórico. Sem gerar o novo sorteio agora, a lista volta a abrir para os jogadores e a
           fila volta a promover automaticamente.
@@ -116,8 +133,8 @@ export function InvalidateDrawForm({ sessionId, drawId, decided }: { sessionId: 
         <input type="hidden" name="sessionId" value={sessionId} />
         <input type="hidden" name="drawId" value={drawId} />
         <TextField label="Motivo" name="reason" required maxLength={300} />
-        <label className="flex min-h-11 items-center gap-3 text-sm text-zinc-700">
-          <input type="checkbox" name="regenerate" defaultChecked className="size-5 accent-emerald-700" />
+        <label className={`flex min-h-11 items-center gap-3 ${darkBody}`}>
+          <input type="checkbox" name="regenerate" defaultChecked className="size-5 accent-smv-gold" />
           Gerar o novo sorteio agora
         </label>
         <SubmitButton pending={pending} label="Invalidar sorteio" pendingLabel="Invalidando…" variant="danger" />
@@ -147,7 +164,12 @@ export function OverflowModeForm({
       hint: fixedDisabled ? "Só depois do prazo dos mensalistas." : "Limita a 15; os excedentes voltam à fila.",
       blocked: fixedDisabled,
     },
-    { value: "FLEXIBLE_ROTATION", label: "Com rotativos", hint: "Mantém todos; você escolhe os rotativos.", blocked: false },
+    {
+      value: "FLEXIBLE_ROTATION",
+      label: "Com rotativos",
+      hint: "Mantém todos; você escolhe os rotativos.",
+      blocked: false,
+    },
   ] as const;
   return (
     <form action={formAction} className="flex flex-col gap-2">
@@ -162,11 +184,13 @@ export function OverflowModeForm({
             disabled={disabled || mode.blocked || pending}
             aria-pressed={current === mode.value}
             className={`flex min-h-16 flex-col items-start rounded-lg border px-3 py-2 text-left disabled:opacity-60 ${
-              current === mode.value ? "border-emerald-600 bg-emerald-50" : "border-zinc-300 bg-white"
+              current === mode.value
+                ? "border-smv-gold/50 bg-smv-gold/15"
+                : "border-white/15 bg-black/20"
             }`}
           >
-            <span className="font-medium text-zinc-900">{mode.label}</span>
-            <span className="text-xs text-zinc-500">{mode.hint}</span>
+            <span className="font-medium text-white">{mode.label}</span>
+            <span className={darkMutedXs}>{mode.hint}</span>
           </button>
         ))}
       </div>
@@ -199,13 +223,15 @@ export function RotatorToggle({
         disabled={disabled || pending}
         aria-pressed={rotating}
         className={`flex min-h-11 items-center justify-between gap-2 rounded-lg border px-3 text-left text-sm disabled:opacity-60 ${
-          rotating ? "border-amber-500 bg-amber-50 text-amber-900" : "border-zinc-200 bg-white text-zinc-800"
+          rotating
+            ? "border-amber-300/40 bg-amber-400/15 text-amber-100"
+            : "border-white/15 bg-black/20 text-white/80"
         }`}
       >
         <span className="truncate">{name}</span>
         <span className="shrink-0 text-xs">{rotating ? "Rotativo" : "—"}</span>
       </button>
-      {state?.status === "error" && <span className="mt-1 text-xs text-red-700">{state.error}</span>}
+      {state?.status === "error" && <span className={`mt-1 text-xs ${darkAlertError}`}>{state.error}</span>}
     </form>
   );
 }

@@ -37,7 +37,7 @@ export function ChangePasswordForm({ username }: { username: string }) {
         maxLength={PASSWORD_MAX_LENGTH}
         required
       />
-      <p className="text-xs text-zinc-500">
+      <p className="text-xs text-white/45">
         De {PASSWORD_MIN_LENGTH} a {PASSWORD_MAX_LENGTH} caracteres, diferente do usuário e da senha atual.
       </p>
       <FormError message={state?.error} />

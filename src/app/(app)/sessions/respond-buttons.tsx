@@ -2,9 +2,8 @@
 
 import { useActionState, type FormEvent } from "react";
 import type { RegistrationStatus } from "@/generated/prisma/enums";
+import { darkAlertError, darkAlertSuccess, darkBtnDanger, darkBtnPrimary, darkBtnSecondary } from "@/lib/ui/dark-surfaces";
 import { respondAction } from "@/server/modules/sessions/actions";
-
-const BUTTON = "min-h-12 flex-1 rounded-lg px-4 font-medium disabled:opacity-60";
 
 export function RespondButtons({
   sessionId,
@@ -29,6 +28,11 @@ export function RespondButtons({
     if (!window.confirm(message)) event.preventDefault();
   }
 
+  const confirmClass = `${darkBtnPrimary} flex-1`;
+  const declineClass = `${darkBtnSecondary} flex-1`;
+  const leaveClass = `${darkBtnDanger} flex-1`;
+  const feedbackClass = state?.status === "error" ? darkAlertError : darkAlertSuccess;
+
   return (
     <div className="flex flex-col gap-2">
       <div className="flex gap-2">
@@ -36,7 +40,7 @@ export function RespondButtons({
           <form action={formAction} onSubmit={confirmLeave} className="flex flex-1">
             <input type="hidden" name="sessionId" value={sessionId} />
             <input type="hidden" name="response" value="DECLINE" />
-            <button type="submit" disabled={pending} className={`${BUTTON} border border-red-200 bg-white text-red-700 active:bg-red-50`}>
+            <button type="submit" disabled={pending} className={leaveClass}>
               {myStatus === "PARTICIPANT" ? "Desistir" : "Sair da fila"}
             </button>
           </form>
@@ -45,7 +49,7 @@ export function RespondButtons({
             <form action={formAction} className="flex flex-1">
               <input type="hidden" name="sessionId" value={sessionId} />
               <input type="hidden" name="response" value="CONFIRM" />
-              <button type="submit" disabled={pending} className={`${BUTTON} bg-emerald-700 text-white active:bg-emerald-800`}>
+              <button type="submit" disabled={pending} className={confirmClass}>
                 {pending ? "Enviando…" : confirmLabel}
               </button>
             </form>
@@ -53,7 +57,7 @@ export function RespondButtons({
               <form action={formAction} className="flex flex-1">
                 <input type="hidden" name="sessionId" value={sessionId} />
                 <input type="hidden" name="response" value="DECLINE" />
-                <button type="submit" disabled={pending} className={`${BUTTON} border border-zinc-300 bg-white text-zinc-900 active:bg-zinc-100`}>
+                <button type="submit" disabled={pending} className={declineClass}>
                   Não vou
                 </button>
               </form>
@@ -62,10 +66,7 @@ export function RespondButtons({
         )}
       </div>
       {state && (
-        <p
-          role={state.status === "error" ? "alert" : "status"}
-          className={`rounded-lg px-3 py-2 text-sm ${state.status === "error" ? "bg-red-50 text-red-700" : "bg-emerald-50 text-emerald-800"}`}
-        >
+        <p role={state.status === "error" ? "alert" : "status"} className={feedbackClass}>
           {state.status === "error" ? state.error : state.message}
         </p>
       )}

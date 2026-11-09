@@ -1,6 +1,16 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import { notFound } from "next/navigation";
+import {
+  darkAlertWarn,
+  darkBody,
+  darkCardPad,
+  darkEmptyCompact,
+  darkLinkCard,
+  darkMuted,
+  darkTitle,
+} from "@/lib/ui/dark-surfaces";
+import { shellBackLink, shellSectionLabel, shellSubtext } from "@/lib/ui/shell-text";
 import { requireAdmin } from "@/server/auth/dal";
 import { db } from "@/server/db";
 import { getLiveBoard } from "@/server/modules/matches/queries";
@@ -72,32 +82,32 @@ export default async function AdminSessionPage({ params }: { params: Promise<{ s
   return (
     <section className="flex flex-col gap-4">
       <div>
-        <Link href="/admin/sessions" className="text-sm text-zinc-500">
+        <Link href="/admin/sessions" className={shellBackLink}>
           ‹ Sessões
         </Link>
-        <h1 className="text-2xl font-semibold capitalize text-zinc-900">{formatSessionTitle(session.startsAt, timeZone)}</h1>
-        <p className="text-sm text-zinc-600">
+        <h1 className={`capitalize ${darkTitle}`}>{formatSessionTitle(session.startsAt, timeZone)}</h1>
+        <p className={shellSubtext}>
           {formatTime(session.startsAt, timeZone)} às {formatTime(session.endsAt, timeZone)}
           {session.venueName ? ` · ${session.venueName}` : ""}
           {kind ? ` · ${kind}` : ""}
           {" · "}lista abre {formatDateTime(session.registrationOpensAt, timeZone)} · prazo dos mensalistas{" "}
           {formatDateTime(session.priorityDeadlineAt, timeZone)}
         </p>
-        <p className="mt-1 text-sm text-zinc-600">{phaseDescription(board.phase, session, timeZone)}</p>
+        <p className={`mt-1 ${shellSubtext}`}>{phaseDescription(board.phase, session, timeZone)}</p>
         {live?.participantsFrozen && (
-          <p className="mt-2 rounded-lg bg-amber-50 px-3 py-2 text-sm text-amber-900">
+          <p className={`mt-2 ${darkAlertWarn}`}>
             Partidas iniciadas: a lista de presença está congelada para todos. Quem não puder jogar fica indisponível
             (empréstimo por partida — em breve neste modo).
           </p>
         )}
         {canChangeList && board.attendanceLocked && (
-          <p className="mt-2 rounded-lg bg-amber-50 px-3 py-2 text-sm text-amber-900">
+          <p className={`mt-2 ${darkAlertWarn}`}>
             Votação iniciada: os jogadores não alteram mais a lista e a fila não promove automaticamente. Use “Promover…”
             na lista de espera para preencher uma vaga.
           </p>
         )}
         {canMarkAttendance && (
-          <p className="mt-1 text-sm text-zinc-600">
+          <p className={`mt-1 ${shellSubtext}`}>
             Presença real: {presentCount} de {board.participants.length} marcados como presentes. Confirmar presença não é
             o mesmo que estar presente.
           </p>
@@ -108,25 +118,22 @@ export default async function AdminSessionPage({ params }: { params: Promise<{ s
         <>
           <Link
             href={`/admin/sessions/${session.id}/live`}
-            className="flex min-h-14 items-center justify-between rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 active:bg-emerald-100"
+            className={`${darkLinkCard} ring-1 ring-smv-gold/30`}
           >
             <span>
-              <span className="block font-medium text-zinc-900">Modo Pelada</span>
-              <span className="block text-sm text-zinc-600">Partidas, cronômetro, placar e Rei da Mesa</span>
+              <span className="block font-medium text-white">Modo Pelada</span>
+              <span className={`block ${darkMuted}`}>Partidas, cronômetro, placar e Rei da Mesa</span>
             </span>
-            <span aria-hidden="true" className="text-emerald-700">
+            <span aria-hidden="true" className="text-smv-gold-bright">
               ›
             </span>
           </Link>
-          <Link
-            href={`/admin/sessions/${session.id}/draw`}
-            className="flex min-h-14 items-center justify-between rounded-xl border border-zinc-200 bg-white px-4 py-3 active:bg-zinc-50"
-          >
+          <Link href={`/admin/sessions/${session.id}/draw`} className={darkLinkCard}>
             <span>
-              <span className="block font-medium text-zinc-900">Sorteio e votação</span>
-              <span className="block text-sm text-zinc-500">Formação, rotativos, opções de times e votos</span>
+              <span className="block font-medium text-white">Sorteio e votação</span>
+              <span className={`block ${darkMuted}`}>Formação, rotativos, opções de times e votos</span>
             </span>
-            <span aria-hidden="true" className="text-zinc-400">
+            <span aria-hidden="true" className="text-white/40">
               ›
             </span>
           </Link>
@@ -139,7 +146,12 @@ export default async function AdminSessionPage({ params }: { params: Promise<{ s
         empty="Ninguém confirmado ainda."
         extra={actions}
       />
-      <RegistrationList title="Lista de espera" registrations={board.waitlist} empty="Ninguém na lista de espera." extra={actions} />
+      <RegistrationList
+        title="Lista de espera"
+        registrations={board.waitlist}
+        empty="Ninguém na lista de espera."
+        extra={actions}
+      />
 
       {canChangeList && (!board.attendanceLocked || earlyDrawWaitlist) && (
         <ConfirmOnBehalfForm
@@ -158,7 +170,7 @@ export default async function AdminSessionPage({ params }: { params: Promise<{ s
         />
       )}
       {canChangeList && board.attendanceLocked && !earlyDrawWaitlist && (
-        <p className="rounded-xl border border-zinc-200 bg-zinc-50 px-4 py-3 text-sm text-zinc-600">
+        <p className={darkEmptyCompact}>
           Votação iniciada: “Confirmar pelo jogador” fica indisponível (mesmas regras do jogador). Use inclusão
           excepcional ou promoção com motivo.
         </p>
@@ -221,10 +233,10 @@ function NameList({ title, names }: { title: string; names: string[] }) {
   if (names.length === 0) return null;
   return (
     <section className="flex flex-col gap-1">
-      <h2 className="text-sm font-medium text-zinc-500">
+      <h2 className={shellSectionLabel}>
         {title} ({names.length})
       </h2>
-      <p className="rounded-xl border border-zinc-200 bg-white px-4 py-3 text-sm text-zinc-700">{names.join(", ")}</p>
+      <p className={`${darkCardPad} ${darkBody}`}>{names.join(", ")}</p>
     </section>
   );
 }

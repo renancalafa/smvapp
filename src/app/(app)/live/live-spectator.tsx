@@ -4,6 +4,13 @@ import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { pollIntervalMs, shouldPollWhileVisible } from "@/domain/live/polling";
 import type { SpectatorLiveSnapshot } from "@/server/modules/matches/spectator";
+import {
+  darkCardPad,
+  darkEmpty,
+  darkMuted,
+  darkTitle,
+} from "@/lib/ui/dark-surfaces";
+import { shellSubtext } from "@/lib/ui/shell-text";
 import { extraordinaryLabel, formatSessionTitle, formatTime } from "../sessions/format";
 import { SpectatorBoard } from "./spectator-board";
 
@@ -141,16 +148,16 @@ export function LiveSpectator({
     state.kind === "live" || state.kind === "ended" ? extraordinaryLabel(state.session.origin) : null;
 
   return (
-    <section className="flex flex-col gap-4">
+    <section className="flex flex-col gap-4 text-smv-cream">
       <div>
-        <h1 className="text-2xl font-semibold text-zinc-900">Ao Vivo</h1>
-        <p className="text-sm text-zinc-600">Placar e partidas da pelada — somente leitura</p>
+        <h1 className={darkTitle}>Ao Vivo</h1>
+        <p className={shellSubtext}>Placar e partidas da pelada — somente leitura</p>
       </div>
 
       {state.kind === "idle" && (
-        <div className="rounded-2xl border border-dashed border-zinc-300 bg-zinc-50 px-4 py-10 text-center">
-          <p className="text-base font-medium text-zinc-800">Nenhuma sessão ativa no momento</p>
-          <p className="mt-1 text-sm text-zinc-600">
+        <div className={darkEmpty}>
+          <p className="text-base font-medium text-smv-cream">Nenhuma sessão ativa no momento</p>
+          <p className="mt-1 text-sm text-white/55">
             Quando a pelada começar, o placar, o cronômetro e o histórico aparecem aqui
             automaticamente.
           </p>
@@ -159,11 +166,11 @@ export function LiveSpectator({
 
       {(state.kind === "live" || state.kind === "ended") && (
         <>
-          <div className="rounded-xl border border-zinc-200 bg-white px-4 py-3">
-            <p className="text-sm font-medium capitalize text-zinc-900">
+          <div className={darkCardPad}>
+            <p className="text-sm font-medium capitalize text-smv-cream">
               {formatSessionTitle(new Date(state.session.startsAt), timeZone)}
             </p>
-            <p className="text-sm text-zinc-600">
+            <p className={darkMuted}>
               {formatTime(new Date(state.session.startsAt), timeZone)} às{" "}
               {formatTime(new Date(state.session.endsAt), timeZone)}
               {state.session.venueName ? ` · ${state.session.venueName}` : ""}

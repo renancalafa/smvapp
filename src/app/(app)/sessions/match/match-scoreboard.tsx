@@ -1,10 +1,10 @@
 import type { MatchView } from "@/server/modules/matches/view";
 
+type Side = "A" | "B";
+
 function playerLabel(player: MatchView["players"][number]): string {
   return player.nickname ? `${player.name} (${player.nickname})` : player.name;
 }
-
-type Side = "A" | "B";
 
 export type ScoreboardTeam = { id: string; name: string };
 export type ScoreboardPlayer = MatchView["players"][number];
@@ -59,7 +59,7 @@ export function MatchScoreboard({
             label={`Placar ${teamA.name}`}
             onClick={onScoreClick ? () => onScoreClick("A") : undefined}
           />
-          <span className="text-xl font-medium text-zinc-400 sm:text-2xl" aria-hidden="true">
+          <span className="text-xl font-medium text-white/40 sm:text-2xl" aria-hidden="true">
             ×
           </span>
           <ScoreDigit
@@ -79,10 +79,12 @@ export function MatchScoreboard({
       </div>
 
       {teamsEditable && (
-        <p className="text-center text-xs text-amber-800">Toque no nome do time para trocar</p>
+        <p className="text-center text-xs text-amber-200">Toque no nome do time para trocar</p>
       )}
       {interactive && !awaitingKickoff && (
-        <p className="text-center text-xs text-emerald-700">Toque no placar para gol · no jogador para outros eventos</p>
+        <p className="text-center text-xs text-smv-gold-bright">
+          Toque no placar para gol · no jogador para outros eventos
+        </p>
       )}
 
       <div className="grid grid-cols-2 gap-3 sm:gap-6">
@@ -154,14 +156,14 @@ function TeamName({
       <button
         type="button"
         onClick={onClick}
-        className={`${base} rounded-lg px-1 py-1 text-emerald-900 underline-offset-2 hover:bg-emerald-50 hover:underline`}
+        className={`${base} rounded-lg px-1 py-1 text-smv-gold-bright underline-offset-2 hover:bg-white/8 hover:underline`}
         aria-label={`Trocar ${name}`}
       >
         {name}
       </button>
     );
   }
-  return <p className={`${base} text-zinc-800`}>{name}</p>;
+  return <p className={`${base} text-white`}>{name}</p>;
 }
 
 function ScoreDigit({
@@ -180,7 +182,7 @@ function ScoreDigit({
   const className =
     "min-h-12 min-w-12 rounded-xl px-2 text-center text-4xl font-semibold tabular-nums sm:min-h-14 sm:min-w-14 sm:text-5xl";
   if (awaiting) {
-    return <span className={`${className} text-zinc-400`}>—</span>;
+    return <span className={`${className} text-white/35`}>—</span>;
   }
   if (interactive && onClick) {
     return (
@@ -188,13 +190,13 @@ function ScoreDigit({
         type="button"
         onClick={onClick}
         aria-label={`Registrar gol — ${label}: ${value}`}
-        className={`${className} bg-emerald-50 text-emerald-900 ring-1 ring-emerald-200 transition active:bg-emerald-100`}
+        className={`${className} bg-smv-gold/15 text-smv-gold-bright ring-1 ring-smv-gold/35 transition active:bg-smv-gold/25`}
       >
         {value}
       </button>
     );
   }
-  return <span className={`${className} text-zinc-900`}>{value}</span>;
+  return <span className={`${className} text-white`}>{value}</span>;
 }
 
 function PlayerColumn({
@@ -210,12 +212,12 @@ function PlayerColumn({
 }) {
   return (
     <ul
-      className={`flex flex-col gap-1 text-sm text-zinc-700 ${
+      className={`flex flex-col gap-1 text-sm text-white/75 ${
         align === "right" ? "items-end text-right" : "items-start text-left"
       }`}
     >
       {players.length === 0 ? (
-        <li className="text-zinc-400">Sem escalação</li>
+        <li className="text-white/40">Sem escalação</li>
       ) : (
         players.map((player) => {
           const label = `${playerLabel(player)}${player.role === "GOALKEEPER" ? " · G" : ""}`;
@@ -225,7 +227,7 @@ function PlayerColumn({
                 <button
                   type="button"
                   onClick={() => onPlayerClick(player)}
-                  className="max-w-full truncate rounded-lg px-2 py-1.5 text-sm font-medium text-zinc-800 underline-offset-2 hover:bg-zinc-100 hover:underline active:bg-zinc-200"
+                  className="max-w-full truncate rounded-lg px-2 py-1.5 text-sm font-medium text-white underline-offset-2 hover:bg-white/8 hover:underline active:bg-white/12"
                 >
                   {label}
                 </button>

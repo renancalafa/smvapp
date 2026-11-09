@@ -2,6 +2,12 @@
 
 import { useActionState, type FormEvent } from "react";
 import { FormError, SelectField, SubmitButton } from "@/components/form-fields";
+import {
+  darkAlertSuccess,
+  darkCardPad,
+  darkMuted,
+  darkTitleMd,
+} from "@/lib/ui/dark-surfaces";
 import { changeMemberRatingAction } from "@/server/modules/members/actions";
 
 const RATING_OPTIONS = [1, 2, 3, 4, 5].map((n) => ({
@@ -33,11 +39,11 @@ export function EditRatingForm({
   }
 
   return (
-    <div className="flex flex-col gap-2 rounded-xl border border-zinc-200 bg-white p-4">
-      <h2 className="font-medium text-zinc-900">Editar nota</h2>
-      <p className="text-sm text-zinc-500">
+    <div className={`flex flex-col gap-2 ${darkCardPad}`}>
+      <h2 className={darkTitleMd}>Editar nota</h2>
+      <p className={darkMuted}>
         Nota atual:{" "}
-        <span className="font-medium text-zinc-800" title={`Nota ${baseRating}`}>
+        <span className="font-medium text-white" title={`Nota ${baseRating}`}>
           {"★".repeat(baseRating)}
           {"☆".repeat(5 - baseRating)} ({baseRating})
         </span>
@@ -54,7 +60,7 @@ export function EditRatingForm({
         />
         <SubmitButton pending={pending} label="Salvar nota" pendingLabel="Salvando…" />
       </form>
-      {state?.status === "done" && <p className="text-sm text-emerald-700">{state.message}</p>}
+      {state?.status === "done" && <p className={darkAlertSuccess}>{state.message}</p>}
       <FormError message={state?.status === "error" ? state.error : undefined} />
     </div>
   );

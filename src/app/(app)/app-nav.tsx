@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
+import { useSyncExternalStore } from "react";
 
 export type NavIcon = "home" | "live" | "stats" | "admin" | "account";
 export type NavItem = { href: string; label: string; icon: NavIcon };
@@ -20,7 +21,7 @@ function Icon({ name }: { name: NavIcon }) {
       viewBox="0 0 24 24"
       fill="none"
       stroke="currentColor"
-      strokeWidth={1.8}
+      strokeWidth="1.8"
       strokeLinecap="round"
       strokeLinejoin="round"
       aria-hidden="true"
@@ -35,24 +36,41 @@ function isActive(pathname: string, href: string): boolean {
   return href === "/" ? pathname === "/" : pathname === href || pathname.startsWith(`${href}/`);
 }
 
+/**
+ * usePathname() can disagree with the SSR markup on the first client paint
+ * (soft-nav restore, trailing-slash, etc.), which marked active Link className /
+ * aria-current differently and triggered a hydration mismatch at BottomNav.
+ * Gate active styles until after mount so server HTML and the hydrated tree match;
+ * client navigations still update via usePathname once mounted.
+ */
+function useHydratedPathname(): string | null {
+  const pathname = usePathname();
+  const hydrated = useSyncExternalStore(
+    () => () => {},
+    () => true,
+    () => false,
+  );
+  return hydrated ? pathname : null;
+}
+
 /** Barra inferior fixa, só no celular. */
 export function BottomNav({ items }: { items: NavItem[] }) {
-  const pathname = usePathname();
+  const pathname = useHydratedPathname();
   return (
     <nav
       aria-label="Navegação principal"
-      className="fixed inset-x-0 bottom-0 z-20 border-t border-zinc-200 bg-white/95 pb-[env(safe-area-inset-bottom)] backdrop-blur md:hidden"
+      className="fixed inset-x-0 bottom-0 z-20 border-t border-white/10 bg-smv-navy/95 pb-[env(safe-area-inset-bottom)] backdrop-blur md:hidden"
     >
       <ul className="flex">
         {items.map((item) => {
-          const active = isActive(pathname, item.href);
+          const active = pathname !== null && isActive(pathname, item.href);
           return (
             <li key={item.href} className="flex-1">
               <Link
                 href={item.href}
-                aria-current={active ? "page" : undefined}
-                className={`flex min-h-16 flex-col items-center justify-center gap-0.5 text-xs font-medium ${
-                  active ? "text-emerald-700" : "text-zinc-500 active:text-zinc-900"
+                {...(active ? { "aria-current": "page" as const } : {})}
+                className={`flex min-h-16 flex-col items-center justify-center gap-0.5 text-xs font-medium focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-smv-gold focus-visible:ring-inset ${
+                  active ? "text-smv-gold-bright" : "text-white/55 active:text-smv-cream"
                 }`}
               >
                 <Icon name={item.icon} />
@@ -68,19 +86,21 @@ export function BottomNav({ items }: { items: NavItem[] }) {
 
 /** Lista lateral, só no desktop. */
 export function SideNav({ items }: { items: NavItem[] }) {
-  const pathname = usePathname();
+  const pathname = useHydratedPathname();
   return (
     <nav aria-label="Navegação principal">
       <ul className="flex flex-col gap-1">
         {items.map((item) => {
-          const active = isActive(pathname, item.href);
+          const active = pathname !== null && isActive(pathname, item.href);
           return (
             <li key={item.href}>
               <Link
                 href={item.href}
-                aria-current={active ? "page" : undefined}
-                className={`flex min-h-11 items-center gap-3 rounded-lg px-3 text-sm font-medium ${
-                  active ? "bg-emerald-50 text-emerald-800" : "text-zinc-600 hover:bg-zinc-100 hover:text-zinc-900"
+                {...(active ? { "aria-current": "page" as const } : {})}
+                className={`flex min-h-11 items-center gap-3 rounded-lg px-3 text-sm font-medium focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-smv-gold ${
+                  active
+                    ? "bg-smv-gold/15 text-smv-gold-bright ring-1 ring-smv-gold/35"
+                    : "text-white/65 hover:bg-white/8 hover:text-smv-cream"
                 }`}
               >
                 <Icon name={item.icon} />

@@ -1,7 +1,13 @@
 import type { InputHTMLAttributes, SelectHTMLAttributes } from "react";
-
-const CONTROL_CLASS =
-  "min-h-12 rounded-lg border border-zinc-300 bg-white px-3 py-2 text-base font-normal text-zinc-900 outline-none focus:border-emerald-600 focus:ring-2 focus:ring-emerald-600/20 disabled:bg-zinc-100 disabled:text-zinc-500";
+import {
+  darkAlertError,
+  darkBtnDanger,
+  darkBtnPrimary,
+  darkBtnSecondary,
+  darkControl,
+  darkHint,
+  darkLabel,
+} from "@/lib/ui/dark-surfaces";
 
 type TextFieldProps = InputHTMLAttributes<HTMLInputElement> & {
   label: string;
@@ -9,12 +15,12 @@ type TextFieldProps = InputHTMLAttributes<HTMLInputElement> & {
   hint?: string;
 };
 
-export function TextField({ label, name, hint, ...props }: TextFieldProps) {
+export function TextField({ label, name, hint, className, ...props }: TextFieldProps) {
   return (
-    <label className="flex flex-col gap-1 text-sm font-medium text-zinc-700">
+    <label className={darkLabel}>
       {label}
-      <input name={name} className={CONTROL_CLASS} {...props} />
-      {hint && <span className="text-xs font-normal text-zinc-500">{hint}</span>}
+      <input name={name} className={`${darkControl}${className ? ` ${className}` : ""}`} {...props} />
+      {hint && <span className={darkHint}>{hint}</span>}
     </label>
   );
 }
@@ -26,18 +32,18 @@ type SelectFieldProps = SelectHTMLAttributes<HTMLSelectElement> & {
   hint?: string;
 };
 
-export function SelectField({ label, name, options, hint, ...props }: SelectFieldProps) {
+export function SelectField({ label, name, options, hint, className, ...props }: SelectFieldProps) {
   return (
-    <label className="flex flex-col gap-1 text-sm font-medium text-zinc-700">
+    <label className={darkLabel}>
       {label}
-      <select name={name} className={CONTROL_CLASS} {...props}>
+      <select name={name} className={`${darkControl}${className ? ` ${className}` : ""}`} {...props}>
         {options.map((option) => (
-          <option key={option.value} value={option.value} disabled={option.disabled}>
+          <option key={option.value} value={option.value} disabled={option.disabled} className="bg-smv-navy text-smv-cream">
             {option.label}
           </option>
         ))}
       </select>
-      {hint && <span className="text-xs font-normal text-zinc-500">{hint}</span>}
+      {hint && <span className={darkHint}>{hint}</span>}
     </label>
   );
 }
@@ -45,7 +51,7 @@ export function SelectField({ label, name, options, hint, ...props }: SelectFiel
 export function FormError({ message }: { message?: string }) {
   if (!message) return null;
   return (
-    <p role="alert" className="rounded-lg bg-red-50 px-3 py-2 text-sm text-red-700">
+    <p role="alert" className={darkAlertError}>
       {message}
     </p>
   );
@@ -63,16 +69,12 @@ export function SubmitButton({
   variant?: "primary" | "secondary" | "danger";
 }) {
   const variantClass = {
-    primary: "bg-emerald-700 text-white hover:bg-emerald-800",
-    secondary: "border border-zinc-300 bg-white text-zinc-900 hover:bg-zinc-50",
-    danger: "border border-red-200 bg-white text-red-700 hover:bg-red-50",
+    primary: darkBtnPrimary,
+    secondary: darkBtnSecondary,
+    danger: darkBtnDanger,
   }[variant];
   return (
-    <button
-      type="submit"
-      disabled={pending}
-      className={`min-h-12 w-full rounded-lg px-4 py-2.5 font-medium disabled:opacity-60 ${variantClass}`}
-    >
+    <button type="submit" disabled={pending} className={`w-full ${variantClass}`}>
       {pending ? pendingLabel : label}
     </button>
   );

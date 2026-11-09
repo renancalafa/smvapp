@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import { redirect } from "next/navigation";
+import { darkMuted, darkTitleMd } from "@/lib/ui/dark-surfaces";
 import { getViewer } from "@/server/auth/dal";
 import { LoginForm } from "./login-form";
 
@@ -11,8 +12,8 @@ export default async function LoginPage() {
 
   return (
     <>
-      <h1 className="text-xl font-semibold text-zinc-900">Entrar</h1>
-      <p className="mt-1 text-sm text-zinc-500">Use o usuário e a senha recebidos do administrador.</p>
+      <h1 className={darkTitleMd}>Entrar</h1>
+      <p className={`mt-1 ${darkMuted}`}>Use o usuário e a senha recebidos do administrador.</p>
       <LoginForm />
     </>
   );

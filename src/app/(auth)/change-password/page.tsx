@@ -1,7 +1,8 @@
 import type { Metadata } from "next";
 import Link from "next/link";
-import { requireViewerAllowingPasswordChange } from "@/server/auth/dal";
 import { LogoutForm } from "@/components/logout-form";
+import { darkBackLink, darkMuted, darkTitleMd } from "@/lib/ui/dark-surfaces";
+import { requireViewerAllowingPasswordChange } from "@/server/auth/dal";
 import { ChangePasswordForm } from "./change-password-form";
 
 export const metadata: Metadata = { title: "Trocar senha" };
@@ -12,8 +13,8 @@ export default async function ChangePasswordPage() {
 
   return (
     <>
-      <h1 className="text-xl font-semibold text-zinc-900">Trocar senha</h1>
-      <p className="mt-1 text-sm text-zinc-500">
+      <h1 className={darkTitleMd}>Trocar senha</h1>
+      <p className={`mt-1 ${darkMuted}`}>
         {mandatory
           ? "Sua senha é temporária. Defina uma senha nova para continuar."
           : "Ao trocar a senha, as outras sessões abertas são encerradas."}
@@ -23,11 +24,11 @@ export default async function ChangePasswordPage() {
         {mandatory ? (
           <span />
         ) : (
-          <Link href="/account" className="flex min-h-11 items-center px-1 text-zinc-600 hover:underline">
+          <Link href="/account" className={`flex min-h-11 items-center px-1 ${darkBackLink}`}>
             Voltar
           </Link>
         )}
-        <LogoutForm buttonClassName="flex min-h-11 items-center px-1 text-zinc-600 hover:underline" />
+        <LogoutForm buttonClassName={`flex min-h-11 items-center px-1 ${darkBackLink}`} />
       </div>
     </>
   );

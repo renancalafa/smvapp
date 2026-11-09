@@ -8,6 +8,8 @@ import {
   parseStatsPeriodFromSearchParams,
   periodToSearchParams,
 } from "@/server/modules/stats/queries";
+import { darkEmpty, darkMutedXs, darkTitle } from "@/lib/ui/dark-surfaces";
+import { shellInlineLink, shellSubtext } from "@/lib/ui/shell-text";
 import { GeneralClassificationTable } from "./general-classification";
 import { PeriodFilter } from "./period-filter";
 import { RankingList } from "./ranking-list";
@@ -34,10 +36,10 @@ export default async function StatsPage({
     classification.entries.length > 0 || boards.some((board) => board.entries.length > 0);
 
   return (
-    <section className="flex flex-col gap-5">
+    <section className="flex flex-col gap-5 text-smv-cream">
       <div>
-        <h1 className="text-2xl font-semibold text-zinc-900">Rankings</h1>
-        <p className="text-sm text-zinc-600">
+        <h1 className={darkTitle}>Rankings</h1>
+        <p className={shellSubtext}>
           Classificação por aproveitamento e estatísticas individuais a partir das partidas.
         </p>
       </div>
@@ -45,9 +47,9 @@ export default async function StatsPage({
       <PeriodFilter action="/stats" period={period} options={options} timeZone={timeZone} />
 
       {!hasAny ? (
-        <div className="rounded-2xl border border-dashed border-zinc-300 bg-zinc-50 px-4 py-10 text-center">
-          <p className="font-medium text-zinc-800">Nenhuma estatística neste período</p>
-          <p className="mt-1 text-sm text-zinc-600">
+        <div className={darkEmpty}>
+          <p className="font-medium text-smv-cream">Nenhuma estatística neste período</p>
+          <p className="mt-1 text-sm text-white/55">
             Os rankings aparecem depois que houver partidas finalizadas com eventos registrados no Modo
             Pelada.
           </p>
@@ -61,10 +63,13 @@ export default async function StatsPage({
         </div>
       )}
 
-      <p className="text-xs text-zinc-500">
+      <p className={darkMutedXs}>
         PJ / V / E / D consideram apenas papel de linha (`FIELD`). Eventos de goleiro continuam nos
         placares de gols, cartões etc.{" "}
-        <Link href={`/stats/players/${viewer.member.id}${periodQuery ? `?${periodQuery}` : ""}`} className="underline">
+        <Link
+          href={`/stats/players/${viewer.member.id}${periodQuery ? `?${periodQuery}` : ""}`}
+          className={shellInlineLink}
+        >
           Meu perfil
         </Link>
       </p>

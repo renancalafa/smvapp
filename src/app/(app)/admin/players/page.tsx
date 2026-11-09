@@ -1,5 +1,18 @@
 import type { Metadata } from "next";
 import Link from "next/link";
+import {
+  darkBadge,
+  darkBadgeDanger,
+  darkBadgeInfo,
+  darkBadgeSuccess,
+  darkBadgeWarn,
+  darkBtnPrimary,
+  darkList,
+  darkListRow,
+  darkMuted,
+  darkTitle,
+} from "@/lib/ui/dark-surfaces";
+import { shellBackLink, shellMuted } from "@/lib/ui/shell-text";
 import { requireAdmin } from "@/server/auth/dal";
 import { listGroupMembers } from "@/server/modules/members/queries";
 import { MODALITY_LABEL } from "../../labels";
@@ -15,47 +28,49 @@ export default async function PlayersPage() {
     <section className="flex flex-col gap-4">
       <div className="flex items-center justify-between gap-3">
         <div>
-          <Link href="/admin" className="text-sm text-zinc-500">
+          <Link href="/admin" className={shellBackLink}>
             ‹ Admin
           </Link>
-          <h1 className="text-2xl font-semibold text-zinc-900">Jogadores</h1>
-          <p className="text-sm text-zinc-500">
+          <h1 className={darkTitle}>Jogadores</h1>
+          <p className={shellMuted}>
             {activeCount} ativos de {members.length}
           </p>
         </div>
-        <Link
-          href="/admin/players/new"
-          className="flex min-h-12 shrink-0 items-center rounded-lg bg-emerald-700 px-4 font-medium text-white active:bg-emerald-800"
-        >
+        <Link href="/admin/players/new" className={`shrink-0 px-4 ${darkBtnPrimary}`}>
           Novo jogador
         </Link>
       </div>
 
-      <ul className="divide-y divide-zinc-100 overflow-hidden rounded-xl border border-zinc-200 bg-white">
+      <ul className={darkList}>
         {members.map((member) => (
           <li key={member.id}>
-            <Link
-              href={`/admin/players/${member.id}`}
-              className="flex min-h-16 items-center gap-3 px-4 py-3 active:bg-zinc-50"
-            >
+            <Link href={`/admin/players/${member.id}`} className={darkListRow}>
               <div className="min-w-0 flex-1">
-                <p className={`truncate font-medium ${member.status === "ACTIVE" ? "text-zinc-900" : "text-zinc-400"}`}>
+                <p
+                  className={`truncate font-medium ${
+                    member.status === "ACTIVE" ? "text-white" : "text-white/40"
+                  }`}
+                >
                   {member.user.name}
-                  {member.nickname && <span className="font-normal text-zinc-500"> ({member.nickname})</span>}
+                  {member.nickname && (
+                    <span className="font-normal text-white/55"> ({member.nickname})</span>
+                  )}
                 </p>
-                <p className="truncate text-sm text-zinc-500">{member.user.username}</p>
+                <p className={`truncate ${darkMuted}`}>{member.user.username}</p>
                 <div className="mt-1 flex flex-wrap gap-1">
-                  <Badge tone={member.modality === "MONTHLY" ? "emerald" : "zinc"}>
+                  <span className={member.modality === "MONTHLY" ? darkBadgeSuccess : darkBadge}>
                     {MODALITY_LABEL[member.modality]}
-                  </Badge>
-                  {member.role === "ADMIN" && <Badge tone="sky">Admin</Badge>}
-                  {member.status === "INACTIVE" && <Badge tone="zinc">Inativo</Badge>}
-                  {member.user.mustChangePassword && <Badge tone="amber">Senha temporária</Badge>}
-                  {member.user.disabledAt && <Badge tone="red">Conta desativada</Badge>}
+                  </span>
+                  {member.role === "ADMIN" && <span className={darkBadgeInfo}>Admin</span>}
+                  {member.status === "INACTIVE" && <span className={darkBadge}>Inativo</span>}
+                  {member.user.mustChangePassword && (
+                    <span className={darkBadgeWarn}>Senha temporária</span>
+                  )}
+                  {member.user.disabledAt && <span className={darkBadgeDanger}>Conta desativada</span>}
                 </div>
               </div>
-              <span className="shrink-0 text-sm text-zinc-500" title="Nota base">
-                ★ {member.baseRating}
+              <span className={`shrink-0 ${darkMuted}`} title="Nota base">
+                <span className="text-smv-gold-bright">★</span> {member.baseRating}
               </span>
             </Link>
           </li>
@@ -63,16 +78,4 @@ export default async function PlayersPage() {
       </ul>
     </section>
   );
-}
-
-const BADGE_TONES = {
-  emerald: "bg-emerald-50 text-emerald-800",
-  zinc: "bg-zinc-100 text-zinc-700",
-  sky: "bg-sky-50 text-sky-800",
-  amber: "bg-amber-50 text-amber-800",
-  red: "bg-red-50 text-red-700",
-} as const;
-
-function Badge({ tone, children }: { tone: keyof typeof BADGE_TONES; children: React.ReactNode }) {
-  return <span className={`rounded-full px-2 py-0.5 text-xs font-medium ${BADGE_TONES[tone]}`}>{children}</span>;
 }

@@ -1,3 +1,4 @@
+import { darkCard } from "@/lib/ui/dark-surfaces";
 import type { DrawView } from "@/server/modules/draws/queries";
 import { OptionCard } from "./option-card";
 import { VoteButton } from "./vote-button";
@@ -21,17 +22,25 @@ export function drawStatusText(draw: DrawView): string {
 }
 
 /** Sorteio na tela do jogador: composição dos times e votos, nunca força. */
-export function DrawSection({ draw, sessionId, canVote }: { draw: DrawView; sessionId: string; canVote: boolean }) {
+export function DrawSection({
+  draw,
+  sessionId,
+  canVote,
+}: {
+  draw: DrawView;
+  sessionId: string;
+  canVote: boolean;
+}) {
   const voting = draw.status === "VOTING";
   const totalVotes = draw.options.reduce((sum, option) => sum + option.votes, 0);
 
   return (
-    <section className="flex flex-col gap-3">
+    <section className={`${darkCard} flex flex-col gap-4 p-4`}>
       <div>
-        <h2 className="text-lg font-semibold text-zinc-900">Sorteio dos times</h2>
-        <p className="text-sm text-zinc-600">{drawStatusText(draw)}</p>
+        <h3 className="text-lg font-semibold text-white">Sorteio dos times</h3>
+        <p className="mt-1 text-sm text-white/65">{drawStatusText(draw)}</p>
         {voting && (
-          <p className="mt-1 text-sm text-zinc-500">
+          <p className="mt-1 text-sm text-white/55">
             {totalVotes} de {draw.eligibleVoters} mensalistas votaram.
             {canVote
               ? draw.myVoteOptionId

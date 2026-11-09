@@ -3,6 +3,11 @@
 import Link from "next/link";
 import { useActionState } from "react";
 import { FormError, SelectField, SubmitButton, TextField } from "@/components/form-fields";
+import {
+  darkAlertSuccess,
+  darkCardPad,
+  darkInlineLink,
+} from "@/lib/ui/dark-surfaces";
 import { createPlayerAction } from "@/server/modules/members/actions";
 import { NAME_MAX_LENGTH, NICKNAME_MAX_LENGTH } from "@/server/modules/members/validation";
 import { TemporaryPassword } from "../temporary-password";
@@ -16,9 +21,9 @@ export function CreatePlayerForm({ monthlyBlockedReason }: { monthlyBlockedReaso
     <div className="flex flex-col gap-4">
       {state?.status === "created" && (
         <div className="flex flex-col gap-2">
-          <p className="rounded-lg bg-emerald-50 px-3 py-2 text-sm text-emerald-800">
+          <p className={darkAlertSuccess}>
             {state.created.name} foi cadastrado.{" "}
-            <Link href={`/admin/players/${state.created.memberId}`} className="font-medium underline">
+            <Link href={`/admin/players/${state.created.memberId}`} className={`font-medium ${darkInlineLink}`}>
               Ver jogador
             </Link>
           </p>
@@ -26,11 +31,7 @@ export function CreatePlayerForm({ monthlyBlockedReason }: { monthlyBlockedReaso
         </div>
       )}
 
-      <form
-        action={formAction}
-        autoComplete="off"
-        className="flex flex-col gap-4 rounded-xl border border-zinc-200 bg-white p-4"
-      >
+      <form action={formAction} autoComplete="off" className={`flex flex-col gap-4 ${darkCardPad}`}>
         <TextField label="Nome" name="name" maxLength={NAME_MAX_LENGTH} defaultValue={values?.name} required />
         <TextField
           label="Usuário"

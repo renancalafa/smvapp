@@ -1,6 +1,13 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import { notFound } from "next/navigation";
+import {
+  darkBody,
+  darkCardPad,
+  darkMuted,
+  darkTitle,
+} from "@/lib/ui/dark-surfaces";
+import { shellBackLink } from "@/lib/ui/shell-text";
 import { requireAdmin } from "@/server/auth/dal";
 import { getGroupMemberDetail } from "@/server/modules/members/queries";
 import { isUuid } from "@/server/modules/members/validation";
@@ -55,17 +62,17 @@ export default async function PlayerPage({ params }: { params: Promise<{ memberI
   return (
     <section className="flex flex-col gap-4">
       <div>
-        <Link href="/admin/players" className="text-sm text-zinc-500">
+        <Link href="/admin/players" className={shellBackLink}>
           ‹ Jogadores
         </Link>
-        <h1 className="text-2xl font-semibold text-zinc-900">{member.user.name}</h1>
+        <h1 className={darkTitle}>{member.user.name}</h1>
       </div>
 
-      <dl className="grid grid-cols-[auto_1fr] gap-x-4 gap-y-2 rounded-xl border border-zinc-200 bg-white p-4 text-sm">
+      <dl className={`grid grid-cols-[auto_1fr] gap-x-4 gap-y-2 text-sm ${darkCardPad}`}>
         {rows.map(([label, value]) => (
           <div key={label} className="contents">
-            <dt className="text-zinc-500">{label}</dt>
-            <dd className="text-zinc-900">{value}</dd>
+            <dt className={darkMuted}>{label}</dt>
+            <dd className="text-white">{value}</dd>
           </div>
         ))}
       </dl>
@@ -81,7 +88,7 @@ export default async function PlayerPage({ params }: { params: Promise<{ memberI
       {member.role === "PLAYER" ? (
         <PlayerActions memberId={member.id} username={member.user.username} status={member.status} />
       ) : (
-        <p className="rounded-xl border border-zinc-200 bg-white p-4 text-sm text-zinc-600">
+        <p className={`${darkCardPad} ${darkBody}`}>
           Ativar/desativar e redefinir senha nesta tela valem só para contas com papel Jogador. Use
           Permissões acima para alterar o papel.
         </p>

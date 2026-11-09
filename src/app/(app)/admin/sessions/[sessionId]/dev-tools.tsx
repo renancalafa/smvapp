@@ -2,6 +2,15 @@
 
 import { useActionState, type FormEvent } from "react";
 import { FormError, SubmitButton, TextField } from "@/components/form-fields";
+import {
+  darkAlertSuccess,
+  darkAlertWarn,
+  darkBody,
+  darkInset,
+  darkMutedXs,
+  darkSectionLabel,
+  darkTitleMd,
+} from "@/lib/ui/dark-surfaces";
 import { devResetSessionAction } from "@/server/modules/sessions/actions";
 
 type Props = {
@@ -37,7 +46,7 @@ function ResetForm({
     const typed = new FormData(form).get("confirmation");
     if (String(typed ?? "").trim().toUpperCase() !== "RESETAR") {
       event.preventDefault();
-      window.alert('Digite RESETAR no campo de confirmação antes de continuar.');
+      window.alert("Digite RESETAR no campo de confirmação antes de continuar.");
       return;
     }
     if (!window.confirm(confirmMessage)) {
@@ -49,24 +58,24 @@ function ResetForm({
     <form
       action={formAction}
       onSubmit={onSubmit}
-      className="flex flex-col gap-3 rounded-xl border border-amber-200 bg-amber-50/60 p-4"
+      className={`flex flex-col gap-3 border border-amber-300/30 p-4 ${darkAlertWarn}`}
     >
       <input type="hidden" name="sessionId" value={sessionId} />
       <input type="hidden" name="level" value={level} />
-      <h3 className="font-medium text-zinc-900">{title}</h3>
-      <p className="text-sm text-zinc-700">{description}</p>
-      <p className="rounded-lg bg-white/80 px-3 py-2 text-xs text-zinc-600">
-        Sessão: <span className="font-medium text-zinc-900">{sessionLabel}</span>
+      <h3 className="font-medium text-amber-50">{title}</h3>
+      <p className={darkBody}>{description}</p>
+      <p className={`${darkInset} ${darkMutedXs}`}>
+        Sessão: <span className="font-medium text-white">{sessionLabel}</span>
       </p>
       <TextField
-        label='Confirmação — digite RESETAR'
+        label="Confirmação — digite RESETAR"
         name="confirmation"
         required
         maxLength={20}
         autoComplete="off"
       />
       <FormError message={state?.status === "error" ? state.error : undefined} />
-      {state?.status === "done" && <p className="text-sm text-emerald-800">{state.message}</p>}
+      {state?.status === "done" && <p className={darkAlertSuccess}>{state.message}</p>}
       <SubmitButton pending={pending} label={buttonLabel} pendingLabel="Resetando…" variant="danger" />
     </form>
   );
@@ -82,15 +91,15 @@ export function DevTestTools({
   registrationCount,
 }: Props) {
   return (
-    <section className="flex flex-col gap-3 rounded-2xl border border-dashed border-amber-400 bg-amber-50 p-4">
+    <section className="flex flex-col gap-3 rounded-2xl border border-dashed border-amber-300/40 bg-amber-400/10 p-4">
       <div>
-        <p className="text-xs font-semibold uppercase tracking-wide text-amber-800">Somente desenvolvimento</p>
-        <h2 className="text-lg font-semibold text-zinc-900">Ferramentas de teste</h2>
-        <p className="mt-1 text-sm text-zinc-700">
+        <p className={darkSectionLabel}>Somente desenvolvimento</p>
+        <h2 className={darkTitleMd}>Ferramentas de teste</h2>
+        <p className={`mt-1 ${darkBody}`}>
           Desfaz partidas ou sorteio desta sessão para retestar o fluxo. Contas, notas e GroupSettings não mudam.
           Outras sessões não são tocadas.
         </p>
-        <p className="mt-2 text-xs text-zinc-600">
+        <p className={`mt-2 ${darkMutedXs}`}>
           Nesta sessão agora: {matchCount} partida(s), {drawCount} sorteio(s), {teamCount} time(s),{" "}
           {registrationCount} inscrição(ões).
         </p>

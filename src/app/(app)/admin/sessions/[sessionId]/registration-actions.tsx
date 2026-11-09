@@ -2,6 +2,14 @@
 
 import { useActionState } from "react";
 import type { AttendanceStatus, RegistrationStatus } from "@/generated/prisma/enums";
+import {
+  darkAlertError,
+  darkAlertSuccess,
+  darkBtnDanger,
+  darkBtnPrimary,
+  darkControl,
+  darkMuted,
+} from "@/lib/ui/dark-surfaces";
 import { adminPromoteAction, adminRemoveAction, markAttendanceAction } from "@/server/modules/sessions/actions";
 
 export function RegistrationActions({
@@ -45,9 +53,9 @@ export function RegistrationActions({
               className={`min-h-10 flex-1 rounded-lg border px-3 text-sm font-medium ${
                 attendance === value
                   ? value === "PRESENT"
-                    ? "border-emerald-600 bg-emerald-600 text-white"
-                    : "border-zinc-700 bg-zinc-700 text-white"
-                  : "border-zinc-300 bg-white text-zinc-700"
+                    ? "border-emerald-300/40 bg-emerald-400/20 text-emerald-100"
+                    : "border-white/25 bg-white/15 text-smv-cream"
+                  : "border-white/15 bg-transparent text-white/70"
               }`}
             >
               {value === "PRESENT" ? "Presente" : "Faltou"}
@@ -55,11 +63,15 @@ export function RegistrationActions({
           ))}
         </form>
       )}
-      {attendanceState?.status === "error" && <p className="text-sm text-red-700">{attendanceState.error}</p>}
+      {attendanceState?.status === "error" && (
+        <p className={darkAlertError}>{attendanceState.error}</p>
+      )}
 
       {showPromote && (
         <details className="text-sm">
-          <summary className="flex min-h-10 cursor-pointer items-center text-emerald-700">Promover…</summary>
+          <summary className="flex min-h-10 cursor-pointer items-center text-smv-gold-bright">
+            Promover…
+          </summary>
           <form action={promoteAction} className="mt-2 flex flex-col gap-2">
             <input type="hidden" name="sessionId" value={sessionId} />
             <input type="hidden" name="registrationId" value={registrationId} />
@@ -68,17 +80,13 @@ export function RegistrationActions({
               required
               maxLength={300}
               placeholder="Motivo (obrigatório)"
-              className="min-h-11 rounded-lg border border-zinc-300 px-3 text-base"
+              className={darkControl}
             />
-            <button
-              type="submit"
-              disabled={promoting}
-              className="min-h-11 rounded-lg bg-emerald-700 font-medium text-white disabled:opacity-60"
-            >
+            <button type="submit" disabled={promoting} className={`w-full ${darkBtnPrimary}`}>
               {promoting ? "Promovendo…" : "Promover a participante"}
             </button>
             {promoteState && (
-              <p className={promoteState.status === "error" ? "text-red-700" : "text-emerald-700"}>
+              <p className={promoteState.status === "error" ? darkAlertError : darkAlertSuccess}>
                 {promoteState.status === "error" ? promoteState.error : promoteState.message}
               </p>
             )}
@@ -88,7 +96,9 @@ export function RegistrationActions({
 
       {canChangeList && (
         <details className="text-sm">
-          <summary className="flex min-h-10 cursor-pointer items-center text-zinc-500">Remover…</summary>
+          <summary className={`flex min-h-10 cursor-pointer items-center ${darkMuted}`}>
+            Remover…
+          </summary>
           <form action={removeAction} className="mt-2 flex flex-col gap-2">
             <input type="hidden" name="sessionId" value={sessionId} />
             <input type="hidden" name="registrationId" value={registrationId} />
@@ -97,17 +107,13 @@ export function RegistrationActions({
               required
               maxLength={300}
               placeholder="Motivo (obrigatório)"
-              className="min-h-11 rounded-lg border border-zinc-300 px-3 text-base"
+              className={darkControl}
             />
-            <button
-              type="submit"
-              disabled={removing}
-              className="min-h-11 rounded-lg border border-red-200 bg-white font-medium text-red-700 disabled:opacity-60"
-            >
+            <button type="submit" disabled={removing} className={`w-full ${darkBtnDanger}`}>
               {removing ? "Removendo…" : "Remover da sessão"}
             </button>
             {removeState && (
-              <p className={removeState.status === "error" ? "text-red-700" : "text-emerald-700"}>
+              <p className={removeState.status === "error" ? darkAlertError : darkAlertSuccess}>
                 {removeState.status === "error" ? removeState.error : removeState.message}
               </p>
             )}

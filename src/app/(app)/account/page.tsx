@@ -1,6 +1,13 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import { LogoutForm } from "@/components/logout-form";
+import {
+  darkBtnDanger,
+  darkBtnSecondary,
+  darkCardPad,
+  darkMuted,
+  darkTitle,
+} from "@/lib/ui/dark-surfaces";
 import { requireViewer } from "@/server/auth/dal";
 import { countPushSubscriptions, getVapidPublicKey } from "@/server/modules/notifications/push";
 import { MODALITY_LABEL, ROLE_LABEL, STATUS_LABEL } from "../labels";
@@ -14,20 +21,20 @@ export default async function AccountPage() {
   const pushDeviceCount = await countPushSubscriptions(viewer.user.id);
 
   return (
-    <section className="flex flex-col gap-4">
-      <h1 className="text-2xl font-semibold text-zinc-900">Conta</h1>
+    <section className="flex flex-col gap-4 text-smv-cream">
+      <h1 className={darkTitle}>Conta</h1>
 
-      <dl className="grid grid-cols-[auto_1fr] gap-x-4 gap-y-2 rounded-xl border border-zinc-200 bg-white p-4 text-sm">
-        <dt className="text-zinc-500">Nome</dt>
-        <dd className="text-zinc-900">{viewer.user.name}</dd>
-        <dt className="text-zinc-500">Usuário</dt>
-        <dd className="text-zinc-900">{viewer.user.username}</dd>
-        <dt className="text-zinc-500">Papel</dt>
-        <dd className="text-zinc-900">{ROLE_LABEL[viewer.member.role]}</dd>
-        <dt className="text-zinc-500">Modalidade</dt>
-        <dd className="text-zinc-900">{MODALITY_LABEL[viewer.member.modality]}</dd>
-        <dt className="text-zinc-500">Situação</dt>
-        <dd className="text-zinc-900">{STATUS_LABEL[viewer.member.status]}</dd>
+      <dl className={`grid grid-cols-[auto_1fr] gap-x-4 gap-y-2 text-sm ${darkCardPad}`}>
+        <dt className={darkMuted}>Nome</dt>
+        <dd className="text-white">{viewer.user.name}</dd>
+        <dt className={darkMuted}>Usuário</dt>
+        <dd className="text-white">{viewer.user.username}</dd>
+        <dt className={darkMuted}>Papel</dt>
+        <dd className="text-white">{ROLE_LABEL[viewer.member.role]}</dd>
+        <dt className={darkMuted}>Modalidade</dt>
+        <dd className="text-white">{MODALITY_LABEL[viewer.member.modality]}</dd>
+        <dt className={darkMuted}>Situação</dt>
+        <dd className="text-white">{STATUS_LABEL[viewer.member.status]}</dd>
       </dl>
 
       <InstallHint />
@@ -35,25 +42,16 @@ export default async function AccountPage() {
       <PushSettings vapidPublicKey={getVapidPublicKey()} deviceCount={pushDeviceCount} />
 
       <div className="flex flex-col gap-2">
-        <Link
-          href={`/stats/players/${viewer.member.id}`}
-          className="flex min-h-12 items-center justify-center rounded-xl border border-zinc-300 bg-white px-4 font-medium text-zinc-900 active:bg-zinc-100"
-        >
+        <Link href={`/stats/players/${viewer.member.id}`} className={darkBtnSecondary}>
           Minhas estatísticas
         </Link>
-        <Link
-          href="/stats"
-          className="flex min-h-12 items-center justify-center rounded-xl border border-zinc-300 bg-white px-4 font-medium text-zinc-900 active:bg-zinc-100"
-        >
+        <Link href="/stats" className={darkBtnSecondary}>
           Rankings
         </Link>
-        <Link
-          href="/change-password"
-          className="flex min-h-12 items-center justify-center rounded-xl border border-zinc-300 bg-white px-4 font-medium text-zinc-900 active:bg-zinc-100"
-        >
+        <Link href="/change-password" className={darkBtnSecondary}>
           Trocar senha
         </Link>
-        <LogoutForm buttonClassName="flex min-h-12 w-full items-center justify-center rounded-xl px-4 font-medium text-red-700 active:bg-red-50" />
+        <LogoutForm buttonClassName={`w-full ${darkBtnDanger}`} />
       </div>
     </section>
   );

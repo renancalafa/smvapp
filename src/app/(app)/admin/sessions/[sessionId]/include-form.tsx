@@ -2,6 +2,12 @@
 
 import { useActionState } from "react";
 import { FormError, SelectField, SubmitButton, TextField } from "@/components/form-fields";
+import {
+  darkAlertSuccess,
+  darkAlertWarn,
+  darkBody,
+  darkTitleMd,
+} from "@/lib/ui/dark-surfaces";
 import { adminIncludeAction } from "@/server/modules/sessions/actions";
 
 type Option = { value: string; label: string };
@@ -21,9 +27,9 @@ export function IncludeForm({
   const [state, formAction, pending] = useActionState(adminIncludeAction, undefined);
 
   return (
-    <form action={formAction} className="flex flex-col gap-3 rounded-xl border border-amber-200 bg-amber-50/50 p-4">
-      <h2 className="font-medium text-zinc-900">Incluir excepcionalmente</h2>
-      <p className="text-sm text-zinc-600">
+    <form action={formAction} className={`flex flex-col gap-3 p-4 ${darkAlertWarn}`}>
+      <h2 className={darkTitleMd}>Incluir excepcionalmente</h2>
+      <p className={darkBody}>
         Intervenção administrativa: coloca o jogador direto como participante, podendo ignorar prioridade e ordem da
         espera. Prefira “Confirmar pelo jogador” quando o pedido for só confirmar presença. Motivo obrigatório.
       </p>
@@ -44,8 +50,13 @@ export function IncludeForm({
       />
       <TextField label="Motivo" name="reason" required maxLength={300} />
       <FormError message={state?.status === "error" ? state.error : undefined} />
-      {state?.status === "done" && <p className="text-sm text-emerald-700">{state.message}</p>}
-      <SubmitButton pending={pending} label="Incluir excepcionalmente" pendingLabel="Incluindo…" variant="secondary" />
+      {state?.status === "done" && <p className={darkAlertSuccess}>{state.message}</p>}
+      <SubmitButton
+        pending={pending}
+        label="Incluir excepcionalmente"
+        pendingLabel="Incluindo…"
+        variant="secondary"
+      />
     </form>
   );
 }

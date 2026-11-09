@@ -1,3 +1,4 @@
+import Image from "next/image";
 import Link from "next/link";
 import { LogoutForm } from "@/components/logout-form";
 import { requireViewer } from "@/server/auth/dal";
@@ -27,30 +28,49 @@ export default async function AppLayout({ children }: { children: React.ReactNod
   ];
 
   return (
-    <div className="flex flex-1 flex-col md:flex-row">
-      <aside className="hidden md:sticky md:top-0 md:flex md:h-dvh md:w-60 md:shrink-0 md:flex-col md:border-r md:border-zinc-200 md:bg-white md:p-4">
-        <Link href="/" className="mb-6 flex items-center gap-2 px-3 py-2">
-          <span className="text-lg font-semibold text-emerald-700">SMV</span>
-          <span className="truncate text-sm text-zinc-500">{viewer.group.name}</span>
+    <div className="flex flex-1 flex-col bg-smv-navy-deep md:flex-row">
+      <aside className="hidden md:sticky md:top-0 md:flex md:h-dvh md:w-60 md:shrink-0 md:flex-col md:border-r md:border-white/10 md:bg-smv-navy md:p-4">
+        <Link href="/" className="mb-6 flex items-center gap-2.5 px-3 py-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-smv-gold">
+          <Image
+            src="/icons/logo.png"
+            alt=""
+            width={32}
+            height={32}
+            className="size-8 shrink-0 rounded-full bg-black/30 object-contain p-0.5 ring-1 ring-smv-gold/35"
+          />
+          <span className="min-w-0">
+            <span className="block text-lg font-semibold text-smv-cream">SMV</span>
+            <span className="block truncate text-xs text-white/50">{viewer.group.name}</span>
+          </span>
         </Link>
         <SideNav items={desktopItems} />
-        <div className="mt-auto border-t border-zinc-200 pt-4">
-          <p className="truncate px-3 text-sm font-medium text-zinc-900">{viewer.user.name}</p>
-          <p className="truncate px-3 text-xs text-zinc-500">{viewer.user.username}</p>
+        <div className="mt-auto border-t border-white/10 pt-4">
+          <p className="truncate px-3 text-sm font-medium text-smv-cream">{viewer.user.name}</p>
+          <p className="truncate px-3 text-xs text-white/50">{viewer.user.username}</p>
           <LogoutForm
             className="mt-2"
-            buttonClassName="flex min-h-11 w-full items-center rounded-lg px-3 text-sm font-medium text-zinc-600 hover:bg-zinc-100 hover:text-zinc-900"
+            buttonClassName="flex min-h-11 w-full items-center rounded-lg px-3 text-sm font-medium text-white/65 transition-colors hover:bg-white/8 hover:text-smv-cream focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-smv-gold"
           />
         </div>
       </aside>
 
       <div className="flex min-w-0 flex-1 flex-col">
-        <header className="sticky top-0 z-10 border-b border-zinc-200 bg-white/95 pt-[env(safe-area-inset-top)] backdrop-blur md:hidden">
+        <header className="sticky top-0 z-10 border-b border-white/10 bg-smv-navy/95 pt-[env(safe-area-inset-top)] backdrop-blur md:hidden">
           <div className="flex h-14 items-center justify-between gap-3 px-4">
-            <Link href="/" className="text-lg font-semibold text-emerald-700">
-              SMV
+            <Link
+              href="/"
+              className="flex items-center gap-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-smv-gold"
+            >
+              <Image
+                src="/icons/logo.png"
+                alt=""
+                width={28}
+                height={28}
+                className="size-7 rounded-full bg-black/30 object-contain p-0.5 ring-1 ring-smv-gold/35"
+              />
+              <span className="text-lg font-semibold text-smv-cream">SMV</span>
             </Link>
-            <span className="truncate text-sm text-zinc-500">{viewer.group.name}</span>
+            <span className="truncate text-sm text-white/50">{viewer.group.name}</span>
           </div>
         </header>
         <main className="mx-auto w-full max-w-3xl flex-1 px-4 pt-6 pb-[calc(5rem+env(safe-area-inset-bottom))] md:px-8 md:py-8">

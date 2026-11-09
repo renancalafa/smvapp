@@ -2,6 +2,14 @@
 
 import { useActionState, useState } from "react";
 import { FormError, SubmitButton, TextField } from "@/components/form-fields";
+import {
+  darkBody,
+  darkBtnGhost,
+  darkBtnSecondary,
+  darkCardPad,
+  darkMuted,
+  darkTitleMd,
+} from "@/lib/ui/dark-surfaces";
 import { createExtraordinarySessionAction } from "@/server/modules/sessions/actions";
 import { DEFAULT_EXTRAORDINARY_VENUE } from "@/server/modules/sessions/extraordinary-input";
 
@@ -44,33 +52,22 @@ export function CreateExtraordinaryForm({
 
   if (!open) {
     return (
-      <button
-        type="button"
-        onClick={() => setOpen(true)}
-        className="flex min-h-12 w-full items-center justify-center rounded-lg border border-emerald-300 bg-emerald-50 px-4 py-2.5 text-sm font-medium text-emerald-900 active:bg-emerald-100"
-      >
+      <button type="button" onClick={() => setOpen(true)} className={`w-full ${darkBtnSecondary}`}>
         Criar sessão extraordinária
       </button>
     );
   }
 
   return (
-    <form
-      action={formAction}
-      className="flex flex-col gap-3 rounded-xl border border-emerald-200 bg-white p-4"
-    >
+    <form action={formAction} className={`flex flex-col gap-3 ${darkCardPad}`}>
       <div className="flex items-start justify-between gap-2">
         <div>
-          <h2 className="text-base font-semibold text-zinc-900">Sessão extraordinária</h2>
-          <p className="text-sm text-zinc-500">
+          <h2 className={darkTitleMd}>Sessão extraordinária</h2>
+          <p className={darkMuted}>
             Treino manual para testar lista, sorteio, votação e Ao Vivo. Datas no fuso {timeZone}.
           </p>
         </div>
-        <button
-          type="button"
-          onClick={() => setOpen(false)}
-          className="shrink-0 text-sm text-zinc-500 underline"
-        >
+        <button type="button" onClick={() => setOpen(false)} className={darkBtnGhost}>
           Fechar
         </button>
       </div>
@@ -116,24 +113,26 @@ export function CreateExtraordinaryForm({
       />
 
       <fieldset className="flex flex-col gap-2">
-        <legend className="text-sm font-medium text-zinc-700">Abertura da lista</legend>
-        <label className="flex min-h-11 items-center gap-2 text-sm text-zinc-800">
+        <legend className="text-sm font-medium text-white/75">Abertura da lista</legend>
+        <label className={`flex min-h-11 items-center gap-2 ${darkBody}`}>
           <input
             type="radio"
             name="registrationMode"
             value="immediate"
             checked={(values?.registrationMode || registrationMode) === "immediate"}
             onChange={() => setRegistrationMode("immediate")}
+            className="accent-smv-gold"
           />
           Imediatamente
         </label>
-        <label className="flex min-h-11 items-center gap-2 text-sm text-zinc-800">
+        <label className={`flex min-h-11 items-center gap-2 ${darkBody}`}>
           <input
             type="radio"
             name="registrationMode"
             value="scheduled"
             checked={(values?.registrationMode || registrationMode) === "scheduled"}
             onChange={() => setRegistrationMode("scheduled")}
+            className="accent-smv-gold"
           />
           Em data/hora específica
         </label>

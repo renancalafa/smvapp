@@ -1,4 +1,11 @@
 import type { StatsFilterOptions, StatsPeriodFilter } from "@/server/modules/stats/queries";
+import {
+  darkBody,
+  darkBtnPrimary,
+  darkCardPad,
+  darkControl,
+  darkLabel,
+} from "@/lib/ui/dark-surfaces";
 import { formatSessionTitle } from "../sessions/format";
 
 function periodLabel(period: StatsPeriodFilter, timeZone: string, options: StatsFilterOptions): string {
@@ -28,21 +35,17 @@ export function PeriodFilter({
   hiddenFields?: Record<string, string>;
 }) {
   return (
-    <section className="flex flex-col gap-3 rounded-2xl border border-zinc-200 bg-white p-4">
-      <p className="text-sm text-zinc-600">
-        Período: <span className="font-medium capitalize text-zinc-900">{periodLabel(period, timeZone, options)}</span>
+    <section className={`flex flex-col gap-3 ${darkCardPad}`}>
+      <p className={darkBody}>
+        Período: <span className="font-medium capitalize text-smv-cream">{periodLabel(period, timeZone, options)}</span>
       </p>
       <form action={action} method="get" className="flex flex-col gap-3">
         {Object.entries(hiddenFields).map(([name, value]) => (
           <input key={name} type="hidden" name={name} value={value} />
         ))}
-        <label className="flex flex-col gap-1 text-sm text-zinc-600">
+        <label className={darkLabel}>
           Escopo
-          <select
-            name="scope"
-            defaultValue={period.kind}
-            className="min-h-11 rounded-xl border border-zinc-200 bg-white px-3 text-zinc-900"
-          >
+          <select name="scope" defaultValue={period.kind} className={darkControl}>
             <option value="all">Todo o histórico</option>
             <option value="year">Ano</option>
             <option value="month">Mês</option>
@@ -50,7 +53,7 @@ export function PeriodFilter({
           </select>
         </label>
         <div className="grid grid-cols-2 gap-3">
-          <label className="flex flex-col gap-1 text-sm text-zinc-600">
+          <label className={darkLabel}>
             Ano
             <select
               name="year"
@@ -59,7 +62,7 @@ export function PeriodFilter({
                   ? String(period.year)
                   : String(options.years[0] ?? new Date().getFullYear())
               }
-              className="min-h-11 rounded-xl border border-zinc-200 bg-white px-3 text-zinc-900"
+              className={darkControl}
             >
               {(options.years.length > 0 ? options.years : [new Date().getFullYear()]).map((year) => (
                 <option key={year} value={year}>
@@ -68,12 +71,12 @@ export function PeriodFilter({
               ))}
             </select>
           </label>
-          <label className="flex flex-col gap-1 text-sm text-zinc-600">
+          <label className={darkLabel}>
             Mês
             <select
               name="month"
               defaultValue={period.kind === "month" ? String(period.month) : "1"}
-              className="min-h-11 rounded-xl border border-zinc-200 bg-white px-3 text-zinc-900"
+              className={darkControl}
             >
               {Array.from({ length: 12 }, (_, index) => {
                 const month = index + 1;
@@ -89,12 +92,12 @@ export function PeriodFilter({
             </select>
           </label>
         </div>
-        <label className="flex flex-col gap-1 text-sm text-zinc-600">
+        <label className={darkLabel}>
           Pelada
           <select
             name="sessionId"
             defaultValue={period.kind === "session" ? period.sessionId : ""}
-            className="min-h-11 rounded-xl border border-zinc-200 bg-white px-3 text-zinc-900"
+            className={darkControl}
           >
             <option value="">Escolha a pelada</option>
             {options.sessions.map((session) => (
@@ -104,10 +107,7 @@ export function PeriodFilter({
             ))}
           </select>
         </label>
-        <button
-          type="submit"
-          className="min-h-11 rounded-xl bg-emerald-700 text-sm font-semibold text-white active:bg-emerald-800"
-        >
+        <button type="submit" className={darkBtnPrimary}>
           Aplicar filtro
         </button>
       </form>

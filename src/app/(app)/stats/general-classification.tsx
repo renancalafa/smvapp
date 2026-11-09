@@ -1,4 +1,12 @@
 import Link from "next/link";
+import {
+  darkEmpty,
+  darkMutedXs,
+  darkSectionLabel,
+  darkTableCell,
+  darkTableHead,
+  darkTableWrap,
+} from "@/lib/ui/dark-surfaces";
 import { formatWinPercentage, type GeneralClassificationBoard } from "@/server/modules/stats/queries";
 
 function playerLabel(entry: GeneralClassificationBoard["entries"][number]): string {
@@ -15,20 +23,18 @@ export function GeneralClassificationTable({
   return (
     <section className="flex flex-col gap-2">
       <div>
-        <h2 className="text-sm font-medium text-zinc-500">Classificação geral</h2>
-        <p className="text-xs text-zinc-500">
+        <h2 className={darkSectionLabel}>Classificação geral</h2>
+        <p className={darkMutedXs}>
           Aproveitamento = (V ÷ PJ) × 100 · só partidas de linha (sem goleiro) · empates de % compartilham
           posição
         </p>
       </div>
       {board.entries.length === 0 ? (
-        <p className="rounded-xl border border-dashed border-zinc-300 bg-zinc-50 px-4 py-6 text-center text-sm text-zinc-600">
-          Nenhum jogador neste período.
-        </p>
+        <p className={darkEmpty}>Nenhum jogador neste período.</p>
       ) : (
-        <div className="overflow-x-auto rounded-2xl border border-zinc-200 bg-white">
+        <div className={darkTableWrap}>
           <table className="w-full min-w-[32rem] text-left text-sm">
-            <thead className="border-b border-zinc-100 text-xs uppercase tracking-wide text-zinc-500">
+            <thead className={darkTableHead}>
               <tr>
                 <th className="px-3 py-2 font-medium">Pos</th>
                 <th className="px-3 py-2 font-medium">Jogador</th>
@@ -39,13 +45,13 @@ export function GeneralClassificationTable({
                 <th className="px-3 py-2 text-right font-medium">%</th>
               </tr>
             </thead>
-            <tbody className="divide-y divide-zinc-100">
+            <tbody className="divide-y divide-white/8">
               {board.entries.map((entry) => (
-                <tr key={entry.memberId} className="active:bg-zinc-50">
-                  <td className="px-3 py-2 tabular-nums text-zinc-500">
+                <tr key={entry.memberId} className="active:bg-white/5">
+                  <td className={`${darkTableCell} tabular-nums text-white/50`}>
                     {entry.rank === null ? "—" : `${entry.rank}º`}
                   </td>
-                  <td className="max-w-[10rem] truncate px-3 py-2 font-medium text-zinc-900">
+                  <td className={`${darkTableCell} max-w-[10rem] truncate font-medium text-smv-cream`}>
                     <Link
                       href={`/stats/players/${entry.memberId}${periodQuery ? `?${periodQuery}` : ""}`}
                       className="hover:underline"
@@ -53,19 +59,19 @@ export function GeneralClassificationTable({
                       {playerLabel(entry)}
                     </Link>
                     {entry.status === "INACTIVE" ? (
-                      <span className="ml-1 text-xs font-normal text-zinc-400">inativo</span>
+                      <span className="ml-1 text-xs font-normal text-white/40">inativo</span>
                     ) : null}
                     {entry.totals.matchesPlayed === 0 ? (
-                      <span className="ml-1 text-xs font-normal text-zinc-400">sem PJ</span>
+                      <span className="ml-1 text-xs font-normal text-white/40">sem PJ</span>
                     ) : null}
                   </td>
-                  <td className="px-2 py-2 text-right font-semibold tabular-nums text-zinc-900">
+                  <td className="px-2 py-2 text-right font-semibold tabular-nums text-white">
                     {entry.totals.matchesPlayed}
                   </td>
-                  <td className="px-2 py-2 text-right tabular-nums text-zinc-700">{entry.totals.wins}</td>
-                  <td className="px-2 py-2 text-right tabular-nums text-zinc-700">{entry.totals.draws}</td>
-                  <td className="px-2 py-2 text-right tabular-nums text-zinc-700">{entry.totals.losses}</td>
-                  <td className="px-3 py-2 text-right font-semibold tabular-nums text-emerald-800">
+                  <td className="px-2 py-2 text-right tabular-nums text-white/75">{entry.totals.wins}</td>
+                  <td className="px-2 py-2 text-right tabular-nums text-white/75">{entry.totals.draws}</td>
+                  <td className="px-2 py-2 text-right tabular-nums text-white/75">{entry.totals.losses}</td>
+                  <td className="px-3 py-2 text-right font-semibold tabular-nums text-smv-gold-bright">
                     {formatWinPercentage(entry.winPercentage)}
                   </td>
                 </tr>

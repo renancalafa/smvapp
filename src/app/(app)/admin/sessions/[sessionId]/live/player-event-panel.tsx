@@ -7,6 +7,16 @@ import {
   type PlayerEventType,
 } from "@/domain/match/events";
 import {
+  darkAlertError,
+  darkAlertWarn,
+  darkBtnPrimary,
+  darkBtnSecondary,
+  darkCard,
+  darkMuted,
+  darkMutedXs,
+  darkTitleMd,
+} from "@/lib/ui/dark-surfaces";
+import {
   recordMatchEventAction,
   type MatchActionState,
 } from "@/server/modules/matches/actions";
@@ -67,7 +77,7 @@ export function PlayerEventPanel({
 
   return (
     <div
-      className="fixed inset-0 z-50 flex items-end justify-center bg-black/40 p-3 sm:items-center"
+      className="fixed inset-0 z-50 flex items-end justify-center bg-black/60 p-3 sm:items-center"
       role="dialog"
       aria-modal="true"
       aria-labelledby={`${formId}-title`}
@@ -78,7 +88,7 @@ export function PlayerEventPanel({
       <form
         action={action}
         onSubmit={onSubmit}
-        className="flex max-h-[90vh] w-full max-w-md flex-col gap-3 overflow-y-auto rounded-2xl bg-white p-4 shadow-lg"
+        className={`flex max-h-[90vh] w-full max-w-md flex-col gap-3 overflow-y-auto p-4 shadow-lg ${darkCard}`}
         onClick={(event) => event.stopPropagation()}
       >
         <input type="hidden" name="sessionId" value={sessionId} />
@@ -91,15 +101,15 @@ export function PlayerEventPanel({
 
         <div className="flex items-start justify-between gap-2">
           <div>
-            <p id={`${formId}-title`} className="text-lg font-semibold text-zinc-900">
+            <p id={`${formId}-title`} className={darkTitleMd}>
               {playerLabel(player)}
             </p>
-            <p className="text-sm text-zinc-500">{teamName} · evento individual</p>
+            <p className={darkMuted}>{teamName} · evento individual</p>
           </div>
           <button
             type="button"
             onClick={onClose}
-            className="min-h-10 min-w-10 rounded-lg text-zinc-500 hover:bg-zinc-100"
+            className="min-h-10 min-w-10 rounded-lg text-white/55 hover:bg-white/8 hover:text-smv-cream"
             aria-label="Fechar"
           >
             ✕
@@ -109,43 +119,31 @@ export function PlayerEventPanel({
         <ul className="flex flex-col gap-1">
           {PLAYER_EVENT_TYPES.map((type) => (
             <li key={type}>
-              <label className="flex min-h-12 cursor-pointer items-center gap-3 rounded-lg border border-zinc-200 px-3 has-[:checked]:border-emerald-600 has-[:checked]:bg-emerald-50">
+              <label className="flex min-h-12 cursor-pointer items-center gap-3 rounded-lg border border-white/15 px-3 has-[:checked]:border-smv-gold/50 has-[:checked]:bg-smv-gold/15">
                 <input
                   type="radio"
                   name="playerEventType"
                   value={type}
                   checked={eventType === type}
                   onChange={() => setEventType(type)}
-                  className="size-4 accent-emerald-700"
+                  className="size-4 accent-smv-gold"
                 />
-                <span className="text-sm font-medium text-zinc-900">{MATCH_EVENT_LABELS[type]}</span>
+                <span className="text-sm font-medium text-white">{MATCH_EVENT_LABELS[type]}</span>
               </label>
             </li>
           ))}
         </ul>
 
-        <p className="text-xs text-zinc-500">Cartões são só registro — sem suspensão automática.</p>
+        <p className={darkMutedXs}>Cartões são só registro — sem suspensão automática.</p>
 
-        {state?.status === "error" && (
-          <p className="rounded-lg bg-red-50 px-3 py-2 text-sm text-red-700">{state.error}</p>
-        )}
-        {state?.status === "conflict" && (
-          <p className="rounded-lg bg-amber-50 px-3 py-2 text-sm text-amber-900">{state.error}</p>
-        )}
+        {state?.status === "error" && <p className={darkAlertError}>{state.error}</p>}
+        {state?.status === "conflict" && <p className={darkAlertWarn}>{state.error}</p>}
 
         <div className="grid grid-cols-2 gap-2 pt-1">
-          <button
-            type="button"
-            onClick={onClose}
-            className="min-h-12 rounded-xl border border-zinc-300 text-sm font-medium text-zinc-700"
-          >
+          <button type="button" onClick={onClose} className={darkBtnSecondary}>
             Cancelar
           </button>
-          <button
-            type="submit"
-            disabled={pending || !eventType}
-            className="min-h-12 rounded-xl bg-emerald-700 text-sm font-semibold text-white disabled:opacity-60"
-          >
+          <button type="submit" disabled={pending || !eventType} className={darkBtnPrimary}>
             {pending ? "Salvando…" : "Confirmar"}
           </button>
         </div>

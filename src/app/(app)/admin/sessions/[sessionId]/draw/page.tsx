@@ -2,6 +2,21 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { EARLY_DRAW_REQUIREMENT, earlyDrawAllowed, planDraw } from "@/domain/draw/balance";
+import {
+  darkAlertWarn,
+  darkBody,
+  darkCardPad,
+  darkMuted,
+  darkTitle,
+} from "@/lib/ui/dark-surfaces";
+import {
+  shellBackLink,
+  shellMuted,
+  shellMutedXs,
+  shellSectionLabel,
+  shellSubtext,
+  shellTitleMd,
+} from "@/lib/ui/shell-text";
 import { requireAdmin } from "@/server/auth/dal";
 import { getActiveDraw, getDrawHistory, getFormation, type DrawView } from "@/server/modules/draws/queries";
 import { isUuid } from "@/server/modules/members/validation";
@@ -52,31 +67,31 @@ export default async function AdminDrawPage({ params }: { params: Promise<{ sess
   return (
     <section className="flex flex-col gap-4">
       <div>
-        <Link href={`/admin/sessions/${sessionId}`} className="text-sm text-zinc-500">
+        <Link href={`/admin/sessions/${sessionId}`} className={shellBackLink}>
           ‹ Sessão
         </Link>
-        <h1 className="text-2xl font-semibold text-zinc-900">Sorteio</h1>
-        <p className="text-sm capitalize text-zinc-600">
+        <h1 className={darkTitle}>Sorteio</h1>
+        <p className={`capitalize ${shellSubtext}`}>
           {formatSessionTitle(board.session.startsAt, timeZone)}
           {extraordinaryLabel(board.session.origin) ? ` · ${extraordinaryLabel(board.session.origin)}` : ""}
         </p>
         {formation.hasMatches && (
-          <p className="mt-2 rounded-lg bg-zinc-100 px-3 py-2 text-sm text-zinc-700">
+          <p className={`mt-2 ${darkAlertWarn}`}>
             As partidas já começaram: o sorteio e os times são histórico e não mudam mais.
           </p>
         )}
       </div>
 
-      <section className="flex flex-col gap-3 rounded-2xl border border-zinc-200 bg-white p-4">
-        <h2 className="font-medium text-zinc-900">Formação</h2>
-        <p className="text-sm text-zinc-600">
+      <section className={`flex flex-col gap-3 ${darkCardPad}`}>
+        <h2 className="font-medium text-white">Formação</h2>
+        <p className={darkBody}>
           {participants} participantes ·{" "}
           {plan.ok
             ? `${plan.teamCount} times de ${formation.teamSize}${plan.rotatorsRequired > 0 ? ` + ${plan.rotatorsRequired} rotativo(s)` : ""}`
             : plan.error}
         </p>
         {beforeDeadline && !draw && (
-          <p className="text-sm text-amber-700">
+          <p className="text-sm text-amber-100">
             {earlyAllowed
               ? `Sessão cheia: o sorteio pode ser antecipado, antes do prazo dos mensalistas (${formatDateTime(formation.priorityDeadlineAt, timeZone)}).${
                   overflowRange ? " Antes do prazo, só a formação com rotativos; times fixos só depois dele." : ""
@@ -94,7 +109,7 @@ export default async function AdminDrawPage({ params }: { params: Promise<{ sess
         )}
         {showRotators && (
           <div className="flex flex-col gap-2">
-            <p className="text-sm text-zinc-600">
+            <p className={darkBody}>
               Rotativos marcados: {rotatorsMarked} de {plan.rotatorsRequired}. O algoritmo não escolhe rotativos.
             </p>
             <div className="grid gap-2 sm:grid-cols-2">
@@ -119,27 +134,33 @@ export default async function AdminDrawPage({ params }: { params: Promise<{ sess
       {draw ? (
         <ActiveDraw draw={draw} sessionId={sessionId} canCommand={canCommand} timeZone={timeZone} />
       ) : (
-        <p className="text-sm text-zinc-500">Nenhum sorteio ativo.</p>
+        <p className={shellMuted}>Nenhum sorteio ativo.</p>
       )}
 
       {history.length > 0 && (
         <section className="flex flex-col gap-2">
-          <h2 className="text-sm font-medium text-zinc-500">Sorteios invalidados ({history.length})</h2>
+          <h2 className={shellSectionLabel}>Sorteios invalidados ({history.length})</h2>
           {history.map((old) => (
-            <details key={old.id} className="rounded-xl border border-zinc-200 bg-white p-4">
-              <summary className="cursor-pointer text-sm text-zinc-800">
-                Sorteio {old.sequence} · invalidado {old.invalidatedAt ? formatDateTime(old.invalidatedAt, timeZone) : ""}
+            <details key={old.id} className={darkCardPad}>
+              <summary className="cursor-pointer text-sm text-white/80">
+                Sorteio {old.sequence} · invalidado{" "}
+                {old.invalidatedAt ? formatDateTime(old.invalidatedAt, timeZone) : ""}
               </summary>
               <div className="mt-3 flex flex-col gap-3">
-                <p className="text-sm text-zinc-600">Motivo: {old.invalidationReason}</p>
+                <p className={darkMuted}>Motivo: {old.invalidationReason}</p>
                 {old.winningOptionId && (
-                  <p className="text-sm text-zinc-600">
+                  <p className={darkMuted}>
                     Era o oficial: opção {old.options.find((option) => option.id === old.winningOptionId)?.label}.
                   </p>
                 )}
                 <div className="grid gap-3 md:grid-cols-2">
                   {old.options.map((option) => (
-                    <OptionCard key={option.id} option={option} official={option.id === old.winningOptionId} mine={false} />
+                    <OptionCard
+                      key={option.id}
+                      option={option}
+                      official={option.id === old.winningOptionId}
+                      mine={false}
+                    />
                   ))}
                 </div>
               </div>
@@ -166,15 +187,15 @@ function ActiveDraw({
   return (
     <section className="flex flex-col gap-3">
       <div>
-        <h2 className="text-lg font-semibold text-zinc-900">Sorteio {draw.sequence}</h2>
-        <p className="text-sm text-zinc-600">{drawStatusText(draw)}</p>
-        <p className="text-xs text-zinc-500">
+        <h2 className={shellTitleMd}>Sorteio {draw.sequence}</h2>
+        <p className={shellSubtext}>{drawStatusText(draw)}</p>
+        <p className={shellMutedXs}>
           Gerado {formatDateTime(draw.createdAt, timeZone)}
           {draw.optionDistance !== null &&
             ` · diferença entre as opções: ${draw.optionDistance} jogadores (mínimo ${draw.minOptionDifference})`}
         </p>
         {draw.status === "VOTING" && (
-          <p className="mt-1 text-sm text-zinc-600">
+          <p className={`mt-1 ${shellSubtext}`}>
             {totalVotes} de {draw.eligibleVoters} mensalistas elegíveis votaram
             {draw.ignoredVotes > 0 ? ` (${draw.ignoredVotes} voto(s) de quem deixou de ser elegível não contam)` : ""}.
           </p>
@@ -186,17 +207,27 @@ function ActiveDraw({
         <ResolveTieForm
           sessionId={sessionId}
           drawId={draw.id}
-          options={draw.options.map((option) => ({ value: option.id, label: `Opção ${option.label} (${option.votes} votos)` }))}
+          options={draw.options.map((option) => ({
+            value: option.id,
+            label: `Opção ${option.label} (${option.votes} votos)`,
+          }))}
         />
       )}
 
       <div className="grid gap-3 md:grid-cols-2">
         {draw.options.map((option) => (
-          <OptionCard key={option.id} option={option} official={option.id === draw.winningOptionId} mine={false} />
+          <OptionCard
+            key={option.id}
+            option={option}
+            official={option.id === draw.winningOptionId}
+            mine={false}
+          />
         ))}
       </div>
 
-      {canCommand && <InvalidateDrawForm sessionId={sessionId} drawId={draw.id} decided={draw.status === "DECIDED"} />}
+      {canCommand && (
+        <InvalidateDrawForm sessionId={sessionId} drawId={draw.id} decided={draw.status === "DECIDED"} />
+      )}
     </section>
   );
 }

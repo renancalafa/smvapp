@@ -1,5 +1,13 @@
 import type { Metadata } from "next";
 import Link from "next/link";
+import {
+  darkEmptyCompact,
+  darkList,
+  darkListRow,
+  darkMuted,
+  darkTitle,
+} from "@/lib/ui/dark-surfaces";
+import { shellBackLink, shellMuted, shellSectionLabel } from "@/lib/ui/shell-text";
 import { requireAdmin } from "@/server/auth/dal";
 import { db } from "@/server/db";
 import { listSessions, sessionPhase } from "@/server/modules/sessions/queries";
@@ -33,22 +41,27 @@ export default async function AdminSessionsPage() {
 
   const renderList = (sessions: typeof upcoming, empty: string) =>
     sessions.length === 0 ? (
-      <p className="rounded-xl border border-dashed border-zinc-200 bg-white px-4 py-3 text-sm text-zinc-500">{empty}</p>
+      <p className={darkEmptyCompact}>{empty}</p>
     ) : (
-      <ul className="divide-y divide-zinc-100 overflow-hidden rounded-xl border border-zinc-200 bg-white">
+      <ul className={darkList}>
         {sessions.map((session) => (
           <li key={session.id}>
-            <Link href={`/admin/sessions/${session.id}`} className="flex min-h-16 items-center gap-3 px-4 py-3 active:bg-zinc-50">
+            <Link href={`/admin/sessions/${session.id}`} className={darkListRow}>
               <div className="min-w-0 flex-1">
-                <p className="font-medium capitalize text-zinc-900">{formatDateTime(session.startsAt, timeZone)}</p>
-                <p className="text-sm text-zinc-500">
+                <p className="font-medium capitalize text-white">
+                  {formatDateTime(session.startsAt, timeZone)}
+                </p>
+                <p className={darkMuted}>
                   {PHASE_LABEL[sessionPhase(session, now)]}
                   {session.origin === "EXTRAORDINARY" ? " · Extraordinária" : ""}
                   {session.venueName ? ` · ${session.venueName}` : ""}
                 </p>
               </div>
-              <span className="shrink-0 text-sm tabular-nums text-zinc-600">
-                {session._count.registrations}/{session.overflowMode === "FIXED_TEAMS" ? session.teamSize * 3 : session.maxPlayers}
+              <span className={`shrink-0 tabular-nums ${darkMuted}`}>
+                {session._count.registrations}/
+                {session.overflowMode === "FIXED_TEAMS"
+                  ? session.teamSize * 3
+                  : session.maxPlayers}
               </span>
             </Link>
           </li>
@@ -59,18 +72,18 @@ export default async function AdminSessionsPage() {
   return (
     <section className="flex flex-col gap-4">
       <div>
-        <Link href="/admin" className="text-sm text-zinc-500">
+        <Link href="/admin" className={shellBackLink}>
           ‹ Admin
         </Link>
-        <h1 className="text-2xl font-semibold text-zinc-900">Sessões</h1>
-        <p className="text-sm text-zinc-500">
+        <h1 className={darkTitle}>Sessões</h1>
+        <p className={shellMuted}>
           As sessões de quinta são criadas automaticamente. Use uma sessão extraordinária para treinos antes do lançamento.
         </p>
       </div>
       <CreateExtraordinaryForm timeZone={timeZone} defaultMaxPlayers={defaultMaxPlayers} />
-      <h2 className="text-sm font-medium text-zinc-500">Próximas</h2>
+      <h2 className={shellSectionLabel}>Próximas</h2>
       {renderList(upcoming, "Nenhuma sessão futura criada ainda.")}
-      <h2 className="text-sm font-medium text-zinc-500">Anteriores</h2>
+      <h2 className={shellSectionLabel}>Anteriores</h2>
       {renderList(recent, "Nenhuma sessão anterior.")}
     </section>
   );

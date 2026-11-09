@@ -1,6 +1,7 @@
+import { darkCard, darkEmpty } from "@/lib/ui/dark-surfaces";
+import type { LiveBoard } from "@/server/modules/matches/queries";
 import { MatchScoreboard, MatchScoreboardFromView } from "./match-scoreboard";
 import { MatchTimer } from "./match-timer";
-import type { LiveBoard } from "@/server/modules/matches/queries";
 
 function teamName(board: LiveBoard, teamId: string): string {
   return board.teams.find((team) => team.id === teamId)?.name ?? "Time";
@@ -22,27 +23,21 @@ export function MatchPanel({ board }: { board: LiveBoard }) {
   const { current, suggested } = board;
 
   if (!current && !suggested && !board.softHint && board.history.length === 0) {
-    return (
-      <p className="rounded-xl border border-zinc-200 bg-white px-4 py-3 text-sm text-zinc-600">
-        As partidas ainda não começaram.
-      </p>
-    );
+    return <p className={darkEmpty}>As partidas ainda não começaram.</p>;
   }
 
   const draft = !current || current.awaitingKickoff ? defaultPair(board) : null;
 
   return (
     <section className="flex flex-col gap-3">
-      <h2 className="text-sm font-medium text-zinc-500">Partidas</h2>
-
       {current && !current.awaitingKickoff && (
-        <article className="flex flex-col gap-4 rounded-2xl border border-emerald-200 bg-white p-4 shadow-sm">
+        <article className={`${darkCard} flex flex-col gap-4 p-4 ring-1 ring-smv-gold/25`}>
           <div className="flex items-center justify-between gap-2">
-            <p className="text-xs font-semibold uppercase tracking-wide text-emerald-700">
+            <p className="text-xs font-semibold uppercase tracking-wide text-smv-gold">
               Partida {current.sequence}
             </p>
             {current.pausedAt ? (
-              <span className="text-xs font-medium text-amber-700">Pausada</span>
+              <span className="text-xs font-medium text-amber-200">Pausada</span>
             ) : null}
           </div>
           <MatchScoreboardFromView match={current} />
@@ -57,12 +52,12 @@ export function MatchPanel({ board }: { board: LiveBoard }) {
       )}
 
       {draft && (
-        <article className="flex flex-col gap-4 rounded-2xl border border-amber-200 bg-amber-50 p-4">
+        <article className="flex flex-col gap-4 rounded-2xl border border-amber-300/30 bg-amber-400/10 p-4">
           <div className="flex items-center justify-between gap-2">
-            <p className="text-xs font-semibold uppercase tracking-wide text-amber-800">
+            <p className="text-xs font-semibold uppercase tracking-wide text-amber-200">
               Partida {board.nextSequence}
             </p>
-            <span className="text-xs font-medium text-amber-700">Aguardando apito</span>
+            <span className="text-xs font-medium text-amber-100">Aguardando apito</span>
           </div>
           <MatchScoreboard
             teamA={{ id: draft.teamAId, name: teamName(board, draft.teamAId) }}
@@ -81,7 +76,7 @@ export function MatchPanel({ board }: { board: LiveBoard }) {
             paused
             plannedDurationSec={board.matchDurationSec}
           />
-          <p className="text-center text-sm text-amber-800">
+          <p className="text-center text-sm text-amber-100">
             O administrador pode trocar os times. O cronômetro começa no apito.
           </p>
         </article>
@@ -90,7 +85,10 @@ export function MatchPanel({ board }: { board: LiveBoard }) {
       {board.history.length > 0 && (
         <ul className="flex flex-col gap-1">
           {[...board.history].reverse().map((match) => (
-            <li key={match.id} className="rounded-lg bg-zinc-50 px-3 py-2 text-sm text-zinc-700">
+            <li
+              key={match.id}
+              className="rounded-lg bg-white/8 px-3 py-2 text-sm text-white/75 ring-1 ring-white/10"
+            >
               #{match.sequence} {match.teamAName} {match.scoreA}×{match.scoreB} {match.teamBName}
               {match.penaltyWinnerTeamId ? " (pênaltis)" : ""}
             </li>
@@ -107,7 +105,7 @@ function WaitingHint({ board, currentTeamIds }: { board: LiveBoard; currentTeamI
   );
   if (waiting.length === 0) return null;
   return (
-    <p className="text-center text-sm text-zinc-600">
+    <p className="text-center text-sm text-white/60">
       Na espera: {waiting.map((team) => team.name).join(", ")}
     </p>
   );

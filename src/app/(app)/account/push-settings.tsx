@@ -1,6 +1,16 @@
 "use client";
 
 import { useEffect, useState, useSyncExternalStore } from "react";
+import {
+  darkAlertError,
+  darkAlertSuccess,
+  darkBtnDanger,
+  darkBtnPrimary,
+  darkBtnSecondary,
+  darkCardPad,
+  darkMuted,
+  darkTitleMd,
+} from "@/lib/ui/dark-surfaces";
 import { APP_NAME } from "@/lib/pwa/config";
 import { isIos, isStandalone, subscribeToDisplayMode } from "@/lib/pwa/platform";
 import {
@@ -17,8 +27,6 @@ import {
 
 type Support = "supported" | "unsupported" | "ios-install" | "development";
 type Message = { kind: "error" | "info"; text: string } | null;
-
-const BUTTON = "flex min-h-12 w-full items-center justify-center rounded-xl px-4 font-medium disabled:opacity-60";
 
 const PERMISSION_LABEL: Record<NotificationPermission, string> = {
   granted: "Permitida",
@@ -172,17 +180,17 @@ export function PushSettings({
   const subscribed = endpoint !== null;
 
   return (
-    <div className="flex flex-col gap-3 rounded-xl border border-zinc-200 bg-white p-4 text-sm">
-      <h2 className="text-base font-semibold text-zinc-900">Notificações</h2>
+    <div className={`flex flex-col gap-3 text-sm ${darkCardPad}`}>
+      <h2 className={darkTitleMd}>Notificações</h2>
 
       {notice ? (
-        <p className="text-zinc-600">{notice}</p>
+        <p className={darkMuted}>{notice}</p>
       ) : (
         <dl className="grid grid-cols-[auto_1fr] gap-x-4 gap-y-2">
-          <dt className="text-zinc-500">Permissão</dt>
-          <dd className="text-zinc-900">{permission ? PERMISSION_LABEL[permission] : "Verificando…"}</dd>
-          <dt className="text-zinc-500">Este aparelho</dt>
-          <dd className="text-zinc-900">
+          <dt className={darkMuted}>Permissão</dt>
+          <dd className="text-white">{permission ? PERMISSION_LABEL[permission] : "Verificando…"}</dd>
+          <dt className={darkMuted}>Este aparelho</dt>
+          <dd className="text-white">
             {permission === null
               ? "Verificando…"
               : subscribed
@@ -191,48 +199,33 @@ export function PushSettings({
                   ? "Precisa ser reativado"
                   : "Desativado"}
           </dd>
-          <dt className="text-zinc-500">Aparelhos ativos</dt>
-          <dd className="text-zinc-900">{deviceCount}</dd>
+          <dt className={darkMuted}>Aparelhos ativos</dt>
+          <dd className="text-white">{deviceCount}</dd>
         </dl>
       )}
 
       {ready && !subscribed && (
-        <button
-          type="button"
-          onClick={enable}
-          disabled={busy || permission === "denied"}
-          className={`${BUTTON} bg-emerald-700 text-white active:bg-emerald-800`}
-        >
+        <button type="button" onClick={enable} disabled={busy || permission === "denied"} className={darkBtnPrimary}>
           {busy ? "Ativando…" : "Ativar notificações"}
         </button>
       )}
       {ready && subscribed && (
         <>
-          <button
-            type="button"
-            onClick={sendTest}
-            disabled={busy}
-            className={`${BUTTON} border border-zinc-300 bg-white text-zinc-900 active:bg-zinc-100`}
-          >
+          <button type="button" onClick={sendTest} disabled={busy} className={darkBtnSecondary}>
             {busy ? "Aguarde…" : "Enviar notificação de teste"}
           </button>
-          <button
-            type="button"
-            onClick={disable}
-            disabled={busy}
-            className={`${BUTTON} text-red-700 active:bg-red-50`}
-          >
+          <button type="button" onClick={disable} disabled={busy} className={darkBtnDanger}>
             Desativar notificações
           </button>
         </>
       )}
-      {ready && permission === "denied" && !message && <p className="text-zinc-600">{DENIED_HELP}</p>}
-      {ready && stale && permission !== "denied" && !message && <p className="text-zinc-600">{STALE_HELP}</p>}
+      {ready && permission === "denied" && !message && <p className={darkMuted}>{DENIED_HELP}</p>}
+      {ready && stale && permission !== "denied" && !message && <p className={darkMuted}>{STALE_HELP}</p>}
 
       {message && (
         <p
           role={message.kind === "error" ? "alert" : "status"}
-          className={`rounded-lg px-3 py-2 ${message.kind === "error" ? "bg-red-50 text-red-700" : "bg-emerald-50 text-emerald-800"}`}
+          className={message.kind === "error" ? darkAlertError : darkAlertSuccess}
         >
           {message.text}
         </p>

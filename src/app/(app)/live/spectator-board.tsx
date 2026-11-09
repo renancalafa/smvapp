@@ -1,4 +1,13 @@
 import { MATCH_EVENT_LABELS } from "@/domain/match/events";
+import {
+  darkAlertWarn,
+  darkBadge,
+  darkCard,
+  darkEmpty,
+  darkMuted,
+  darkMutedXs,
+  darkSectionLabel,
+} from "@/lib/ui/dark-surfaces";
 import type { LiveBoard } from "@/server/modules/matches/queries";
 import type { MatchView } from "@/server/modules/matches/view";
 import { MatchScoreboard, MatchScoreboardFromView } from "../sessions/match/match-scoreboard";
@@ -48,18 +57,18 @@ export function SpectatorBoard({
   return (
     <section className="flex flex-col gap-4">
       {sessionEnded && (
-        <p className="rounded-xl bg-zinc-900 px-4 py-3 text-center text-sm font-semibold text-white">
+        <p className="rounded-xl bg-black/40 px-4 py-3 text-center text-sm font-semibold text-smv-cream ring-1 ring-white/15">
           Sessão encerrada
         </p>
       )}
 
       {current && !current.awaitingKickoff && (
-        <article className="flex flex-col gap-4 rounded-2xl border border-emerald-200 bg-white p-4 shadow-sm">
+        <article className={`${darkCard} flex flex-col gap-4 p-4 ring-1 ring-smv-gold/25`}>
           <div className="flex items-center justify-between gap-2">
-            <p className="text-xs font-semibold uppercase tracking-wide text-emerald-700">
+            <p className="text-xs font-semibold uppercase tracking-wide text-smv-gold">
               Partida {current.sequence}
             </p>
-            <span className="text-xs font-medium text-zinc-600">{matchStatusLabel(current)}</span>
+            <span className={darkBadge}>{matchStatusLabel(current)}</span>
           </div>
           <MatchScoreboardFromView match={current} />
           <MatchTimer
@@ -74,12 +83,12 @@ export function SpectatorBoard({
       )}
 
       {!sessionEnded && draft && (
-        <article className="flex flex-col gap-4 rounded-2xl border border-amber-200 bg-amber-50 p-4">
+        <article className="flex flex-col gap-4 rounded-2xl border border-amber-300/30 bg-amber-400/10 p-4">
           <div className="flex items-center justify-between gap-2">
-            <p className="text-xs font-semibold uppercase tracking-wide text-amber-800">
+            <p className="text-xs font-semibold uppercase tracking-wide text-amber-200">
               Partida {board.nextSequence}
             </p>
-            <span className="text-xs font-medium text-amber-700">Aguardando próxima partida</span>
+            <span className="text-xs font-medium text-amber-100">Aguardando próxima partida</span>
           </div>
           <MatchScoreboard
             teamA={{ id: draft.teamAId, name: teamName(board, draft.teamAId) }}
@@ -103,13 +112,11 @@ export function SpectatorBoard({
       )}
 
       {waitingForNext && (
-        <p className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-center text-sm font-medium text-amber-900">
-          Aguardando próxima partida
-        </p>
+        <p className={`${darkAlertWarn} text-center font-medium`}>Aguardando próxima partida</p>
       )}
 
       {!sessionEnded && !current && !draft && board.history.length === 0 && (
-        <p className="rounded-xl border border-zinc-200 bg-white px-4 py-3 text-center text-sm text-zinc-600">
+        <p className={darkEmpty}>
           {board.teamCount
             ? "Aguardando próxima partida"
             : "As partidas ainda não começaram. O placar aparece quando o administrador montar o confronto."}
@@ -118,10 +125,13 @@ export function SpectatorBoard({
 
       {board.history.length > 0 && (
         <section className="flex flex-col gap-2">
-          <h2 className="text-sm font-medium text-zinc-500">Histórico</h2>
+          <h2 className={darkSectionLabel}>Histórico</h2>
           <ul className="flex flex-col gap-1">
             {[...board.history].reverse().map((match) => (
-              <li key={match.id} className="rounded-lg bg-zinc-50 px-3 py-2 text-sm text-zinc-700">
+              <li
+                key={match.id}
+                className="rounded-lg bg-white/8 px-3 py-2 text-sm text-white/75 ring-1 ring-white/10"
+              >
                 #{match.sequence} {match.teamAName} {match.scoreA}×{match.scoreB} {match.teamBName}
                 {match.penaltyWinnerTeamId ? " · pênaltis" : ""}
               </li>
@@ -139,7 +149,7 @@ function WaitingTeams({ board, currentTeamIds }: { board: LiveBoard; currentTeam
   );
   if (waiting.length === 0) return null;
   return (
-    <p className="text-center text-sm text-zinc-600">
+    <p className={`text-center ${darkMuted}`}>
       Na espera: {waiting.map((team) => team.name).join(", ")}
     </p>
   );
@@ -150,16 +160,19 @@ function RecentEvents({ match }: { match: MatchView }) {
   if (active.length === 0) return null;
   return (
     <section className="flex flex-col gap-2">
-      <h3 className="text-xs font-medium uppercase tracking-wide text-zinc-500">Eventos recentes</h3>
+      <h3 className={darkMutedXs}>Eventos recentes</h3>
       <ul className="flex flex-col gap-1">
         {active.map((event) => (
-          <li key={event.id} className="rounded-lg bg-zinc-50 px-3 py-2 text-sm text-zinc-700">
-            <span className="font-medium text-zinc-900">{MATCH_EVENT_LABELS[event.type]}</span>
+          <li
+            key={event.id}
+            className="rounded-lg bg-white/8 px-3 py-2 text-sm text-white/75 ring-1 ring-white/10"
+          >
+            <span className="font-medium text-smv-cream">{MATCH_EVENT_LABELS[event.type]}</span>
             {" · "}
             {event.memberName}
-            <span className="text-zinc-500"> · {formatElapsed(event.elapsedSec)}</span>
+            <span className="text-white/45"> · {formatElapsed(event.elapsedSec)}</span>
             {event.assistName ? (
-              <span className="text-zinc-500"> · assist. {event.assistName}</span>
+              <span className="text-white/45"> · assist. {event.assistName}</span>
             ) : null}
           </li>
         ))}

@@ -9,6 +9,17 @@ import {
   parseStatsPeriodFromSearchParams,
   periodToSearchParams,
 } from "@/server/modules/stats/queries";
+import {
+  darkBackLink,
+  darkBody,
+  darkCardPad,
+  darkEmpty,
+  darkInlineLink,
+  darkMutedXs,
+  darkSectionLabel,
+  darkTitle,
+} from "@/lib/ui/dark-surfaces";
+import { shellSubtext } from "@/lib/ui/shell-text";
 import { formatSessionTitle } from "../../../sessions/format";
 import { PeriodFilter } from "../../period-filter";
 import { StatCards } from "../../stat-cards";
@@ -41,13 +52,13 @@ export default async function PlayerStatsPage({
   const periodQuery = new URLSearchParams(periodToSearchParams(period)).toString();
 
   return (
-    <section className="flex flex-col gap-5">
+    <section className="flex flex-col gap-5 text-smv-cream">
       <div>
-        <Link href={`/stats${periodQuery ? `?${periodQuery}` : ""}`} className="text-sm text-zinc-500">
+        <Link href={`/stats${periodQuery ? `?${periodQuery}` : ""}`} className={darkBackLink}>
           ‹ Rankings
         </Link>
-        <h1 className="text-2xl font-semibold text-zinc-900">{title}</h1>
-        <p className="text-sm text-zinc-600">
+        <h1 className={darkTitle}>{title}</h1>
+        <p className={shellSubtext}>
           {player.status === "INACTIVE" ? "Jogador inativo · " : ""}
           Estatísticas do período selecionado
         </p>
@@ -63,21 +74,19 @@ export default async function PlayerStatsPage({
       <StatCards totals={totals} />
 
       <section className="flex flex-col gap-2">
-        <h2 className="text-sm font-medium text-zinc-500">Partidas recentes</h2>
+        <h2 className={darkSectionLabel}>Partidas recentes</h2>
         {recentMatches.length === 0 ? (
-          <p className="rounded-xl border border-dashed border-zinc-300 bg-zinc-50 px-4 py-6 text-center text-sm text-zinc-600">
-            Nenhuma partida finalizada neste período.
-          </p>
+          <p className={darkEmpty}>Nenhuma partida finalizada neste período.</p>
         ) : (
           <ul className="flex flex-col gap-2">
             {recentMatches.map((match) => (
-              <li key={match.matchId} className="rounded-xl border border-zinc-200 bg-white px-4 py-3 text-sm">
+              <li key={match.matchId} className={`${darkCardPad} text-sm`}>
                 <div className="flex items-start justify-between gap-2">
                   <div>
-                    <p className="font-medium capitalize text-zinc-900">
+                    <p className="font-medium capitalize text-smv-cream">
                       {formatSessionTitle(new Date(match.startedAt), timeZone)}
                     </p>
-                    <p className="text-zinc-600">
+                    <p className={darkBody}>
                       #{match.sequence} {match.teamName} {match.scoreFor}×{match.scoreAgainst}{" "}
                       {match.opponentName}
                       {match.role === "GOALKEEPER" ? " · Goleiro" : ""}
@@ -89,7 +98,7 @@ export default async function PlayerStatsPage({
                             ? " · D"
                             : ""}
                     </p>
-                    <p className="mt-1 text-xs text-zinc-500">
+                    <p className={`mt-1 ${darkMutedXs}`}>
                       {[
                         match.goals ? `${match.goals} gol${match.goals > 1 ? "s" : ""}` : null,
                         match.assists ? `${match.assists} assist.` : null,
@@ -101,7 +110,7 @@ export default async function PlayerStatsPage({
                         .join(" · ") || "Sem eventos individuais"}
                     </p>
                   </div>
-                  <Link href={`/sessions/${match.sessionId}`} className="shrink-0 text-emerald-700 underline">
+                  <Link href={`/sessions/${match.sessionId}`} className={`shrink-0 ${darkInlineLink}`}>
                     Sessão
                   </Link>
                 </div>

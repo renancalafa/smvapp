@@ -1,14 +1,29 @@
 @import "tailwindcss";
 
 :root {
-  --background: #fafafa;
-  --foreground: #18181b;
-  color-scheme: light;
+  /* SMV dark-only shell */
+  --background: #07131f;
+  --foreground: #f7f3ea;
+  --smv-navy: #0b1c2c;
+  --smv-navy-deep: #07131f;
+  --smv-navy-mid: #132a40;
+  --smv-navy-card: #16324a;
+  --smv-gold: #c9a227;
+  --smv-gold-bright: #e4bc3c;
+  --smv-cream: #f7f3ea;
+  color-scheme: dark;
 }
 
 @theme inline {
   --color-background: var(--background);
   --color-foreground: var(--foreground);
+  --color-smv-navy: var(--smv-navy);
+  --color-smv-navy-deep: var(--smv-navy-deep);
+  --color-smv-navy-mid: var(--smv-navy-mid);
+  --color-smv-navy-card: var(--smv-navy-card);
+  --color-smv-gold: var(--smv-gold);
+  --color-smv-gold-bright: var(--smv-gold-bright);
+  --color-smv-cream: var(--smv-cream);
   --font-sans: var(--font-geist-sans);
   --font-mono: var(--font-geist-mono);
 }

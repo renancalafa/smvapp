@@ -31,16 +31,14 @@ export function MatchTimer({
   const ss = String(Math.floor((left % 60_000) / 1000)).padStart(2, "0");
   const expired = left <= 0;
 
+  const timeClass = expired ? "text-red-300" : paused ? "text-amber-200" : "text-white";
+
   return (
     <div className="flex flex-col items-center gap-1">
-      <p
-        className={`font-mono text-4xl font-semibold tracking-tight ${
-          expired ? "text-red-700" : paused ? "text-amber-700" : "text-zinc-900"
-        }`}
-      >
+      <p className={`font-mono text-4xl font-semibold tracking-tight ${timeClass}`}>
         {mm}:{ss}
       </p>
-      <p className="text-xs text-zinc-500">
+      <p className="text-xs text-white/50">
         {paused ? "Pausado" : expired ? "Tempo esgotado" : `de ${Math.round(total / 60_000)} min`}
       </p>
     </div>
