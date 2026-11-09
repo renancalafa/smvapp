@@ -146,34 +146,9 @@ npm run check:dispatch   # banco local, transação desfeita + um teste concorre
 
 `check:dispatch` recusa rodar se `DATABASE_URL` não for localhost.
 
-## TEMPORÁRIO — smoke Option B em produção
-
-Endpoint isolado `POST /api/smoke/dispatch` para um único disparo do outbox com as
-credenciais VAPID já presentes na Vercel, **sem** ligar `PUSH_DISPATCH_ENABLED` /
-`DISPATCH_AFTER` no projeto.
-
-- Alvo fixo no código (`smoke-target.ts`): notificação / usuário / corte / 2 inscrições.
-- Auth: sessão do ADMIN `calafa` **e** `Authorization: Bearer $SMOKE_DISPATCH_SECRET`
-  (comparação em tempo constante).
-- Config do dispatcher só no overlay da chamada (`smokeDispatchEnv`); o ambiente
-  global continua desligado.
-- One-shot: claim em `IdempotentOperation` + recusa se já houver `NotificationDelivery`.
-- Resposta: só contagens/status. Sem endpoints, chaves ou VAPID.
-
-### Remoção depois do teste
-
-1. Apagar `src/app/api/smoke/`.
-2. Apagar `src/server/modules/notifications/smoke-endpoint.ts` e `smoke-target.ts`.
-3. Remover testes/docs/scripts associados (`check:smoke-endpoint`) se não forem mais úteis.
-4. Remover `SMOKE_DISPATCH_SECRET` da Vercel (se tiver sido criado).
-5. Confirmar que `PUSH_DISPATCH_ENABLED` e `DISPATCH_AFTER` continuam ausentes.
-6. Apagar a linha `IdempotentOperation` do claim (`operationId` = `SMOKE_CLAIM_OPERATION_ID` em `smoke-target.ts`; UUID dedicado, distinto da Notification).
-7. Opcional: apagar a `Notification` smoke e as `NotificationDelivery` associadas (FAILED já ficam seladas com `attempts` no máximo para não reentrarem no drain global).
-8. Apagar `.env.vercel-smoke` local (já ignorado pelo Git via `.env*`).
-
-```bash
-npm run check:smoke-endpoint
-```
+O filtro opcional `onlyNotificationId` em `dispatchPending` e o tooling local
+`npm run check:smoke-dispatch` / `scripts/smoke-dispatch.ts` servem para testes
+isolados do outbox sem ligar o dispatcher global.
 
 ## Vercel Hobby
 
