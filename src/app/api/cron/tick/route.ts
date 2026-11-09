@@ -1,6 +1,7 @@
 import { createHash, timingSafeEqual } from "node:crypto";
 import { db } from "@/server/db";
 import { schedulePushDispatch } from "@/server/modules/notifications/schedule";
+import { enqueueDuePriorityReminders } from "@/server/modules/sessions/priority-reminder";
 import { advanceDueSessions, ensureUpcomingSessions } from "@/server/modules/sessions/schedule";
 
 // Agendador externo (ex.: Vercel Cron) chama com "Authorization: Bearer $CRON_SECRET".
@@ -20,10 +21,12 @@ export async function GET(request: Request) {
   const groups = await db.group.findMany({ select: { id: true } });
   let created = 0;
   let advanced = 0;
+  let reminded = 0;
   for (const group of groups) {
     created += await ensureUpcomingSessions(group.id, now);
     advanced += await advanceDueSessions(group.id, now);
+    reminded += await enqueueDuePriorityReminders(group.id, now);
   }
   schedulePushDispatch();
-  return Response.json({ ok: true, created, advanced });
+  return Response.json({ ok: true, created, advanced, reminded });
 }

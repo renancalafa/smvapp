@@ -242,6 +242,7 @@ enum NotificationType {
   WAITLIST_PROMOTED
   DAILY_PLAYERS_NEEDED
   SESSION_CANCELLED
+  PRIORITY_REMINDER
 }
 
 enum DeliveryStatus {
@@ -368,9 +369,9 @@ model Group {
 
 /// Valores padrão usados para gerar novas sessões e ciclos. Sem @default de negócio:
 /// os valores vêm do seed ou do ADMIN. Toda alteração gera AuditLog com before/after.
-/// CHECK (SQL): minutos do dia entre 0 e 1439; maxExtraMinutes entre 0 e 30; dias >= 0;
-/// contagens e duração > 0; dailyFeeCents > 0; monthlyFieldCostCents >= 0;
-/// fieldPaymentDueDay e monthlyFeeDueDay entre 1 e 31.
+/// CHECK (SQL): minutos do dia entre 0 e 1439 (inclui reminder); maxExtraMinutes entre 0 e 30;
+/// dias >= 0 (inclui reminder); contagens e duração > 0; dailyFeeCents > 0;
+/// monthlyFieldCostCents >= 0; fieldPaymentDueDay e monthlyFeeDueDay entre 1 e 31.
 model GroupSettings {
   groupId String @id @db.Uuid
 
@@ -387,6 +388,11 @@ model GroupSettings {
   /// Dias antes da sessão em que termina a prioridade dos mensalistas (ex.: 0 = no dia).
   priorityDeadlineDaysBefore  Int
   priorityDeadlineMinute      Int
+  /// Dias antes da sessão do lembrete do prazo dos mensalistas (ex.: 0 = no dia).
+  priorityReminderDaysBefore  Int
+  priorityReminderMinute      Int
+  /// Se false, o lembrete não é agendado (valores de dia/hora ficam guardados).
+  priorityReminderEnabled     Boolean
   /// Antecedência, em dias, da criação automática em relação à abertura da lista (seed: 7).
   sessionAutoCreateLeadDays   Int
 
@@ -501,8 +507,10 @@ model GameSession {
   startsAt                DateTime @db.Timestamptz(3)
   endsAt                  DateTime @db.Timestamptz(3)
   maxExtraMinutes         Int
-  registrationOpensAt     DateTime @db.Timestamptz(3)
-  priorityDeadlineAt      DateTime @db.Timestamptz(3)
+  registrationOpensAt     DateTime  @db.Timestamptz(3)
+  priorityDeadlineAt      DateTime  @db.Timestamptz(3)
+  /// Snapshot do lembrete do prazo (nulo = desligado na criação). AUTOMATIC only.
+  priorityReminderAt      DateTime? @db.Timestamptz(3)
   maxPlayers              Int
   teamSize                Int
   matchDurationSec        Int
@@ -551,6 +559,7 @@ model GameSession {
   /// Consultar com { groupId, scheduledFor, origin: "AUTOMATIC" }.
   @@unique([groupId, scheduledFor], map: "GameSession_automatic_slot_key", where: { origin: "AUTOMATIC" })
   @@index([groupId, startsAt])
+  @@index([groupId, priorityReminderAt])
   @@index([status])
 }
 

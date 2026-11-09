@@ -36,6 +36,17 @@ export default async function AdminPage() {
           ›
         </span>
       </Link>
+      <Link href="/admin/agenda" className={darkLinkCard}>
+        <span>
+          <span className="block font-medium text-white">Agenda</span>
+          <span className={`block ${darkMuted}`}>
+            Abertura da lista, prazo dos mensalistas e lembrete
+          </span>
+        </span>
+        <span aria-hidden="true" className="text-white/40">
+          ›
+        </span>
+      </Link>
     </section>
   );
 }

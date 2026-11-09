@@ -2,6 +2,7 @@ import "server-only";
 import { buildPushPayload, isExpiredSubscriptionStatus } from "@/domain/push/subscription";
 import { Prisma, type PrismaClient } from "@/generated/prisma/client";
 import { db } from "@/server/db";
+import { suppressStalePriorityReminder } from "@/server/modules/sessions/priority-reminder";
 import { getVapidPublicKey, webPushSender, type PushSender } from "./push";
 
 // Dispatcher do outbox: nunca corre dentro da transação de jogo. Falha de push não sobe.
@@ -33,7 +34,10 @@ export type DispatchResult = {
   reason?: string;
 };
 
-type DispatchClient = Pick<PrismaClient, "notification" | "notificationDelivery" | "pushSubscription">;
+type DispatchClient = Pick<
+  PrismaClient,
+  "notification" | "notificationDelivery" | "pushSubscription" | "groupMember" | "gameSession"
+>;
 
 export type DispatchOptions = {
   send?: PushSender;
@@ -185,10 +189,12 @@ async function dispatchPendingUnsafe(options: DispatchOptions): Promise<Dispatch
     take: DISPATCH_SCAN_LIMIT,
     select: {
       id: true,
+      type: true,
       title: true,
       body: true,
       data: true,
       groupId: true,
+      recipientUserId: true,
       createdAt: true,
       recipient: {
         select: {
@@ -206,6 +212,20 @@ async function dispatchPendingUnsafe(options: DispatchOptions): Promise<Dispatch
   const work: WorkItem[] = [];
   let skipped = 0;
   for (const row of rows) {
+    if (row.type === "PRIORITY_REMINDER") {
+      const gate = await suppressStalePriorityReminder(client, {
+        notificationId: row.id,
+        groupId: row.groupId,
+        recipientUserId: row.recipientUserId,
+        data: row.data,
+        now,
+      });
+      if (gate === "suppressed") {
+        skipped += 1;
+        continue;
+      }
+    }
+
     const activeMember = row.recipient.memberships.some(
       (membership) => membership.groupId === row.groupId && membership.status === "ACTIVE",
     );

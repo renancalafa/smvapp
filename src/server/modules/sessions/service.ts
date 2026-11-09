@@ -1,6 +1,7 @@
 import "server-only";
 import { isAwaitingKickoff, matchClockHasStarted } from "@/domain/match/kickoff";
 import type { AttendanceStatus, Prisma, PriorityTier, RegistrationStatus } from "@/generated/prisma/client";
+import { suppressPriorityReminderForUser } from "@/server/modules/sessions/priority-reminder";
 import { writeAuditLog } from "@/server/audit";
 import type { Viewer } from "@/server/auth/dal";
 import { db } from "@/server/db";
@@ -23,6 +24,16 @@ import {
 type Tx = Prisma.TransactionClient;
 
 const QUEUED: RegistrationStatus[] = ["PARTICIPANT", "WAITLISTED"];
+
+/** Apaga PRIORITY_REMINDER pendente quando o jogador deixa de ser “sem resposta”. */
+async function clearPriorityReminderForMember(tx: Tx, sessionId: string, memberId: string): Promise<void> {
+  const member = await tx.groupMember.findUnique({
+    where: { id: memberId },
+    select: { userId: true },
+  });
+  if (!member) return;
+  await suppressPriorityReminderForUser(tx, { sessionId, userId: member.userId });
+}
 
 /** Transação com a sessão travada e as transições programadas já aplicadas. */
 export async function withLockedSession<T>(
@@ -104,6 +115,7 @@ async function confirmMemberLocked(
     throw new UserFacingError(input.removedMessage);
   }
   if (existing && QUEUED.includes(existing.status)) {
+    await clearPriorityReminderForMember(tx, session.id, input.member.id);
     return { status: existing.status };
   }
 
@@ -153,6 +165,7 @@ async function confirmMemberLocked(
           }
         : undefined,
   });
+  await clearPriorityReminderForMember(tx, session.id, input.member.id);
   return { status };
 }
 
@@ -217,9 +230,13 @@ export async function respondToSession(
         after: { status: "WITHDRAWN", withdrawnAt: now.toISOString() },
       });
       await rebalanceLockedSession(tx, session, now);
+      await clearPriorityReminderForMember(tx, session.id, member.id);
       return { status: "WITHDRAWN" };
     }
-    if (existing) return { status: existing.status };
+    if (existing) {
+      await clearPriorityReminderForMember(tx, session.id, member.id);
+      return { status: existing.status };
+    }
 
     const declined = await tx.sessionRegistration.create({
       data: {
@@ -241,6 +258,7 @@ export async function respondToSession(
       gameSessionId: session.id,
       after: { status: "DECLINED" },
     });
+    await clearPriorityReminderForMember(tx, session.id, member.id);
     return { status: "DECLINED" };
   });
 }

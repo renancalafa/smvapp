@@ -8,7 +8,7 @@ export const SMOKE_DEDUPE_PREFIX = "SMOKE_DISPATCH:";
 
 type SmokeDb = Pick<
   PrismaClient,
-  "notification" | "notificationDelivery" | "pushSubscription" | "user" | "groupMember"
+  "notification" | "notificationDelivery" | "pushSubscription" | "user" | "groupMember" | "gameSession"
 >;
 
 export type SmokeRequest = {

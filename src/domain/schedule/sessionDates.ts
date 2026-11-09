@@ -12,6 +12,10 @@ export type ScheduleSettings = {
   priorityDeadlineDaysBefore: number;
   priorityDeadlineMinute: number;
   sessionAutoCreateLeadDays: number;
+  /** Quando ausente ou desligado, priorityReminderAt fica null no snapshot. */
+  priorityReminderDaysBefore?: number;
+  priorityReminderMinute?: number;
+  priorityReminderEnabled?: boolean;
 };
 
 export type SessionSchedule = {
@@ -20,9 +24,20 @@ export type SessionSchedule = {
   endsAt: Date;
   registrationOpensAt: Date;
   priorityDeadlineAt: Date;
+  /** Nulo se o lembrete estava desligado (ou não configurado) na criação. */
+  priorityReminderAt: Date | null;
   /** Quando o sistema cria a sessão: abertura da lista menos a antecedência configurada. */
   autoCreateAt: Date;
 };
+
+export function reminderInstant(
+  sessionDate: CivilDate,
+  daysBefore: number,
+  minuteOfDay: number,
+  timeZone: string,
+): Date {
+  return zonedInstant(addDays(sessionDate, -daysBefore), minuteOfDay, timeZone);
+}
 
 export function sessionSchedule(date: CivilDate, settings: ScheduleSettings, timeZone: string): SessionSchedule {
   const startsAt = zonedInstant(date, settings.sessionStartMinute, timeZone);
@@ -40,8 +55,22 @@ export function sessionSchedule(date: CivilDate, settings: ScheduleSettings, tim
     settings.priorityDeadlineMinute,
     timeZone,
   );
+  const priorityReminderAt =
+    settings.priorityReminderEnabled === true &&
+    settings.priorityReminderDaysBefore != null &&
+    settings.priorityReminderMinute != null
+      ? reminderInstant(date, settings.priorityReminderDaysBefore, settings.priorityReminderMinute, timeZone)
+      : null;
   const autoCreateAt = new Date(registrationOpensAt.getTime() - settings.sessionAutoCreateLeadDays * DAY_MS);
-  return { scheduledFor: date, startsAt, endsAt, registrationOpensAt, priorityDeadlineAt, autoCreateAt };
+  return {
+    scheduledFor: date,
+    startsAt,
+    endsAt,
+    registrationOpensAt,
+    priorityDeadlineAt,
+    priorityReminderAt,
+    autoCreateAt,
+  };
 }
 
 /**

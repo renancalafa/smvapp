@@ -5,6 +5,7 @@ import type { Prisma } from "@/generated/prisma/client";
 import { writeAuditLog } from "@/server/audit";
 import { db } from "@/server/db";
 import { advanceLockedSession, lockSession } from "./engine";
+import { enqueueDuePriorityReminders } from "./priority-reminder";
 
 // Job ensureUpcomingSession + transições programadas. Roda por avaliação preguiçosa
 // (antes das leituras de sessão) e pelo /api/cron/tick; tudo é idempotente.
@@ -76,6 +77,7 @@ export async function ensureUpcomingSessions(groupId: string, now = new Date()):
             maxExtraMinutes: settings.maxExtraMinutes,
             registrationOpensAt: schedule.registrationOpensAt,
             priorityDeadlineAt: schedule.priorityDeadlineAt,
+            priorityReminderAt: schedule.priorityReminderAt,
             maxPlayers: settings.maxPlayers,
             teamSize: settings.teamSize,
             matchDurationSec: settings.matchDurationSec,
@@ -103,6 +105,7 @@ export async function ensureUpcomingSessions(groupId: string, now = new Date()):
           startsAt: schedule.startsAt.toISOString(),
           registrationOpensAt: schedule.registrationOpensAt.toISOString(),
           priorityDeadlineAt: schedule.priorityDeadlineAt.toISOString(),
+          priorityReminderAt: schedule.priorityReminderAt?.toISOString() ?? null,
           maxPlayers: settings.maxPlayers,
         },
       });
@@ -138,4 +141,5 @@ export async function advanceDueSessions(groupId: string, now = new Date()): Pro
 export async function syncGroupSessions(groupId: string): Promise<void> {
   await ensureUpcomingSessions(groupId);
   await advanceDueSessions(groupId);
+  await enqueueDuePriorityReminders(groupId);
 }

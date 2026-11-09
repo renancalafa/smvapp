@@ -131,7 +131,7 @@ Preview deployments têm outra origem: as inscrições feitas lá são separadas
 
 ## Etapa 2, Fase A — dispatcher (desligado por padrão)
 
-O outbox `Notification` / `NotificationDelivery` já existia. A Fase A drena esse outbox **depois** do commit (`after()`), com claim atômico, lote limitado e corte obrigatório. Ainda **não** cria tipos novos (lista aberta, votação, lembrete). Promoções da fila e cancelamento extraordinário já enfileiram; o envio só acontece se o dispatcher estiver ligado.
+O outbox `Notification` / `NotificationDelivery` já existia. A Fase A drena esse outbox **depois** do commit (`after()`), com claim atômico, lote limitado e corte obrigatório. Tipos enfileirados incluem `LIST_OPENED`, `WAITLIST_PROMOTED`, `SESSION_CANCELLED` e `PRIORITY_REMINDER` (lembrete do prazo dos mensalistas sem resposta). O envio só acontece se o dispatcher estiver ligado.
 
 | Variável | Efeito |
 | --- | --- |
