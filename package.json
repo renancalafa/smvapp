@@ -14,6 +14,7 @@
     "bootstrap": "tsx scripts/bootstrap.ts",
     "seed:test-players": "tsx scripts/seed-test-players.ts",
     "check:attendance-lock": "tsx scripts/check-attendance-lock.ts",
+    "check:self-respond": "tsx scripts/check-self-respond.ts",
     "check:admin-confirm-on-behalf": "tsx scripts/check-admin-confirm-on-behalf.ts",
     "check:early-draw": "tsx scripts/check-early-draw.ts",
     "check:match-flow": "tsx scripts/check-match-flow.ts",

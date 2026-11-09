@@ -26,6 +26,18 @@ export function MySessionStatus({
     mine?.status !== "PARTICIPANT" &&
     mine?.status !== "WAITLISTED" &&
     mine?.status !== "REMOVED";
+  const removed = mine?.status === "REMOVED";
+  const confirmEnabled = open && !removed && (!locked || lateMonthlyWaitlist);
+  const declineEnabled = open && !removed && !locked;
+  const disabledReason = !open
+    ? board.phase === "SCHEDULED"
+      ? "A lista desta sessão ainda não abriu."
+      : board.phase === "CANCELLED"
+        ? "Esta sessão foi cancelada."
+        : "A lista desta sessão já fechou."
+    : lateMonthlyWaitlist
+      ? "Com o sorteio antecipado, só é possível entrar na lista de espera. “Não vou” fica bloqueado até a lista liberar."
+      : null;
 
   let text: string;
   switch (mine?.status) {
@@ -63,24 +75,19 @@ export function MySessionStatus({
       <p className="text-sm font-medium text-white">{text}</p>
       {open && locked && !lateMonthlyWaitlist && <p className={darkAlertWarn}>{ATTENDANCE_LOCKED_MESSAGE}</p>}
       {open && lateMonthlyWaitlist && (
-        <>
-          <p className={darkAlertWarn}>
-            Sorteio antecipado: a sessão está cheia e os times já foram sorteados. Até o prazo dos mensalistas, você
-            ainda pode entrar na lista de espera, à frente dos diaristas.
-          </p>
-          <RespondButtons
-            sessionId={board.session.id}
-            myStatus={mine?.status ?? null}
-            canDecline={false}
-            confirmLabel="Entrar na lista de espera"
-          />
-        </>
+        <p className={darkAlertWarn}>
+          Sorteio antecipado: a sessão está cheia e os times já foram sorteados. Até o prazo dos mensalistas, você ainda
+          pode entrar na lista de espera, à frente dos diaristas.
+        </p>
       )}
-      {open && !locked && mine?.status !== "REMOVED" && (
+      {!removed && (
         <RespondButtons
           sessionId={board.session.id}
           myStatus={mine?.status ?? null}
-          canDecline={!mine}
+          confirmEnabled={confirmEnabled}
+          declineEnabled={declineEnabled}
+          confirmLabel={lateMonthlyWaitlist ? "Entrar na lista de espera" : "Vou jogar"}
+          disabledReason={disabledReason}
         />
       )}
     </div>
