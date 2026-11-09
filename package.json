@@ -24,6 +24,7 @@
     "check:member-role": "tsx scripts/check-member-role.ts",
     "check:member-rating": "tsx scripts/check-member-rating.ts",
     "check:extraordinary": "tsx scripts/check-extraordinary.ts",
+    "check:list-opened": "tsx scripts/check-list-opened.ts",
     "check:push": "tsx scripts/check-push.ts",
     "check:dispatch": "tsx scripts/check-dispatch.ts",
     "check:smoke-dispatch": "tsx scripts/check-smoke-dispatch.ts",

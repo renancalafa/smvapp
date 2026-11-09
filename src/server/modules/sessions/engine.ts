@@ -134,6 +134,11 @@ export async function advanceLockedSession(tx: Tx, session: LockedSession, now: 
       gameSessionId: current.id,
       after: { status: "OPEN", openedAt: now.toISOString() },
     });
+    // Sessões semanais (AUTOMATIC): outbox LIST_OPENED na mesma transação da abertura.
+    // Extraordinárias não disparam este tipo. O horário efetivo é session.registrationOpensAt.
+    if (current.origin === "AUTOMATIC") {
+      await queueListOpenedNotifications(tx, current);
+    }
   }
 
   if (!current.priorityClosedAt && now >= current.priorityDeadlineAt) {
@@ -154,6 +159,36 @@ export async function advanceLockedSession(tx: Tx, session: LockedSession, now: 
     await rebalanceLockedSession(tx, current, now);
   }
   return current;
+}
+
+/**
+ * Outbox LIST_OPENED para membros ACTIVE com conta habilitada.
+ * dedupeKey único + skipDuplicates: syncs/ticks concorrentes não duplicam.
+ */
+export async function queueListOpenedNotifications(tx: Tx, session: LockedSession): Promise<void> {
+  const members = await tx.groupMember.findMany({
+    where: {
+      groupId: session.groupId,
+      status: "ACTIVE",
+      user: { disabledAt: null },
+    },
+    select: { userId: true },
+  });
+  if (members.length === 0) return;
+
+  const dayLabel = formatSessionDay(session);
+  await tx.notification.createMany({
+    data: members.map((member) => ({
+      groupId: session.groupId,
+      recipientUserId: member.userId,
+      type: "LIST_OPENED" as const,
+      title: "Lista de confirmação aberta",
+      body: `A lista da pelada de ${dayLabel} já está aberta. Confirme sua presença.`,
+      data: { url: `/sessions/${session.id}`, gameSessionId: session.id },
+      dedupeKey: `LIST_OPENED:${session.id}:${member.userId}`,
+    })),
+    skipDuplicates: true,
+  });
 }
 
 /** Outbox; o envio fica para o dispatcher depois do commit. */
