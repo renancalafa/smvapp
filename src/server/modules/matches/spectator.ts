@@ -1,10 +1,13 @@
 import "server-only";
+import {
+  decideInProgressSpectatorFocus,
+  playWindowEndMs,
+  RECENT_ENDED_MS,
+} from "@/domain/live/spectator-focus";
 import { isAwaitingKickoff } from "@/domain/match/kickoff";
 import type { SpectatorPollPhase } from "@/domain/live/polling";
 import { db } from "@/server/db";
 import { getLiveBoard, type LiveBoard } from "./queries";
-
-const RECENT_ENDED_MS = 12 * 60 * 60 * 1000;
 
 export type SpectatorSessionSummary = {
   id: string;
@@ -73,17 +76,37 @@ function toSummary(session: SessionCandidate): SpectatorSessionSummary {
 }
 
 function playWindowEnd(session: SessionCandidate): Date {
-  return new Date(session.endsAt.getTime() + session.maxExtraMinutes * 60_000);
+  return new Date(playWindowEndMs(session.endsAt.getTime(), session.maxExtraMinutes));
 }
 
 /** Sessão em foco (sem carregar o placar completo). */
 export async function findSpectatorFocus(groupId: string, now = new Date()): Promise<Focus> {
+  const nowMs = now.getTime();
   const inProgress = await db.gameSession.findFirst({
     where: { groupId, status: "IN_PROGRESS" },
     orderBy: { startsAt: "desc" },
     select: SESSION_SELECT,
   });
-  if (inProgress) return { kind: "live", session: inProgress };
+  if (inProgress) {
+    const withinWindow =
+      nowMs <= playWindowEndMs(inProgress.endsAt.getTime(), inProgress.maxExtraMinutes);
+    // Só consulta partida ativa quando a janela já passou (overtime além do extra).
+    const activeMatch = withinWindow
+      ? null
+      : await db.match.findFirst({
+          where: { gameSessionId: inProgress.id, status: "IN_PROGRESS" },
+          select: { id: true },
+        });
+    const decision = decideInProgressSpectatorFocus({
+      nowMs,
+      endsAtMs: inProgress.endsAt.getTime(),
+      maxExtraMinutes: inProgress.maxExtraMinutes,
+      hasActiveMatch: activeMatch !== null,
+    });
+    if (decision === "live") return { kind: "live", session: inProgress };
+    if (decision === "ended") return { kind: "ended", session: inProgress };
+    // stale: janela expirou há mais de 12h e sem partida ativa — continua a busca.
+  }
 
   const windowCandidates = await db.gameSession.findMany({
     where: {
@@ -95,14 +118,14 @@ export async function findSpectatorFocus(groupId: string, now = new Date()): Pro
     take: 5,
     select: SESSION_SELECT,
   });
-  const inWindow = windowCandidates.find((session) => now.getTime() <= playWindowEnd(session).getTime());
+  const inWindow = windowCandidates.find((session) => nowMs <= playWindowEnd(session).getTime());
   if (inWindow) return { kind: "live", session: inWindow };
 
   const recentlyEnded = await db.gameSession.findFirst({
     where: {
       groupId,
       status: "FINISHED",
-      finishedAt: { gte: new Date(now.getTime() - RECENT_ENDED_MS) },
+      finishedAt: { gte: new Date(nowMs - RECENT_ENDED_MS) },
     },
     orderBy: { finishedAt: "desc" },
     select: SESSION_SELECT,

@@ -156,7 +156,7 @@ export function LiveSpectator({
 
       {state.kind === "idle" && (
         <div className={darkEmpty}>
-          <p className="text-base font-medium text-smv-cream">Nenhuma sessão ativa no momento</p>
+          <p className="text-base font-medium text-smv-cream">Nenhuma pelada em andamento.</p>
           <p className="mt-1 text-sm text-white/55">
             Quando a pelada começar, o placar, o cronômetro e o histórico aparecem aqui
             automaticamente.

@@ -21,6 +21,7 @@
     "check:substitution": "tsx scripts/check-substitution.ts",
     "check:stats": "tsx scripts/check-stats.ts",
     "check:live-poll": "tsx scripts/check-live-poll.ts",
+    "check:spectator-focus": "tsx scripts/check-spectator-focus.ts",
     "check:login-throttle": "tsx scripts/check-login-throttle.ts",
     "check:dev-reset": "tsx scripts/check-dev-reset.ts",
     "check:member-role": "tsx scripts/check-member-role.ts",
