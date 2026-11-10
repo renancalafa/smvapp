@@ -19,9 +19,12 @@ import {
   darkCardPad,
   darkControl,
   darkEmptyCompact,
+  darkInset,
+  darkLabel,
   darkMuted,
   darkMutedXs,
   darkSectionLabel,
+  darkTitleMd,
 } from "@/lib/ui/dark-surfaces";
 import { shellSubtext } from "@/lib/ui/shell-text";
 import {
@@ -30,10 +33,12 @@ import {
   pauseMatchAction,
   resumeMatchAction,
   setPenaltyWinnerAction,
+  substituteMatchPlayerAction,
   voidMatchEventAction,
   type MatchActionState,
 } from "@/server/modules/matches/actions";
-import type { LiveBoard, MatchView } from "@/server/modules/matches/queries";
+import type { LiveBoard, MatchView, SessionParticipantOption } from "@/server/modules/matches/queries";
+import { activeMatchPlayers } from "@/domain/match/lineup";
 import { GoalRegistrationPanel } from "./goal-registration-panel";
 import { PlayerEventPanel } from "./player-event-panel";
 
@@ -238,7 +243,7 @@ function TeamPickerSheet({
 function CurrentMatchAdmin({ board, match: initial }: { board: LiveBoard; match: MatchView }) {
   const [match, setMatch] = useState(initial);
   const [goalSide, setGoalSide] = useState<"A" | "B" | null>(null);
-  const [eventPlayer, setEventPlayer] = useState<MatchView["players"][number] | null>(null);
+  const [eventPlayer, setEventPlayer] = useState<ScoreboardPlayer | null>(null);
   const [baseline, setBaseline] = useState(initial);
   if (initial.id !== baseline.id || initial.version !== baseline.version) {
     setBaseline(initial);
@@ -305,6 +310,12 @@ function CurrentMatchAdmin({ board, match: initial }: { board: LiveBoard; match:
           Pênaltis: {teamName(board, match.penaltyWinnerTeamId)} venceu.
         </p>
       )}
+      <SubstitutionForm
+        sessionId={board.sessionId}
+        match={match}
+        participants={board.participants}
+        onMatchUpdated={setMatch}
+      />
       <FinishForm
         sessionId={board.sessionId}
         match={match}
@@ -316,12 +327,202 @@ function CurrentMatchAdmin({ board, match: initial }: { board: LiveBoard; match:
   );
 }
 
+function playerOptionLabel(player: { name: string; nickname: string | null }): string {
+  return player.nickname ? `${player.name} (${player.nickname})` : player.name;
+}
+
+function SubstitutionForm({
+  sessionId,
+  match,
+  participants,
+  onMatchUpdated,
+}: {
+  sessionId: string;
+  match: MatchView;
+  participants: SessionParticipantOption[];
+  onMatchUpdated: (match: MatchView) => void;
+}) {
+  const [wantOpen, setWantOpen] = useState(false);
+  const [baseline, setBaseline] = useState<MatchActionState>(undefined);
+  const [outMemberId, setOutMemberId] = useState("");
+  const [inMemberId, setInMemberId] = useState("");
+  const [state, action, pending] = useActionState(substituteMatchPlayerAction, undefined);
+  const operationId = useOperationId(state);
+  useMatchFromAction(state, onMatchUpdated);
+  const open = wantOpen && state === baseline;
+
+  const onField = activeMatchPlayers(match.players);
+  const activeIds = new Set(onField.map((player) => player.memberId));
+  const outgoing = onField.find((player) => player.memberId === outMemberId) ?? null;
+  const affectedTeam = outgoing
+    ? outgoing.teamId === match.teamA.id
+      ? match.teamA
+      : match.teamB
+    : null;
+  const incomingCandidates = participants.filter((player) => {
+    if (activeIds.has(player.memberId)) return false;
+    if (!affectedTeam) return true;
+    const prior = match.players.find((row) => row.memberId === player.memberId);
+    // Reentrada só no mesmo lado da 1ª aparição.
+    if (prior && prior.teamId !== affectedTeam.id) return false;
+    return true;
+  });
+  const incoming = incomingCandidates.find((player) => player.memberId === inMemberId) ?? null;
+  const canSubmit = Boolean(outMemberId && inMemberId && affectedTeam && incoming && !pending);
+
+  function close() {
+    if (pending) return;
+    setWantOpen(false);
+    setOutMemberId("");
+    setInMemberId("");
+  }
+
+  return (
+    <div className="flex flex-col gap-2">
+      <button
+        type="button"
+        disabled={pending || onField.length === 0}
+        onClick={() => {
+          setOutMemberId("");
+          setInMemberId("");
+          setBaseline(state);
+          setWantOpen(true);
+        }}
+        className={`w-full ${darkBtnSecondary}`}
+      >
+        Substituir jogador
+      </button>
+      <Feedback state={state} />
+      {open && (
+        <div
+          className="fixed inset-0 z-50 flex items-end justify-center bg-black/60 p-3 sm:items-center"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="sub-match-title"
+          onClick={(event) => {
+            if (event.target === event.currentTarget) close();
+          }}
+        >
+          <form
+            action={action}
+            className={`flex w-full max-w-md flex-col gap-4 p-4 shadow-lg ${darkCard}`}
+            onClick={(event) => event.stopPropagation()}
+          >
+            <input type="hidden" name="sessionId" value={sessionId} />
+            <input type="hidden" name="matchId" value={match.id} />
+            <input type="hidden" name="expectedVersion" value={match.version} />
+            <input type="hidden" name="outMemberId" value={outMemberId} />
+            <input type="hidden" name="inMemberId" value={inMemberId} />
+            <input type="hidden" name="operationId" value={operationId} />
+
+            <div className="flex items-start justify-between gap-2">
+              <div>
+                <p id="sub-match-title" className={darkTitleMd}>
+                  Confirmar substituição
+                </p>
+                <p className={darkMuted}>Partida {match.sequence} · v{match.version}</p>
+              </div>
+              <button
+                type="button"
+                onClick={close}
+                disabled={pending}
+                className="min-h-10 min-w-10 rounded-lg text-white/55 hover:bg-white/8 hover:text-smv-cream disabled:opacity-60"
+                aria-label="Fechar"
+              >
+                ✕
+              </button>
+            </div>
+
+            <label className={darkLabel}>
+              Quem sai
+              <select
+                value={outMemberId}
+                onChange={(event) => {
+                  setOutMemberId(event.target.value);
+                  setInMemberId("");
+                }}
+                disabled={pending}
+                className={darkControl}
+              >
+                <option value="">Selecione…</option>
+                {onField.map((player) => (
+                  <option key={player.memberId} value={player.memberId}>
+                    {playerOptionLabel(player)}
+                    {player.teamId === match.teamA.id ? ` · ${match.teamA.name}` : ` · ${match.teamB.name}`}
+                  </option>
+                ))}
+              </select>
+            </label>
+
+            {affectedTeam && (
+              <div className={darkInset}>
+                <p className={darkMutedXs}>Time afetado</p>
+                <p className="mt-1 text-sm font-semibold text-smv-gold">{affectedTeam.name}</p>
+              </div>
+            )}
+
+            <label className={darkLabel}>
+              Quem entra
+              <select
+                value={inMemberId}
+                onChange={(event) => setInMemberId(event.target.value)}
+                disabled={pending || !outMemberId}
+                className={darkControl}
+              >
+                <option value="">Selecione…</option>
+                {incomingCandidates.map((player) => (
+                  <option key={player.memberId} value={player.memberId}>
+                    {playerOptionLabel(player)}
+                    {player.homeTeamName ? ` · ${player.homeTeamName}` : " · sem time"}
+                  </option>
+                ))}
+              </select>
+            </label>
+
+            {outgoing && incoming && affectedTeam && (
+              <div className={`flex flex-col gap-1 ${darkInset}`} aria-live="polite">
+                <p className="text-sm text-white">
+                  Sai <span className="font-medium text-smv-gold">{playerOptionLabel(outgoing)}</span>
+                </p>
+                <p className="text-sm text-white">
+                  Entra <span className="font-medium text-smv-gold">{playerOptionLabel(incoming)}</span>
+                </p>
+                <p className={darkMutedXs}>em {affectedTeam.name}</p>
+              </div>
+            )}
+
+            <p className={darkMutedXs}>
+              Vale só para esta partida. O time oficial da noite não muda. Se outro admin alterar a
+              partida, a confirmação será recusada.
+            </p>
+
+            <div className="grid grid-cols-2 gap-2">
+              <button type="button" onClick={close} disabled={pending} className={darkBtnSecondary}>
+                Cancelar
+              </button>
+              <button type="submit" disabled={!canSubmit} className={darkBtnPrimary}>
+                {pending ? "Substituindo…" : "Confirmar substituição"}
+              </button>
+            </div>
+          </form>
+        </div>
+      )}
+    </div>
+  );
+}
+
 function useMatchFromAction(
   state: MatchActionState,
   onMatchUpdated: (match: MatchView) => void,
 ) {
   useEffect(() => {
     if (state?.status === "done" && state.match) onMatchUpdated(state.match);
+    if (state?.status === "conflict") {
+      const current = state.current;
+      if (current && typeof current === "object" && current !== null && "id" in current) {
+        onMatchUpdated(current as MatchView);
+      }
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps -- intentionally [state]
   }, [state]);
 }
@@ -428,21 +629,103 @@ function FinishForm({
   needsPenalty: boolean;
   onMatchUpdated: (match: MatchView) => void;
 }) {
+  const [wantConfirm, setWantConfirm] = useState(false);
+  const [confirmBaseline, setConfirmBaseline] = useState<MatchActionState>(undefined);
   const [state, action, pending] = useActionState(finishMatchAction, undefined);
   const operationId = useOperationId(state);
   useMatchFromAction(state, onMatchUpdated);
+  // Fecha o diálogo quando a action responde (state muda em relação ao baseline).
+  const confirmOpen = wantConfirm && state === confirmBaseline;
 
   return (
-    <form action={action} className="flex flex-col gap-2">
-      <input type="hidden" name="sessionId" value={sessionId} />
-      <input type="hidden" name="matchId" value={match.id} />
-      <input type="hidden" name="expectedVersion" value={match.version} />
-      <input type="hidden" name="operationId" value={operationId} />
-      <button type="submit" disabled={pending || needsPenalty} className={`w-full ${darkBtnDanger}`}>
-        {pending ? "Finalizando…" : needsPenalty ? "Registre os pênaltis antes" : "Finalizar partida"}
+    <div className="flex flex-col gap-2">
+      <button
+        type="button"
+        disabled={pending || needsPenalty}
+        onClick={() => {
+          setConfirmBaseline(state);
+          setWantConfirm(true);
+        }}
+        className={`w-full ${darkBtnDanger}`}
+      >
+        {needsPenalty ? "Registre os pênaltis antes" : "Finalizar partida"}
       </button>
       <Feedback state={state} />
-    </form>
+      {confirmOpen && (
+        <div
+          className="fixed inset-0 z-50 flex items-end justify-center bg-black/60 p-3 sm:items-center"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="finish-match-title"
+          onClick={(event) => {
+            if (pending) return;
+            if (event.target === event.currentTarget) setWantConfirm(false);
+          }}
+        >
+          <form
+            action={action}
+            className={`flex w-full max-w-md flex-col gap-4 p-4 shadow-lg ${darkCard}`}
+            onClick={(event) => event.stopPropagation()}
+          >
+            <input type="hidden" name="sessionId" value={sessionId} />
+            <input type="hidden" name="matchId" value={match.id} />
+            <input type="hidden" name="expectedVersion" value={match.version} />
+            <input type="hidden" name="expectedScoreA" value={match.scoreA} />
+            <input type="hidden" name="expectedScoreB" value={match.scoreB} />
+            <input type="hidden" name="operationId" value={operationId} />
+
+            <div className="flex items-start justify-between gap-2">
+              <div>
+                <p id="finish-match-title" className={darkTitleMd}>
+                  Confirmar finalização?
+                </p>
+                <p className={darkMuted}>Partida {match.sequence}</p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setWantConfirm(false)}
+                disabled={pending}
+                className="min-h-10 min-w-10 rounded-lg text-white/55 hover:bg-white/8 hover:text-smv-cream disabled:opacity-60"
+                aria-label="Fechar"
+              >
+                ✕
+              </button>
+            </div>
+
+            <div className={`grid grid-cols-[1fr_auto_1fr] items-center gap-3 ${darkInset}`}>
+              <div className="min-w-0 text-center">
+                <p className="truncate text-sm font-medium text-white">{match.teamA.name}</p>
+                <p className="mt-1 text-3xl font-semibold tabular-nums text-smv-gold">{match.scoreA}</p>
+              </div>
+              <p className="text-sm font-semibold text-white/40">×</p>
+              <div className="min-w-0 text-center">
+                <p className="truncate text-sm font-medium text-white">{match.teamB.name}</p>
+                <p className="mt-1 text-3xl font-semibold tabular-nums text-smv-gold">{match.scoreB}</p>
+              </div>
+            </div>
+
+            <p className={darkMutedXs}>
+              O placar e o status serão gravados agora. Se outro admin alterar a partida, a confirmação será
+              recusada.
+            </p>
+
+            <div className="grid grid-cols-2 gap-2">
+              <button
+                type="button"
+                onClick={() => setWantConfirm(false)}
+                disabled={pending}
+                className={darkBtnSecondary}
+              >
+                Cancelar
+              </button>
+              <button type="submit" disabled={pending} className={darkBtnDanger}>
+                {pending ? "Finalizando…" : "Confirmar finalização"}
+              </button>
+            </div>
+          </form>
+        </div>
+      )}
+    </div>
   );
 }
 

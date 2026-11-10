@@ -27,6 +27,15 @@ export type TeamRosterPlayer = {
   role: "FIELD" | "GOALKEEPER";
 };
 
+/** Participantes da sessão para escolha de substituto (empréstimo incluso). */
+export type SessionParticipantOption = {
+  memberId: string;
+  name: string;
+  nickname: string | null;
+  homeTeamId: string | null;
+  homeTeamName: string | null;
+};
+
 export type LiveBoard = {
   sessionId: string;
   matchDurationSec: number;
@@ -34,6 +43,8 @@ export type LiveBoard = {
   teams: TeamSummary[];
   /** Escalação atual por SessionTeam (para placar pré-apito sem Match). */
   rostersByTeamId: Record<string, TeamRosterPlayer[]>;
+  /** PARTICIPANT da sessão (candidatos a entrar na partida). */
+  participants: SessionParticipantOption[];
   current: MatchView | null;
   /** Sugestão Rei da Mesa (null na 1ª partida; o ADMIN escolhe livremente). */
   suggested: { teamAId: string; teamBId: string; waitingTeamIds: string[] } | null;
@@ -171,6 +182,8 @@ export async function getLiveBoard(groupId: string, sessionId: string, now = new
     },
   });
   const rostersByTeamId: Record<string, TeamRosterPlayer[]> = {};
+  const homeTeamByMember = new Map<string, { id: string; name: string }>();
+  const teamNameById = new Map(session.teams.map((team) => [team.id, team.name]));
   for (const row of rosterRows) {
     if (row.member.registrations.length === 0) continue;
     const list = rostersByTeamId[row.sessionTeamId] ?? [];
@@ -182,7 +195,29 @@ export async function getLiveBoard(groupId: string, sessionId: string, now = new
       role: "FIELD",
     });
     rostersByTeamId[row.sessionTeamId] = list;
+    homeTeamByMember.set(row.memberId, {
+      id: row.sessionTeamId,
+      name: teamNameById.get(row.sessionTeamId) ?? "Time",
+    });
   }
+
+  const participantRows = await db.sessionRegistration.findMany({
+    where: { gameSessionId: sessionId, status: "PARTICIPANT" },
+    select: {
+      memberId: true,
+      member: { select: { nickname: true, user: { select: { name: true } } } },
+    },
+  });
+  const participants: SessionParticipantOption[] = participantRows.map((row) => {
+    const home = homeTeamByMember.get(row.memberId) ?? null;
+    return {
+      memberId: row.memberId,
+      name: row.member.user.name,
+      nickname: row.member.nickname,
+      homeTeamId: home?.id ?? null,
+      homeTeamName: home?.name ?? null,
+    };
+  });
 
   return {
     sessionId: session.id,
@@ -190,6 +225,7 @@ export async function getLiveBoard(groupId: string, sessionId: string, now = new
     teamCount,
     teams: session.teams,
     rostersByTeamId,
+    participants,
     current,
     suggested,
     softHint,

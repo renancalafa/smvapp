@@ -304,6 +304,7 @@ model User {
   drawsInvalidated        Draw[]                 @relation("DrawInvalidatedBy")
   matchEventsCreated      MatchEvent[]           @relation("MatchEventCreatedBy")
   matchEventsVoided       MatchEvent[]           @relation("MatchEventVoidedBy")
+  matchSubstitutions      MatchSubstitution[]    @relation("MatchSubstitutionCreatedBy")
   billingCyclesClosed     BillingCycle[]
   chargesCreated          Charge[]               @relation("ChargeCreatedBy")
   chargesCancelled        Charge[]               @relation("ChargeCancelledBy")
@@ -459,6 +460,8 @@ model GroupMember {
   matchAppearances          MatchPlayer[]
   matchEventsAuthored       MatchEvent[]             @relation("MatchEventAuthor")
   matchEventsAssisted       MatchEvent[]             @relation("MatchEventAssist")
+  matchSubstitutionsOut     MatchSubstitution[]      @relation("MatchSubstitutionOut")
+  matchSubstitutionsIn      MatchSubstitution[]      @relation("MatchSubstitutionIn")
   charges                   Charge[]
   payments                  Payment[]
 
@@ -915,8 +918,9 @@ model SessionTeam {
   matchesAsA     Match[]             @relation("MatchTeamA")
   matchesAsB     Match[]             @relation("MatchTeamB")
   penaltyWins    Match[]             @relation("MatchPenaltyWinner")
-  matchPlayers   MatchPlayer[]
-  matchEvents    MatchEvent[]
+  matchPlayers        MatchPlayer[]
+  matchEvents         MatchEvent[]
+  matchSubstitutions  MatchSubstitution[]
 
   @@unique([gameSessionId, initialQueuePosition])
   /// Alvo das FKs compostas de SessionTeamPlayer e Match.
@@ -974,8 +978,9 @@ model Match {
   teamA         SessionTeam   @relation("MatchTeamA", fields: [teamAId, gameSessionId], references: [id, gameSessionId])
   teamB         SessionTeam   @relation("MatchTeamB", fields: [teamBId, gameSessionId], references: [id, gameSessionId])
   penaltyWinner SessionTeam?  @relation("MatchPenaltyWinner", fields: [penaltyWinnerTeamId, gameSessionId], references: [id, gameSessionId], onDelete: Restrict)
-  players       MatchPlayer[]
-  events        MatchEvent[]
+  players        MatchPlayer[]
+  events         MatchEvent[]
+  substitutions  MatchSubstitution[]
 
   @@unique([gameSessionId, sequence])
   /// PARCIAL: no máximo uma partida em andamento por sessão.
@@ -992,19 +997,29 @@ model Match {
 ///   e não muda o time dele na noite.
 /// - Participante sem time: PARTICIPANT sem SessionTeamPlayer (entrou depois do sorteio
 ///   oficial, sem refação); preenche vaga por aqui, sem alterar o sorteio.
+/// - Substituição ao vivo: leftAt marca saída; o substituto entra no mesmo teamId.
+///   SessionTeamPlayer e disponibilidade da noite NÃO mudam.
+/// - Reentrada: limpa leftAt sem sobrescrever enteredAt/teamId; o histórico de trocas
+///   fica em MatchSubstitution (append-only). PJ/V/E/D continuam nesta linha.
 /// O unique (matchId, memberId) impede o mesmo jogador nos dois lados da partida.
 /// Invariantes (service):
 /// - teamId é match.teamAId ou match.teamBId; o membro é PARTICIPANT da sessão;
-/// - emprestado vem de um time que não está nesta partida;
+/// - emprestado vem de um time que não está nesta partida (ou sem time na noite);
 /// - o membro está disponível (sem PlayerUnavailability aberta) no instante em que entra
 ///   na partida: match.startedAt na escalação inicial, o momento do comando quando entra
-///   durante a partida.
+///   durante a partida;
+/// - leftAt nulo = em campo; eventos novos só para quem está em campo;
+/// - teamId e enteredAt (1ª entrada) não mudam em reentrada.
 model MatchPlayer {
-  id       String          @id @default(uuid(7)) @db.Uuid
-  matchId  String          @db.Uuid
-  memberId String          @db.Uuid
-  teamId   String          @db.Uuid
-  role     MatchPlayerRole
+  id        String          @id @default(uuid(7)) @db.Uuid
+  matchId   String          @db.Uuid
+  memberId  String          @db.Uuid
+  teamId    String          @db.Uuid
+  role      MatchPlayerRole
+  /// Primeira entrada em campo nesta partida (escalação ou 1ª substituição).
+  enteredAt DateTime        @default(now()) @db.Timestamptz(3)
+  /// Instantâneo em que saiu (substituição). Nulo = ainda em campo.
+  leftAt    DateTime?       @db.Timestamptz(3)
 
   match  Match       @relation(fields: [matchId], references: [id])
   member GroupMember @relation(fields: [memberId], references: [id])
@@ -1013,6 +1028,30 @@ model MatchPlayer {
   @@unique([matchId, memberId])
   @@index([memberId])
   @@index([teamId])
+}
+
+/// Histórico append-only de substituições (inclui reentradas). Não altera PJ.
+model MatchSubstitution {
+  id              String   @id @default(uuid(7)) @db.Uuid
+  matchId         String   @db.Uuid
+  outMemberId     String   @db.Uuid
+  inMemberId      String   @db.Uuid
+  /// Lado preservado da substituição (teamId de quem saiu).
+  teamId          String   @db.Uuid
+  substitutedAt   DateTime @db.Timestamptz(3)
+  createdByUserId String   @db.Uuid
+  /// Só rastreabilidade (idempotência via IdempotentOperation).
+  operationId     String?  @db.Uuid
+
+  match     Match       @relation(fields: [matchId], references: [id])
+  outMember GroupMember @relation("MatchSubstitutionOut", fields: [outMemberId], references: [id])
+  inMember  GroupMember @relation("MatchSubstitutionIn", fields: [inMemberId], references: [id])
+  team      SessionTeam @relation(fields: [teamId], references: [id])
+  createdBy User        @relation("MatchSubstitutionCreatedBy", fields: [createdByUserId], references: [id])
+
+  @@index([matchId, substitutedAt])
+  @@index([outMemberId])
+  @@index([inMemberId])
 }
 
 /// CHECK (SQL): assistMemberId só em GOAL e diferente de memberId; elapsedSec >= 0;

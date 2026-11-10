@@ -356,6 +356,8 @@ async function dbScenario(
   match = await matchesMod.finishMatch(adminViewer, session.id, {
     matchId: match.id,
     expectedVersion: match.version,
+    expectedScoreA: match.scoreA,
+    expectedScoreB: match.scoreB,
     operationId: randomUUID(),
   });
   void match;

@@ -15,6 +15,7 @@ import {
   recordMatchEventAction,
   type MatchActionState,
 } from "@/server/modules/matches/actions";
+import { activeMatchPlayers } from "@/domain/match/lineup";
 import type { MatchView } from "@/server/modules/matches/view";
 
 function newOperationId(): string {
@@ -59,10 +60,11 @@ export function GoalRegistrationPanel({
   const [scorerId, setScorerId] = useState("");
   const [assistId, setAssistId] = useState("");
 
+  const onField = activeMatchPlayers(match.players);
   const eligible =
     eventType === "OWN_GOAL"
-      ? match.players.filter((player) => player.teamId === opposingTeam.id)
-      : match.players.filter((player) => player.teamId === scoringTeam.id);
+      ? onField.filter((player) => player.teamId === opposingTeam.id)
+      : onField.filter((player) => player.teamId === scoringTeam.id);
   const assistCandidates = eligible.filter((player) => player.memberId !== scorerId);
 
   useEffect(() => {

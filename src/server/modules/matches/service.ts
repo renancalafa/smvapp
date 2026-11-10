@@ -78,7 +78,7 @@ async function rosterForTeam(
   sessionId: string,
   teamId: string,
   at: Date,
-): Promise<{ memberId: string; teamId: string; role: "FIELD" }[]> {
+): Promise<{ memberId: string; teamId: string; role: "FIELD"; enteredAt: Date }[]> {
   const rows = await tx.sessionTeamPlayer.findMany({
     where: { sessionTeamId: teamId, gameSessionId: sessionId },
     select: {
@@ -106,7 +106,32 @@ async function rosterForTeam(
       const registration = row.member.registrations[0];
       return registration?.status === "PARTICIPANT" && registration.unavailabilities.length === 0;
     })
-    .map((row) => ({ memberId: row.memberId, teamId, role: "FIELD" as const }));
+    .map((row) => ({ memberId: row.memberId, teamId, role: "FIELD" as const, enteredAt: at }));
+}
+
+async function assertAvailableParticipant(
+  tx: Tx,
+  sessionId: string,
+  memberId: string,
+  at: Date,
+): Promise<void> {
+  const registration = await tx.sessionRegistration.findFirst({
+    where: { gameSessionId: sessionId, memberId },
+    select: {
+      status: true,
+      unavailabilities: {
+        where: { startedAt: { lte: at }, OR: [{ endedAt: null }, { endedAt: { gt: at } }] },
+        select: { id: true },
+        take: 1,
+      },
+    },
+  });
+  if (!registration || registration.status !== "PARTICIPANT") {
+    throw new UserFacingError("O substituto precisa ser participante desta sessão.");
+  }
+  if (registration.unavailabilities.length > 0) {
+    throw new UserFacingError("O substituto está indisponível no momento.");
+  }
 }
 
 async function bumpMatchVersion(
@@ -835,7 +860,14 @@ export async function setPenaltyWinner(
 export async function finishMatch(
   viewer: Viewer,
   sessionId: string,
-  input: { matchId: string; expectedVersion: number; operationId: string },
+  input: {
+    matchId: string;
+    expectedVersion: number;
+    operationId: string;
+    /** Placar confirmado na UI; rejeita se o placar real divergir. */
+    expectedScoreA: number;
+    expectedScoreB: number;
+  },
 ): Promise<MatchView> {
   return withMatchCommand(
     { viewer, sessionId, operationId: input.operationId, commandType: "MATCH_FINISH", request: input },
@@ -865,6 +897,11 @@ export async function finishMatch(
       const teams = await loadRegularTeams(tx, sessionId);
       const teamCount = teams.length as 3 | 4;
       const { scoreA, scoreB } = scoreFromEvents(match.events, match.teamAId, match.teamBId);
+      if (scoreA !== input.expectedScoreA || scoreB !== input.expectedScoreB) {
+        // withMatchCommand já deu bump; o rollback da tx restaura expectedVersion.
+        const view = await buildMatchView(tx, match.id, now);
+        throw new ConflictError({ ...view, version: input.expectedVersion });
+      }
       try {
         outcomeFromScore({
           teamCount: teamCount === 3 ? 3 : 4,
@@ -903,6 +940,139 @@ export async function finishMatch(
         metadata: { operationId: input.operationId },
       });
       return buildMatchView(tx, match.id);
+    },
+  );
+}
+
+/**
+ * Substituição ao vivo: sai quem está em campo; entra PARTICIPANT disponível no mesmo lado.
+ * Empréstimo de outro time da noite é permitido; SessionTeamPlayer não muda.
+ */
+export async function substituteMatchPlayer(
+  viewer: Viewer,
+  sessionId: string,
+  input: {
+    matchId: string;
+    expectedVersion: number;
+    operationId: string;
+    outMemberId: string;
+    inMemberId: string;
+  },
+): Promise<MatchView> {
+  if (input.outMemberId === input.inMemberId) {
+    throw new UserFacingError("Escolha um substituto diferente de quem sai.");
+  }
+  return withMatchCommand(
+    {
+      viewer,
+      sessionId,
+      operationId: input.operationId,
+      commandType: "MATCH_PLAYER_SUBSTITUTE",
+      request: input,
+    },
+    input.matchId,
+    input.expectedVersion,
+    async (tx, now) => {
+      const match = await tx.match.findFirst({
+        where: { id: input.matchId, gameSessionId: sessionId },
+        select: {
+          id: true,
+          status: true,
+          teamAId: true,
+          teamBId: true,
+          startedAt: true,
+          pausedAt: true,
+          pausedTotalMs: true,
+        },
+      });
+      if (!match) throw new UserFacingError("Partida não encontrada.");
+      if (match.status !== "IN_PROGRESS") {
+        throw new UserFacingError("Só dá para substituir em uma partida em andamento.");
+      }
+      if (isAwaitingKickoff(match)) {
+        throw new UserFacingError("Ligue o cronômetro antes de substituir.");
+      }
+
+      const outgoing = await tx.matchPlayer.findUnique({
+        where: { matchId_memberId: { matchId: match.id, memberId: input.outMemberId } },
+        select: { id: true, teamId: true, leftAt: true, role: true },
+      });
+      if (!outgoing || outgoing.leftAt) {
+        throw new UserFacingError("Quem sai precisa estar em campo nesta partida.");
+      }
+      if (outgoing.teamId !== match.teamAId && outgoing.teamId !== match.teamBId) {
+        throw new UserFacingError("O jogador que sai não está em um dos times da partida.");
+      }
+
+      await assertAvailableParticipant(tx, sessionId, input.inMemberId, now);
+
+      const incoming = await tx.matchPlayer.findUnique({
+        where: { matchId_memberId: { matchId: match.id, memberId: input.inMemberId } },
+        select: { id: true, teamId: true, leftAt: true, enteredAt: true },
+      });
+      if (incoming && !incoming.leftAt) {
+        throw new UserFacingError("O substituto já está em campo nesta partida.");
+      }
+      // Reentrada: preserva teamId/enteredAt da 1ª aparição (PJ e histórico de lado).
+      if (incoming && incoming.teamId !== outgoing.teamId) {
+        throw new UserFacingError(
+          "Este jogador já atuou pelo outro time nesta partida e não pode reentrar neste lado.",
+        );
+      }
+
+      await tx.matchPlayer.update({
+        where: { id: outgoing.id },
+        data: { leftAt: now },
+      });
+
+      if (incoming) {
+        await tx.matchPlayer.update({
+          where: { id: incoming.id },
+          data: { leftAt: null },
+        });
+      } else {
+        await tx.matchPlayer.create({
+          data: {
+            matchId: match.id,
+            memberId: input.inMemberId,
+            teamId: outgoing.teamId,
+            role: "FIELD",
+            enteredAt: now,
+          },
+        });
+      }
+
+      const substitution = await tx.matchSubstitution.create({
+        data: {
+          matchId: match.id,
+          outMemberId: input.outMemberId,
+          inMemberId: input.inMemberId,
+          teamId: outgoing.teamId,
+          substitutedAt: now,
+          createdByUserId: viewer.user.id,
+          operationId: input.operationId,
+        },
+        select: { id: true },
+      });
+
+      await writeAuditLog(tx, {
+        groupId: viewer.group.id,
+        actorUserId: viewer.user.id,
+        action: "MATCH_PLAYER_SUBSTITUTED",
+        entityType: "Match",
+        entityId: match.id,
+        gameSessionId: sessionId,
+        after: {
+          substitutionId: substitution.id,
+          outMemberId: input.outMemberId,
+          inMemberId: input.inMemberId,
+          teamId: outgoing.teamId,
+          reentry: Boolean(incoming),
+          at: now.toISOString(),
+        },
+        metadata: { operationId: input.operationId },
+      });
+      return buildMatchView(tx, match.id, now);
     },
   );
 }
@@ -948,9 +1118,11 @@ export async function recordMatchEvent(
 
       const author = await tx.matchPlayer.findUnique({
         where: { matchId_memberId: { matchId: match.id, memberId: input.memberId } },
-        select: { teamId: true, role: true },
+        select: { teamId: true, role: true, leftAt: true },
       });
-      if (!author) throw new UserFacingError("O autor precisa estar na escalação desta partida.");
+      if (!author || author.leftAt) {
+        throw new UserFacingError("O autor precisa estar em campo nesta partida.");
+      }
 
       let assistMemberId: string | null = null;
       if (input.type === "GOAL" && input.assistMemberId) {
@@ -959,10 +1131,10 @@ export async function recordMatchEvent(
         }
         const assist = await tx.matchPlayer.findUnique({
           where: { matchId_memberId: { matchId: match.id, memberId: input.assistMemberId } },
-          select: { teamId: true },
+          select: { teamId: true, leftAt: true },
         });
-        if (!assist || assist.teamId !== author.teamId) {
-          throw new UserFacingError("A assistência precisa ser de um jogador do mesmo lado.");
+        if (!assist || assist.leftAt || assist.teamId !== author.teamId) {
+          throw new UserFacingError("A assistência precisa ser de um jogador em campo no mesmo lado.");
         }
         assistMemberId = input.assistMemberId;
       } else if (input.assistMemberId) {

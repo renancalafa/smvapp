@@ -17,6 +17,7 @@ import {
   resumeMatch,
   setPenaltyWinner,
   startMatchClock,
+  substituteMatchPlayer,
   voidMatchEvent,
 } from "./service";
 import type { MatchView } from "./view";
@@ -228,6 +229,12 @@ export async function resumeMatchAction(
   }
 }
 
+function readNonNegativeInt(formData: FormData, key: string): number | null {
+  const raw = formText(formData, key);
+  if (!/^\d+$/.test(raw)) return null;
+  return Number(raw);
+}
+
 export async function finishMatchAction(
   _previous: MatchActionState,
   formData: FormData,
@@ -236,19 +243,63 @@ export async function finishMatchAction(
   const sessionId = formText(formData, "sessionId");
   const matchId = formText(formData, "matchId");
   const expectedVersion = readVersion(formData);
-  if (!isUuid(sessionId) || !isUuid(matchId) || expectedVersion === null) {
+  const expectedScoreA = readNonNegativeInt(formData, "expectedScoreA");
+  const expectedScoreB = readNonNegativeInt(formData, "expectedScoreB");
+  if (
+    !isUuid(sessionId) ||
+    !isUuid(matchId) ||
+    expectedVersion === null ||
+    expectedScoreA === null ||
+    expectedScoreB === null
+  ) {
     return { status: "error", error: "Requisição inválida." };
   }
   try {
     const match = await finishMatch(viewer, sessionId, {
       matchId,
       expectedVersion,
+      expectedScoreA,
+      expectedScoreB,
       operationId: readOperationId(formData),
     });
     refresh();
     return { status: "done", message: "Partida finalizada.", match };
   } catch (error) {
     return failure("finishMatchAction", error);
+  }
+}
+
+export async function substituteMatchPlayerAction(
+  _previous: MatchActionState,
+  formData: FormData,
+): Promise<MatchActionState> {
+  const viewer = await requireAdminAction();
+  const sessionId = formText(formData, "sessionId");
+  const matchId = formText(formData, "matchId");
+  const outMemberId = formText(formData, "outMemberId");
+  const inMemberId = formText(formData, "inMemberId");
+  const expectedVersion = readVersion(formData);
+  if (
+    !isUuid(sessionId) ||
+    !isUuid(matchId) ||
+    !isUuid(outMemberId) ||
+    !isUuid(inMemberId) ||
+    expectedVersion === null
+  ) {
+    return { status: "error", error: "Requisição inválida." };
+  }
+  try {
+    const match = await substituteMatchPlayer(viewer, sessionId, {
+      matchId,
+      expectedVersion,
+      outMemberId,
+      inMemberId,
+      operationId: readOperationId(formData),
+    });
+    refresh();
+    return { status: "done", message: "Substituição registrada.", match };
+  } catch (error) {
+    return failure("substituteMatchPlayerAction", error);
   }
 }
 

@@ -31,7 +31,7 @@ function useOperationId(state: MatchActionState): string {
   return useMemo(() => newOperationId(), [state]);
 }
 
-function playerLabel(player: MatchView["players"][number]): string {
+function playerLabel(player: { name: string; nickname: string | null }): string {
   return player.nickname ? `${player.name} (${player.nickname})` : player.name;
 }
 
@@ -45,7 +45,7 @@ export function PlayerEventPanel({
 }: {
   sessionId: string;
   match: MatchView;
-  player: MatchView["players"][number];
+  player: { memberId: string; teamId: string; name: string; nickname: string | null };
   onClose: () => void;
   onMatchUpdated: (next: MatchView) => void;
 }) {

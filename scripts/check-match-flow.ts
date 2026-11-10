@@ -138,7 +138,7 @@ async function main() {
   const matches = await import("../src/server/modules/matches/service");
   const sessions = await import("../src/server/modules/sessions/service");
   const { participantsFrozen } = await import("../src/server/modules/sessions/engine");
-  const { UserFacingError } = await import("../src/server/errors");
+  const { ConflictError, UserFacingError } = await import("../src/server/errors");
 
   const prisma = new PrismaClient({ adapter: new PrismaPg({ connectionString }) });
   try {
@@ -146,7 +146,7 @@ async function main() {
       await prisma.$transaction(
         (tx) =>
           txStore.run(tx, async () => {
-            await dbScenario(tx, matches, sessions, participantsFrozen, UserFacingError);
+            await dbScenario(tx, matches, sessions, participantsFrozen, UserFacingError, ConflictError);
             throw new Rollback();
           }),
         { maxWait: 10_000, timeout: 120_000 },
@@ -165,6 +165,7 @@ async function dbScenario(
   sessions: typeof import("../src/server/modules/sessions/service"),
   participantsFrozen: typeof import("../src/server/modules/sessions/engine").participantsFrozen,
   UserFacingError: typeof import("../src/server/errors").UserFacingError,
+  ConflictError: typeof import("../src/server/errors").ConflictError,
 ) {
   const group = await tx.group.findFirst({
     orderBy: { createdAt: "asc" },
@@ -487,12 +488,57 @@ async function dbScenario(
   });
   check("retomada não reabre troca de times", resumed.teamA.id === team3.id && resumed.teamB.id === team1.id && !resumed.pausedAt);
 
+  try {
+    await matches.finishMatch(adminViewer, session.id, {
+      matchId: resumed.id,
+      expectedVersion: resumed.version,
+      expectedScoreA: resumed.scoreA + 1,
+      expectedScoreB: resumed.scoreB,
+      operationId: randomUUID(),
+    });
+    check("finalizar com placar stale rejeita", false);
+  } catch (error) {
+    check(
+      "finalizar com placar stale rejeita",
+      error instanceof ConflictError &&
+        typeof error.current === "object" &&
+        error.current !== null &&
+        "scoreA" in error.current &&
+        (error.current as { scoreA: number; scoreB: number }).scoreA === resumed.scoreA &&
+        (error.current as { scoreA: number; scoreB: number }).scoreB === resumed.scoreB,
+    );
+  }
+
+  // Harness: $transaction aninhado não faz rollback — relê a versão real após o bump.
+  const versionAfterStale = await tx.match.findUniqueOrThrow({
+    where: { id: resumed.id },
+    select: { version: true },
+  });
+
   const finished = await matches.finishMatch(adminViewer, session.id, {
     matchId: resumed.id,
-    expectedVersion: resumed.version,
+    expectedVersion: versionAfterStale.version,
+    expectedScoreA: resumed.scoreA,
+    expectedScoreB: resumed.scoreB,
     operationId: randomUUID(),
   });
   check("finaliza partida", finished.status === "FINISHED");
+
+  try {
+    await matches.finishMatch(adminViewer, session.id, {
+      matchId: finished.id,
+      expectedVersion: finished.version,
+      expectedScoreA: finished.scoreA,
+      expectedScoreB: finished.scoreB,
+      operationId: randomUUID(),
+    });
+    check("finalizar partida já encerrada rejeita", false);
+  } catch (error) {
+    check(
+      "finalizar partida já encerrada rejeita",
+      error instanceof UserFacingError && error.message.includes("já foi encerrada"),
+    );
+  }
 
   // Próxima no mesmo placar: ADMIN sobrescreve a sugestão (2×4) no apito.
   const team2 = sessionTeams.find((t) => t.position === 2)!;
@@ -543,6 +589,8 @@ async function dbScenario(
   const finished2 = await matches.finishMatch(adminViewer, session.id, {
     matchId: next.id,
     expectedVersion: next.version,
+    expectedScoreA: next.scoreA,
+    expectedScoreB: next.scoreB,
     operationId: randomUUID(),
   });
   check("segunda partida finalizada", finished2.status === "FINISHED");

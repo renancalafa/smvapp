@@ -45,6 +45,7 @@ export type AuditAction =
   | "MATCH_EVENT_RECORDED"
   | "MATCH_EVENT_VOIDED"
   | "MATCH_PENALTY_SET"
+  | "MATCH_PLAYER_SUBSTITUTED"
   | "MATCH_COMMAND_CONFLICT"
   | "DEV_RESET_MATCHES"
   | "DEV_RESET_DRAW_AND_MATCHES"
@@ -60,6 +61,7 @@ export type AuditEntityType =
   | "Draw"
   | "DrawVote"
   | "Match"
+  | "MatchPlayer"
   | "MatchEvent"
   | "PushSubscription";
 

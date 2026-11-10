@@ -1,13 +1,20 @@
+import { activeMatchPlayers } from "@/domain/match/lineup";
 import type { MatchView } from "@/server/modules/matches/view";
 
 type Side = "A" | "B";
 
-function playerLabel(player: MatchView["players"][number]): string {
+export type ScoreboardTeam = { id: string; name: string };
+export type ScoreboardPlayer = {
+  memberId: string;
+  teamId: string;
+  role: "FIELD" | "GOALKEEPER";
+  name: string;
+  nickname: string | null;
+};
+
+function playerLabel(player: ScoreboardPlayer): string {
   return player.nickname ? `${player.name} (${player.nickname})` : player.name;
 }
-
-export type ScoreboardTeam = { id: string; name: string };
-export type ScoreboardPlayer = MatchView["players"][number];
 
 /**
  * Placar: TIME A   0 × 0   TIME B
@@ -127,7 +134,7 @@ export function MatchScoreboardFromView({
       teamB={match.teamB}
       scoreA={match.scoreA}
       scoreB={match.scoreB}
-      players={match.players}
+      players={activeMatchPlayers(match.players)}
       awaitingKickoff={match.awaitingKickoff}
       interactive={interactive}
       teamsEditable={teamsEditable}

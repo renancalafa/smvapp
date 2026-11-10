@@ -237,8 +237,8 @@ async function seedDrawTeamsAndKickoff(
       version: 2,
       players: {
         create: [
-          { memberId: players[0].id, teamId: sessionTeams[0].id, role: "FIELD" },
-          { memberId: players[2].id, teamId: sessionTeams[1].id, role: "FIELD" },
+          { memberId: players[0].id, teamId: sessionTeams[0].id, role: "FIELD", enteredAt: now },
+          { memberId: players[2].id, teamId: sessionTeams[1].id, role: "FIELD", enteredAt: now },
         ],
       },
     },

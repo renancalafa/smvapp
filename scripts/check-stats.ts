@@ -461,6 +461,8 @@ async function dbScenario(
   const finished1 = await matches.finishMatch(adminViewer, session.id, {
     matchId: match.id,
     expectedVersion: match.version,
+    expectedScoreA: match.scoreA,
+    expectedScoreB: match.scoreB,
     operationId: randomUUID(),
   });
   check("partida 1 finalizada", finished1.status === "FINISHED");
@@ -498,6 +500,8 @@ async function dbScenario(
   const finished2 = await matches.finishMatch(adminViewer, session.id, {
     matchId: match2.id,
     expectedVersion: match2.version,
+    expectedScoreA: match2.scoreA,
+    expectedScoreB: match2.scoreB,
     operationId: randomUUID(),
   });
   check("partida 2 finalizada", finished2.status === "FINISHED");
@@ -539,6 +543,8 @@ async function dbScenario(
   const finished3 = await matches.finishMatch(adminViewer, session.id, {
     matchId: match3.id,
     expectedVersion: match3.version,
+    expectedScoreA: match3.scoreA,
+    expectedScoreB: match3.scoreB,
     operationId: randomUUID(),
   });
   check("empate no tempo normal finalizado", finished3.status === "FINISHED" && finished3.scoreA === finished3.scoreB);

@@ -1,8 +1,11 @@
 import "server-only";
 import { isAwaitingKickoff } from "@/domain/match/kickoff";
+import { activeMatchPlayers } from "@/domain/match/lineup";
 import { scoreFromEvents } from "@/domain/match/queue";
 import { matchElapsedMs, matchRemainingMs } from "@/domain/match/timer";
 import type { Prisma } from "@/generated/prisma/client";
+
+export { activeMatchPlayers };
 
 type Tx = Prisma.TransactionClient;
 
@@ -33,6 +36,9 @@ export type MatchView = {
     role: "FIELD" | "GOALKEEPER";
     name: string;
     nickname: string | null;
+    enteredAt: string;
+    /** Nulo = em campo. */
+    leftAt: string | null;
   }[];
   events: {
     id: string;
@@ -79,6 +85,8 @@ export async function buildMatchView(tx: Tx, matchId: string, now = new Date()):
           memberId: true,
           teamId: true,
           role: true,
+          enteredAt: true,
+          leftAt: true,
           member: { select: { nickname: true, user: { select: { name: true } } } },
         },
       },
@@ -138,6 +146,8 @@ export async function buildMatchView(tx: Tx, matchId: string, now = new Date()):
       role: player.role,
       name: player.member.user.name,
       nickname: player.member.nickname,
+      enteredAt: player.enteredAt.toISOString(),
+      leftAt: player.leftAt?.toISOString() ?? null,
     })),
     events: match.events.map((event) => ({
       id: event.id,
