@@ -59,6 +59,7 @@ function toQueueEntry(registration: RegistrationRow): QueueEntry & { row: Regist
     status: registration.status as QueueEntry["status"],
     priorityTier: registration.priorityTier ?? "GENERAL",
     queueSortAt: registration.queueSortAt ?? registration.queuedAt ?? registration.respondedAt,
+    promotedAt: registration.promotedAt,
     manualOverride: registration.manualOverrideAt !== null,
     row: registration,
   };

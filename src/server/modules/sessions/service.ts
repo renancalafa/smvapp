@@ -83,13 +83,26 @@ async function loadActiveMember(tx: Tx, groupId: string, memberId: string) {
 
 export type SelfResponse = "CONFIRM" | "DECLINE";
 
-export type SelfResponseResult = { status: RegistrationStatus };
+export type SelfResponseResult = {
+  status: RegistrationStatus;
+  /**
+   * Antes do prazo: mensalista confirmou mas a lista está cheia e não havia diarista
+   * deslocável (ex.: só participantes com manualOverride). Fica WAITLISTED; exige ADMIN.
+   */
+  needsAdminReclaim?: boolean;
+};
+
+/** Flash quando o mensalista reassumiria, mas só há vagas protegidas por intervenção do ADMIN. */
+export const ADMIN_RECLAIM_REQUIRED_MESSAGE =
+  "Lista cheia. Você ficou na espera com prioridade; um administrador precisa liberar ou reposicionar uma vaga.";
 
 type ConfirmMemberRow = { id: string; modality: "MONTHLY" | "DAILY" };
 
 /**
  * Confirmação normal (jogador ou ADMIN em nome do jogador): entra WAITLISTED e
- * `rebalanceLockedSession`/`allocate` decide PARTICIPANT vs espera. Não bypassa fila.
+ * `rebalanceLockedSession`/`allocate` decide PARTICIPANT vs espera (vaga livre ou
+ * deslocamento LIFO de diarista promovido antes do prazo). Não bypassa a fila.
+ * Participantes com manualOverride nunca são deslocados automaticamente.
  */
 async function confirmMemberLocked(
   tx: Tx,
@@ -119,10 +132,9 @@ async function confirmMemberLocked(
     return { status: existing.status };
   }
 
+  const phase = allocationPhase(session, now);
   const priorityTier: PriorityTier =
-    input.member.modality === "MONTHLY" && allocationPhase(session, now) === "PRIORITY"
-      ? "MONTHLY_PRIORITY"
-      : "GENERAL";
+    input.member.modality === "MONTHLY" && phase === "PRIORITY" ? "MONTHLY_PRIORITY" : "GENERAL";
   const fields = {
     status: "WAITLISTED" as const,
     queuedAt: now,
@@ -145,6 +157,13 @@ async function confirmMemberLocked(
       });
   const { promoted } = await rebalanceLockedSession(tx, session, now, new Set([registration.id]));
   const status: RegistrationStatus = promoted.includes(registration.id) ? "PARTICIPANT" : "WAITLISTED";
+  let needsAdminReclaim = false;
+  if (status === "WAITLISTED" && priorityTier === "MONTHLY_PRIORITY" && phase === "PRIORITY") {
+    const seated = await tx.sessionRegistration.count({
+      where: { gameSessionId: session.id, status: "PARTICIPANT" },
+    });
+    needsAdminReclaim = seated >= effectiveCapacity(session);
+  }
   await writeAuditLog(tx, {
     groupId: input.groupId,
     actorUserId: input.actorUserId,
@@ -162,18 +181,23 @@ async function confirmMemberLocked(
             targetUsername: input.targetUsername ?? null,
             actorUsername: input.actorUsername ?? null,
             resultingStatus: status,
+            needsAdminReclaim,
           }
-        : undefined,
+        : needsAdminReclaim
+          ? { needsAdminReclaim: true }
+          : undefined,
   });
   await clearPriorityReminderForMember(tx, session.id, input.member.id);
-  return { status };
+  return needsAdminReclaim ? { status, needsAdminReclaim: true } : { status };
 }
 
 /**
- * CONFIRM: entra na alocação com novo queuedAt (participante se houver vaga elegível,
- * senão lista de espera). Mensalista antes do prazo entra com prioridade.
- * DECLINE: quem estava na lista sai (WITHDRAWN, liberando a vaga); quem não tinha
- * respondido registra a recusa (DECLINED).
+ * CONFIRM: entra na alocação com novo queuedAt (PARTICIPANT se houver vaga, senão espera).
+ * Mensalista antes do prazo: MONTHLY_PRIORITY (pode deslocar GENERAL sem manualOverride se cheio);
+ * se só houver vagas protegidas, fica WAITLISTED com needsAdminReclaim. Depois do prazo: GENERAL
+ * no fim da espera, sem deslocar. Quem já está na fila permanece.
+ * DECLINE: PARTICIPANT/WAITLISTED → WITHDRAWN + rebalance (FIFO, inclusive diarista antes do
+ * prazo); sem inscrição → DECLINED.
  * Com a votação iniciada, o jogador não muda mais a lista (só o ADMIN), exceto o mensalista
  * que confirma durante um sorteio antecipado: até o prazo, entra na lista de espera. A verificação
  * roda depois do lock da sessão, o mesmo da geração do sorteio: ou a resposta vem antes
@@ -456,13 +480,11 @@ export async function adminIncludeMember(
   });
 }
 
-export const PRIORITY_PROMOTION_MESSAGE =
-  "Antes do prazo dos mensalistas, só mensalistas com prioridade podem ser promovidos. Para outra exceção, use “Incluir excepcionalmente”.";
-
 /**
  * Promoção explícita da lista de espera. É o único caminho de promoção depois que a
- * votação começa; antes dela, permite ao ADMIN contrariar a ordem da fila. Antes do prazo
- * dos mensalistas, só promove quem tem MONTHLY_PRIORITY. Nunca excede a capacidade.
+ * votação começa; antes dela, permite ao ADMIN contrariar a ordem da fila. Mensalistas e
+ * diaristas na espera são elegíveis em qualquer fase, desde que haja vaga. A promoção
+ * grava manualOverride (protegido de deslocamento automático). Nunca excede a capacidade.
  */
 export async function adminPromoteRegistration(
   viewer: Viewer,
@@ -489,9 +511,6 @@ export async function adminPromoteRegistration(
     }
     if (registration.member.status !== "ACTIVE") {
       throw new UserFacingError("Jogadores inativos não participam das sessões.");
-    }
-    if (allocationPhase(session, now) === "PRIORITY" && registration.priorityTier !== "MONTHLY_PRIORITY") {
-      throw new UserFacingError(PRIORITY_PROMOTION_MESSAGE);
     }
     const participants = await tx.sessionRegistration.count({
       where: { gameSessionId: session.id, status: "PARTICIPANT" },

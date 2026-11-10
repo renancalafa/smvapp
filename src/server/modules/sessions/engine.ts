@@ -214,9 +214,9 @@ export async function queuePromotionNotification(
 }
 
 /**
- * Materializa allocate(): rebaixa o excesso e preenche vagas livres com a fila.
- * `directIds`: inscrições que acabaram de confirmar; se ganharem vaga agora, é entrada
- * direta (sem promotedAt nem notificação), não promoção da fila.
+ * Materializa allocate(): preenche vagas livres (FIFO), e antes do prazo pode
+ * deslocar diaristas promovidos (LIFO por promotedAt) para mensalistas que reassumem.
+ * `directIds`: confirmação direta (sem promotedAt nem notificação WAITLIST_PROMOTED).
  * Com a votação iniciada, nada muda sozinho: promoções só pelo ADMIN.
  */
 export async function rebalanceLockedSession(
@@ -237,6 +237,7 @@ export async function rebalanceLockedSession(
       priorityTier: true,
       queueSortAt: true,
       queuedAt: true,
+      promotedAt: true,
       manualOverrideAt: true,
       member: { select: { userId: true } },
     },
@@ -246,13 +247,19 @@ export async function rebalanceLockedSession(
     status: registration.status as QueueEntry["status"],
     priorityTier: registration.priorityTier ?? "GENERAL",
     queueSortAt: registration.queueSortAt ?? registration.queuedAt ?? now,
+    promotedAt: registration.promotedAt,
     manualOverride: registration.manualOverrideAt !== null,
   }));
   const { promote, demote } = allocate(entries, effectiveCapacity(session), allocationPhase(session, now));
   const byId = new Map(registrations.map((registration) => [registration.id, registration]));
 
   for (const id of demote) {
-    await tx.sessionRegistration.update({ where: { id }, data: { status: "WAITLISTED" } });
+    const previous = byId.get(id);
+    // Preserva queuedAt/queueSortAt; limpa promotedAt ao voltar à espera (posição FIFO original).
+    await tx.sessionRegistration.update({
+      where: { id },
+      data: { status: "WAITLISTED", promotedAt: null },
+    });
     await writeAuditLog(tx, {
       groupId: session.groupId,
       actorUserId: null,
@@ -260,8 +267,12 @@ export async function rebalanceLockedSession(
       entityType: "SessionRegistration",
       entityId: id,
       gameSessionId: session.id,
-      before: { status: "PARTICIPANT" },
-      after: { status: "WAITLISTED" },
+      before: {
+        status: "PARTICIPANT",
+        promotedAt: previous?.promotedAt?.toISOString() ?? null,
+        queueSortAt: previous?.queueSortAt?.toISOString() ?? previous?.queuedAt?.toISOString() ?? null,
+      },
+      after: { status: "WAITLISTED", promotedAt: null },
       metadata: { capacity: effectiveCapacity(session) },
     });
   }

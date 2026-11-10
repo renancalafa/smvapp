@@ -46,8 +46,13 @@ export function MySessionStatus({
       break;
     case "WAITLISTED":
       text = `Você está na lista de espera, posição ${waitPosition}.`;
-      if (board.phase === "PRIORITY" && mine.priorityTier === "GENERAL") {
-        text += " Diaristas entram depois do prazo dos mensalistas, se houver vaga.";
+      if (board.phase === "PRIORITY" && mine.priorityTier === "MONTHLY_PRIORITY") {
+        text +=
+          board.participants.length >= board.capacity
+            ? " A lista está cheia: se não houver diarista deslocável, um administrador precisa liberar a vaga."
+            : " Com prioridade, você entra na próxima vaga livre antes dos diaristas.";
+      } else if (board.phase === "PRIORITY" && mine.priorityTier === "GENERAL") {
+        text += " Vagas livres seguem a ordem da fila; um mensalista com prioridade pode reassumir se a lista encher.";
       }
       break;
     case "DECLINED":

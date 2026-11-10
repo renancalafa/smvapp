@@ -15,6 +15,7 @@ import {
   type ExtraordinaryFormValues,
 } from "./extraordinary-input";
 import {
+  ADMIN_RECLAIM_REQUIRED_MESSAGE,
   adminConfirmOnBehalf,
   adminIncludeMember,
   adminPromoteRegistration,
@@ -65,6 +66,9 @@ export async function respondAction(
   try {
     const result = await respondToSession(viewer, sessionId, response);
     refresh();
+    if (result.needsAdminReclaim) {
+      return { status: "done", message: ADMIN_RECLAIM_REQUIRED_MESSAGE };
+    }
     return { status: "done", message: RESPONSE_MESSAGES[result.status] };
   } catch (error) {
     return failure("respondAction", error);
@@ -153,7 +157,12 @@ export async function adminConfirmOnBehalfAction(
       return { status: "done", message: "Confirmado pelo jogador: entrou como participante." };
     }
     if (result.status === "WAITLISTED") {
-      return { status: "done", message: "Confirmado pelo jogador: entrou na lista de espera." };
+      return {
+        status: "done",
+        message: result.needsAdminReclaim
+          ? `Confirmado pelo jogador: ${ADMIN_RECLAIM_REQUIRED_MESSAGE}`
+          : "Confirmado pelo jogador: entrou na lista de espera.",
+      };
     }
     return { status: "done", message: `Confirmação registrada (${result.status}).` };
   } catch (error) {

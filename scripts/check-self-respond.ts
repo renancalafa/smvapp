@@ -120,6 +120,19 @@ async function scenario(tx: Tx, sessions: typeof import("../src/server/modules/s
   const season = await tx.season.findFirst({ where: { groupId: group.id }, select: { id: true } });
   if (!season) throw new SetupError("Nenhuma Season.");
 
+  const admin = await tx.groupMember.findFirst({
+    where: { groupId: group.id, role: "ADMIN", status: "ACTIVE" },
+    select: {
+      id: true,
+      role: true,
+      modality: true,
+      status: true,
+      user: { select: { id: true, username: true, name: true } },
+    },
+  });
+  if (!admin) throw new SetupError("Nenhum ADMIN ativo.");
+  const adminViewer = viewerOf(group, admin);
+
   const members = await tx.groupMember.findMany({
     where: { groupId: group.id, status: "ACTIVE", role: "PLAYER" },
     orderBy: { user: { username: "asc" } },
@@ -233,17 +246,284 @@ async function scenario(tx: Tx, sessions: typeof import("../src/server/modules/s
   check("já WITHDRAWN: DECLINE permanece WITHDRAWN", stillOut.status === "WITHDRAWN");
   check("já WITHDRAWN: sem WITHDRAWN duplicado", (await auditCount("REGISTRATION_WITHDRAWN")) === withdrawAudits);
 
-  // 7) WITHDRAWN → CONFIRM reentra na espera (sessão ainda cheia: m2 + d1)
+  // 7) AFTER deadline: WITHDRAWN → CONFIRM reentra no fim da espera (cheia: m2 + d1), sem deslocar
   const back = await respond(m1, "CONFIRM");
-  check("WITHDRAWN → CONFIRM volta WAITLISTED", back.status === "WAITLISTED" && (await statusOf(m1)) === "WAITLISTED");
+  check(
+    "GENERAL: WITHDRAWN → CONFIRM volta WAITLISTED sem deslocar",
+    back.status === "WAITLISTED" && (await statusOf(m1)) === "WAITLISTED" && (await statusOf(d1)) === "PARTICIPANT",
+  );
 
   // 8) WAITLISTED → DECLINE sai sem promover (não era participante)
   const leftQueue = await respond(m1, "DECLINE");
   check("WAITLISTED → DECLINE vira WITHDRAWN", leftQueue.status === "WITHDRAWN");
   check("sair da espera não mexe no participante promovido", (await statusOf(d1)) === "PARTICIPANT");
 
-  // 9) Diarista na espera (m3) sobe se o participante diário sair? optional — cobertura já suficiente.
-  void d2;
+  // --- PRIORITY phase (prazo futuro): diarista sobe no Não vou; reassumir desloca LIFO ---
+  const { id: prioritySessionId } = await tx.gameSession.create({
+    data: {
+      groupId: group.id,
+      seasonId: season.id,
+      status: "OPEN",
+      type: "NORMAL",
+      origin: "EXTRAORDINARY",
+      scheduledFor: new Date(now + 24 * hour),
+      startsAt: new Date(now + 24 * hour),
+      endsAt: new Date(now + 26 * hour),
+      maxExtraMinutes: 10,
+      registrationOpensAt: new Date(now - 2 * hour),
+      openedAt: new Date(now - 2 * hour),
+      priorityDeadlineAt: new Date(now + 4 * hour),
+      priorityClosedAt: null,
+      maxPlayers: 2,
+      teamSize: 2,
+      matchDurationSec: 420,
+      drawOptionsCount: 2,
+      drawMinOptionDifference: 2,
+      dailyFeeCents: 1000,
+      venueName: "Teste priority dual-choice (rollback)",
+    },
+    select: { id: true },
+  });
+
+  const respondP = (member: MemberRow, response: "CONFIRM" | "DECLINE") =>
+    sessions.respondToSession(viewerOf(group, member), prioritySessionId, response);
+  const statusP = async (member: MemberRow) =>
+    (
+      await tx.sessionRegistration.findUnique({
+        where: { gameSessionId_memberId: { gameSessionId: prioritySessionId, memberId: member.id } },
+        select: { status: true, promotedAt: true, queueSortAt: true, queuedAt: true, priorityTier: true },
+      })
+    );
+
+  await respondP(m1, "CONFIRM");
+  await respondP(m2, "CONFIRM");
+  check("PRIORITY: dois mensalistas lotam a sessão", (await statusP(m1))?.status === "PARTICIPANT" && (await statusP(m2))?.status === "PARTICIPANT");
+  await respondP(d1, "CONFIRM");
+  await respondP(d2, "CONFIRM");
+  check(
+    "PRIORITY: diaristas ficam na espera enquanto cheio",
+    (await statusP(d1))?.status === "WAITLISTED" && (await statusP(d2))?.status === "WAITLISTED",
+  );
+  const d1Queue = (await statusP(d1))!;
+  const d2Queue = (await statusP(d2))!;
+
+  await respondP(m1, "DECLINE");
+  const d1AfterDecline = (await statusP(d1))!;
+  check(
+    "PRIORITY: Não vou promove diarista FIFO (d1) antes do prazo",
+    d1AfterDecline.status === "PARTICIPANT" && d1AfterDecline.promotedAt !== null && (await statusP(d2))?.status === "WAITLISTED",
+  );
+
+  await respondP(m2, "DECLINE");
+  const d2AfterDecline = (await statusP(d2))!;
+  check(
+    "PRIORITY: segundo Não vou promove d2",
+    d2AfterDecline.status === "PARTICIPANT" && d2AfterDecline.promotedAt !== null,
+  );
+
+  // Reassumir m2 (mais recente a sair): deve deslocar d2 (promovido por último)
+  const m2Back = await respondP(m2, "CONFIRM");
+  check("PRIORITY: mensalista reassumindo vira PARTICIPANT", m2Back.status === "PARTICIPANT");
+  const d2Demoted = (await statusP(d2))!;
+  check(
+    "PRIORITY: desloca diarista mais recentemente promovido (LIFO d2)",
+    d2Demoted.status === "WAITLISTED" &&
+      d2Demoted.promotedAt === null &&
+      d2Demoted.queueSortAt?.getTime() === d2Queue.queueSortAt?.getTime() &&
+      d2Demoted.queuedAt?.getTime() === d2Queue.queuedAt?.getTime(),
+  );
+  check("PRIORITY: d1 permanece participante após 1º reassumir", (await statusP(d1))?.status === "PARTICIPANT");
+
+  const m1Back = await respondP(m1, "CONFIRM");
+  check("PRIORITY: segundo mensalista reassumindo vira PARTICIPANT", m1Back.status === "PARTICIPANT");
+  const d1Demoted = (await statusP(d1))!;
+  check(
+    "PRIORITY: desloca d1 em seguida; fila d1→d2 preservada",
+    d1Demoted.status === "WAITLISTED" &&
+      d1Demoted.promotedAt === null &&
+      d1Demoted.queueSortAt?.getTime() === d1Queue.queueSortAt?.getTime() &&
+      (await statusP(d2))?.status === "WAITLISTED" &&
+      (d1Demoted.queueSortAt?.getTime() ?? 0) <= ((await statusP(d2))?.queueSortAt?.getTime() ?? 0),
+  );
+
+  // manualOverride: diarista incluído/promovido pelo ADMIN não é deslocado; mensalista fica na espera.
+  const overrideSession = await tx.gameSession.create({
+    data: {
+      groupId: group.id,
+      seasonId: season.id,
+      status: "OPEN",
+      type: "NORMAL",
+      origin: "EXTRAORDINARY",
+      scheduledFor: new Date(now + 36 * hour),
+      startsAt: new Date(now + 36 * hour),
+      endsAt: new Date(now + 38 * hour),
+      maxExtraMinutes: 10,
+      registrationOpensAt: new Date(now - 2 * hour),
+      openedAt: new Date(now - 2 * hour),
+      priorityDeadlineAt: new Date(now + 4 * hour),
+      priorityClosedAt: null,
+      maxPlayers: 1,
+      teamSize: 1,
+      matchDurationSec: 420,
+      drawOptionsCount: 1,
+      drawMinOptionDifference: 1,
+      dailyFeeCents: 1000,
+      venueName: "Teste manualOverride reclaim (rollback)",
+    },
+    select: { id: true },
+  });
+  const respondO = (member: MemberRow, response: "CONFIRM" | "DECLINE") =>
+    sessions.respondToSession(viewerOf(group, member), overrideSession.id, response);
+  const statusO = async (member: MemberRow) =>
+    (
+      await tx.sessionRegistration.findUnique({
+        where: { gameSessionId_memberId: { gameSessionId: overrideSession.id, memberId: member.id } },
+        select: { status: true, manualOverrideAt: true },
+      })
+    );
+  // Inclusão excepcional ocupa a vaga com manualOverride (sem promoção automática intermediária).
+  await sessions.adminIncludeMember(adminViewer, overrideSession.id, {
+    memberId: d1.id,
+    reason: "Inclusão excepcional com proteção",
+    replaceRegistrationId: null,
+  });
+  check(
+    "ADMIN inclui diarista com manualOverride",
+    (await statusO(d1))?.status === "PARTICIPANT" && (await statusO(d1))?.manualOverrideAt !== null,
+  );
+  // Também cobre adminPromote: m1 na vaga, d2 na espera, remove m1 sob sorteio (sem auto-promo), promove d2.
+  const promoteSession = await tx.gameSession.create({
+    data: {
+      groupId: group.id,
+      seasonId: season.id,
+      status: "OPEN",
+      type: "NORMAL",
+      origin: "EXTRAORDINARY",
+      scheduledFor: new Date(now + 40 * hour),
+      startsAt: new Date(now + 40 * hour),
+      endsAt: new Date(now + 42 * hour),
+      maxExtraMinutes: 10,
+      registrationOpensAt: new Date(now - 2 * hour),
+      openedAt: new Date(now - 2 * hour),
+      priorityDeadlineAt: new Date(now + 4 * hour),
+      priorityClosedAt: null,
+      maxPlayers: 1,
+      teamSize: 1,
+      matchDurationSec: 420,
+      drawOptionsCount: 1,
+      drawMinOptionDifference: 1,
+      dailyFeeCents: 1000,
+      venueName: "Teste adminPromote diarista (rollback)",
+    },
+    select: { id: true },
+  });
+  const respondProm = (member: MemberRow, response: "CONFIRM" | "DECLINE") =>
+    sessions.respondToSession(viewerOf(group, member), promoteSession.id, response);
+  await respondProm(m1, "CONFIRM");
+  await respondProm(d2, "CONFIRM");
+  const m1PromId = (
+    await tx.sessionRegistration.findUniqueOrThrow({
+      where: { gameSessionId_memberId: { gameSessionId: promoteSession.id, memberId: m1.id } },
+      select: { id: true },
+    })
+  ).id;
+  const d2PromId = (
+    await tx.sessionRegistration.findUniqueOrThrow({
+      where: { gameSessionId_memberId: { gameSessionId: promoteSession.id, memberId: d2.id } },
+      select: { id: true },
+    })
+  ).id;
+  await tx.draw.create({
+    data: {
+      gameSessionId: promoteSession.id,
+      sequence: 1,
+      status: "VOTING",
+      seed: "check-self-respond-promote",
+      algorithmVersion: "balance-v1",
+      minOptionDifference: 1,
+      createdByUserId: admin.user.id,
+    },
+  });
+  await sessions.adminRemoveRegistration(adminViewer, promoteSession.id, m1PromId, "Libera vaga sob votação");
+  await sessions.adminPromoteRegistration(adminViewer, promoteSession.id, d2PromId, "Promove diarista antes do prazo");
+  const d2AfterPromote = await tx.sessionRegistration.findUniqueOrThrow({
+    where: { gameSessionId_memberId: { gameSessionId: promoteSession.id, memberId: d2.id } },
+    select: { status: true, manualOverrideAt: true },
+  });
+  check(
+    "antes do prazo: ADMIN promove diarista com vaga (manualOverride)",
+    d2AfterPromote.status === "PARTICIPANT" && d2AfterPromote.manualOverrideAt !== null,
+  );
+  // Sem sorteio ativo na sessão de inclusão: allocate respeita manualOverride.
+  const blocked = await respondO(m2, "CONFIRM");
+  check(
+    "PRIORITY: mensalista não desloca manualOverride; precisa do ADMIN",
+    blocked.status === "WAITLISTED" &&
+      blocked.needsAdminReclaim === true &&
+      (await statusO(d1))?.status === "PARTICIPANT" &&
+      (await statusO(m2))?.status === "WAITLISTED",
+  );
+
+  // Draw lock: com votação ativa, Não vou não promove / não altera automaticamente a fila
+  const lockedSession = await tx.gameSession.create({
+    data: {
+      groupId: group.id,
+      seasonId: season.id,
+      status: "OPEN",
+      type: "NORMAL",
+      origin: "EXTRAORDINARY",
+      scheduledFor: new Date(now + 48 * hour),
+      startsAt: new Date(now + 48 * hour),
+      endsAt: new Date(now + 50 * hour),
+      maxExtraMinutes: 10,
+      registrationOpensAt: new Date(now - 2 * hour),
+      openedAt: new Date(now - 2 * hour),
+      priorityDeadlineAt: new Date(now + 4 * hour),
+      maxPlayers: 2,
+      teamSize: 2,
+      matchDurationSec: 420,
+      drawOptionsCount: 1,
+      drawMinOptionDifference: 1,
+      dailyFeeCents: 1000,
+      venueName: "Teste draw-lock dual-choice (rollback)",
+    },
+    select: { id: true },
+  });
+  const respondL = (member: MemberRow, response: "CONFIRM" | "DECLINE") =>
+    sessions.respondToSession(viewerOf(group, member), lockedSession.id, response);
+  const statusL = async (member: MemberRow) =>
+    (
+      await tx.sessionRegistration.findUnique({
+        where: { gameSessionId_memberId: { gameSessionId: lockedSession.id, memberId: member.id } },
+        select: { status: true },
+      })
+    )?.status ?? null;
+
+  await respondL(m1, "CONFIRM");
+  await respondL(m2, "CONFIRM");
+  await respondL(d1, "CONFIRM");
+  await tx.draw.create({
+    data: {
+      gameSessionId: lockedSession.id,
+      sequence: 1,
+      status: "VOTING",
+      seed: "check-self-respond-lock",
+      algorithmVersion: "balance-v1",
+      minOptionDifference: 1,
+      createdByUserId: admin.user.id,
+    },
+  });
+  let declineBlocked = false;
+  try {
+    await respondL(m1, "DECLINE");
+  } catch {
+    declineBlocked = true;
+  }
+  check("draw VOTING: Não vou do jogador bloqueado", declineBlocked);
+  check("draw VOTING: diarista permanece na espera (sem promoção automática)", (await statusL(d1)) === "WAITLISTED");
+  check("draw VOTING: participantes intactos", (await statusL(m1)) === "PARTICIPANT" && (await statusL(m2)) === "PARTICIPANT");
+
+  void m3;
 }
 
 main().catch((error) => {

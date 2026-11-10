@@ -59,9 +59,6 @@ export default async function AdminSessionPage({ params }: { params: Promise<{ s
     board.phase !== "CLOSED" &&
     !live?.participantsFrozen;
   const hasFreeSpot = board.participants.length < board.capacity;
-  // Antes do prazo, a promoção do ADMIN respeita a prioridade dos mensalistas.
-  const promotable = (registration: (typeof board.participants)[number]) =>
-    board.phase !== "PRIORITY" || registration.priorityTier === "MONTHLY_PRIORITY";
   const earlyDrawWaitlist = board.attendanceLocked && board.phase === "PRIORITY";
   const confirmable = earlyDrawWaitlist
     ? roster.confirmable.filter((member) => member.modality === "MONTHLY")
@@ -74,7 +71,7 @@ export default async function AdminSessionPage({ params }: { params: Promise<{ s
       attendance={registration.attendance}
       canChangeList={canChangeList}
       canMarkAttendance={canMarkAttendance}
-      hasFreeSpot={hasFreeSpot && promotable(registration)}
+      hasFreeSpot={hasFreeSpot}
     />
   );
   const presentCount = board.participants.filter((registration) => registration.attendance === "PRESENT").length;

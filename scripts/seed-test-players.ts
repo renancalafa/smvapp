@@ -191,13 +191,21 @@ async function confirmPlayers(prisma: Prisma, groupId: string, memberIds: string
 
     const queued = await tx.sessionRegistration.findMany({
       where: { gameSessionId: session.id, status: { in: ["PARTICIPANT", "WAITLISTED"] } },
-      select: { id: true, status: true, priorityTier: true, queueSortAt: true, manualOverrideAt: true },
+      select: {
+        id: true,
+        status: true,
+        priorityTier: true,
+        queueSortAt: true,
+        promotedAt: true,
+        manualOverrideAt: true,
+      },
     });
     const entries: QueueEntry[] = queued.map((registration) => ({
       id: registration.id,
       status: registration.status as QueueEntry["status"],
       priorityTier: registration.priorityTier ?? "GENERAL",
       queueSortAt: registration.queueSortAt ?? now,
+      promotedAt: registration.promotedAt,
       manualOverride: registration.manualOverrideAt !== null,
     }));
     const { promote, demote } = allocate(entries, capacity, phase);

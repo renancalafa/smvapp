@@ -277,7 +277,7 @@ Diaristas são usuários previamente cadastrados.
 
 Eles podem demonstrar interesse em participar da sessão.
 
-Enquanto houver prioridade dos mensalistas, ficam na lista de espera.
+Antes do prazo dos mensalistas, diaristas ocupam vagas **livres** pela ordem da fila (FIFO). A prioridade do mensalista vale para reassumir presença: se a lista estiver cheia, o mensalista que volta desloca o diarista mais recentemente promovido da espera (LIFO por `promotedAt`); se só restarem confirmações diretas, desloca o GENERAL com `queueSortAt` mais recente. Participantes com `manualOverride` (promoção/inclusão do ADMIN) não são deslocados automaticamente — o mensalista fica na espera e a UI/ação pedem intervenção do ADMIN. Quem volta à espera mantém `queuedAt`/`queueSortAt`. Vagas liberadas por "Não vou" promovem a espera imediatamente, inclusive diaristas.
 
 A fila respeita a ordem de confirmação/interesse.
 
@@ -346,7 +346,7 @@ Uma intervenção administrativa nunca pode fazer a sessão ultrapassar sua capa
 
 Não use inclusão excepcional só para “confirmar a pedido”: use “Confirmar pelo jogador”.
 
-Antes do prazo dos mensalistas, “Promover” da lista de espera só aceita mensalistas com prioridade; promover um diarista nesse período só por inclusão excepcional, com motivo.
+“Promover” da lista de espera aceita mensalistas e diaristas em qualquer fase, desde que haja vaga. A promoção explícita grava `manualOverride` (protegido de deslocamento automático por mensalista que reassuma). Inclusão excepcional continua disponível para forçar participante fora da espera.
 
 ### Antes da votação do sorteio
 
@@ -378,9 +378,9 @@ Com a sessão cheia, um mensalista que confirma depois já não ganharia vaga: s
 - até o prazo dos mensalistas, o mensalista que ainda não está na lista pode confirmar (ou o ADMIN, por "Confirmar pelo jogador"), mas entra SOMENTE na lista de espera, com prioridade sobre os diaristas; o sorteio, os votos e os participantes não mudam;
 - diaristas não confirmam e ninguém desiste sozinho, como em qualquer votação;
 - nenhuma promoção é automática, nem quando uma vaga é liberada pelo ADMIN;
-- antes do prazo, a promoção pelo ADMIN só aceita mensalistas com prioridade (para qualquer outra exceção, "Incluir excepcionalmente", com motivo);
+- antes do prazo, o ADMIN pode promover mensalista ou diarista da espera se houver vaga (a promoção grava `manualOverride`);
 - quando o prazo passa, a prioridade se encerra sem promover ninguém; a partir daí vale a trava normal, inclusive para mensalistas;
-- se o ADMIN invalidar o sorteio antes do prazo, a fila volta a promover automaticamente, só mensalistas com prioridade; um novo sorteio antes do prazo exige de novo a sessão cheia.
+- se o ADMIN invalidar o sorteio antes do prazo, a fila volta a promover automaticamente (mensalistas com prioridade antes na ordem da fila); um novo sorteio antes do prazo exige de novo a sessão cheia.
 
 ### Depois do início das partidas
 

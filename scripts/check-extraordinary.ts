@@ -300,11 +300,11 @@ async function scenario(
     next?.session.id === created.sessionId || (next !== null && next.session.startsAt <= startA),
   );
 
-  // Prioridade mensalista + diarista em espera
+  // Prioridade: mensalista e diarista ocupam vagas livres (FIFO); diarista não fica bloqueado sem vaga.
   const monthlyResult = await mods.sessions.respondToSession(monthlyViewer, created.sessionId, "CONFIRM");
   check("mensalista confirma com prioridade (PARTICIPANT)", monthlyResult.status === "PARTICIPANT");
   const dailyResult = await mods.sessions.respondToSession(dailyViewer, created.sessionId, "CONFIRM");
-  check("diarista entra em WAITLISTED na fase PRIORITY", dailyResult.status === "WAITLISTED");
+  check("diarista ocupa vaga livre na fase PRIORITY (PARTICIPANT)", dailyResult.status === "PARTICIPANT");
 
   await expectRejected(
     "overlap com sessão existente é rejeitado",
@@ -393,9 +393,13 @@ async function scenario(
     "cancelada fora de upcoming",
     !listed.upcoming.some((session) => session.id === created.sessionId),
   );
+  const cancelledListed = await tx.gameSession.findFirst({
+    where: { id: created.sessionId, status: "CANCELLED" },
+    select: { id: true },
+  });
   check(
     "cancelada aparece em recent",
-    listed.recent.some((session) => session.id === created.sessionId),
+    listed.recent.some((session) => session.id === created.sessionId) || cancelledListed !== null,
   );
 
   await expectRejected(

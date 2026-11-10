@@ -15,6 +15,7 @@
     "seed:test-players": "tsx scripts/seed-test-players.ts",
     "check:attendance-lock": "tsx scripts/check-attendance-lock.ts",
     "check:self-respond": "tsx scripts/check-self-respond.ts",
+    "check:allocate": "tsx scripts/check-allocate.ts",
     "check:admin-confirm-on-behalf": "tsx scripts/check-admin-confirm-on-behalf.ts",
     "check:early-draw": "tsx scripts/check-early-draw.ts",
     "check:match-flow": "tsx scripts/check-match-flow.ts",

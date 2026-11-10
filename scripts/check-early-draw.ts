@@ -311,7 +311,7 @@ async function main() {
     const registrationOf = (member: MemberRow) =>
       tx.sessionRegistration.findUnique({
         where: { gameSessionId_memberId: { gameSessionId: sessionId, memberId: member.id } },
-        select: { id: true, status: true, priorityTier: true, promotedAt: true },
+        select: { id: true, status: true, priorityTier: true, promotedAt: true, manualOverrideAt: true },
       });
     const statusOf = async (member: MemberRow) => (await registrationOf(member))?.status ?? null;
     const idOf = async (member: MemberRow) => (await registrationOf(member))!.id;
@@ -354,14 +354,22 @@ async function main() {
       EARLY_DRAW_REQUIREMENT,
     );
     await respond(d1, "CONFIRM");
-    check("antes do prazo: diarista vai para a espera", (await statusOf(d1)) === "WAITLISTED");
-    await expectRejected(
-      "prioridade: ADMIN não promove diarista antes do prazo (mesmo com vaga)",
-      async () => sessions.adminPromoteRegistration(adminViewer, sessionId, await idOf(d1), "Teste"),
-      sessions.PRIORITY_PROMOTION_MESSAGE,
+    check(
+      "antes do prazo: diarista ocupa a vaga livre",
+      (await statusOf(d1)) === "PARTICIPANT" && (await participantCount()) === 6,
     );
     await respond(m6, "CONFIRM");
-    check("antes do prazo: 6/6 com o sexto mensalista", (await participantCount()) === 6);
+    check(
+      "antes do prazo: mensalista reassumindo desloca diarista (6/6 prioritário)",
+      (await statusOf(m6)) === "PARTICIPANT" &&
+        (await statusOf(d1)) === "WAITLISTED" &&
+        (await participantCount()) === 6,
+    );
+    await expectRejected(
+      "cheia: ADMIN não promove sem vaga livre",
+      async () => sessions.adminPromoteRegistration(adminViewer, sessionId, await idOf(d1), "Teste"),
+      "A sessão está cheia: remova um participante antes de promover.",
+    );
 
     // Sorteio antecipado.
     const generated = await draws.generateDraw(adminViewer, sessionId);
@@ -413,22 +421,24 @@ async function main() {
         (await participantCount()) === 5 &&
         (await autoPromotions()) === autoBefore,
     );
-    await expectRejected(
-      "prioridade: ADMIN não promove diarista durante o sorteio antecipado",
-      async () => sessions.adminPromoteRegistration(adminViewer, sessionId, await idOf(d1), "Teste"),
-      sessions.PRIORITY_PROMOTION_MESSAGE,
+    await sessions.adminPromoteRegistration(adminViewer, sessionId, await idOf(d1), "Vaga liberada pelo ADMIN");
+    const d1Promoted = await registrationOf(d1);
+    check(
+      "prioridade: ADMIN promove diarista com vaga livre (manualOverride)",
+      d1Promoted?.status === "PARTICIPANT" && d1Promoted.manualOverrideAt !== null,
     );
+    await sessions.adminRemoveRegistration(adminViewer, sessionId, await idOf(m4), "Abriu vaga para escolha do ADMIN");
     await sessions.adminPromoteRegistration(adminViewer, sessionId, await idOf(m8), "Escolha do ADMIN");
     check("prioridade: ADMIN promove mensalista, mesmo fora da ordem", (await statusOf(m8)) === "PARTICIPANT");
 
-    // Invalidação antes do prazo: a fila volta a promover, só mensalistas.
+    // Invalidação antes do prazo: a fila volta a promover (mensalistas antes na ordem).
     await sessions.adminRemoveRegistration(adminViewer, sessionId, await idOf(m3), "Lesionado");
     await draws.invalidateDraw(adminViewer, sessionId, { drawId: first.id, reason: "Teste", regenerate: false });
     check(
-      "invalidação antes do prazo: promove o primeiro mensalista, não o diarista",
+      "invalidação antes do prazo: promove o primeiro mensalista da espera",
       (await statusOf(m7)) === "PARTICIPANT" &&
         (await statusOf(m9)) === "WAITLISTED" &&
-        (await statusOf(d1)) === "WAITLISTED" &&
+        (await statusOf(d1)) === "PARTICIPANT" &&
         (await participantCount()) === 6 &&
         (await autoPromotions()) === autoBefore + 1,
     );
@@ -448,8 +458,8 @@ async function main() {
       second.replacesDrawId === first.id && secondAudit?.earlyDraw === true,
     );
 
-    // Passagem do prazo com o sorteio ativo e uma vaga livre.
-    await sessions.adminRemoveRegistration(adminViewer, sessionId, await idOf(m4), "Viajou");
+    // Passagem do prazo com o sorteio ativo e uma vaga livre (d2 já na espera).
+    await sessions.adminRemoveRegistration(adminViewer, sessionId, await idOf(m5), "Viajou");
     await tx.gameSession.update({ where: { id: sessionId }, data: { priorityDeadlineAt: new Date(Date.now() - 1_000) } });
     const autoAtDeadline = await autoPromotions();
     await rejectPlayer("depois do prazo: mensalista atrasado é travado", m9, "CONFIRM");
@@ -472,11 +482,11 @@ async function main() {
         priorityClosed === 1 &&
         (await autoPromotions()) === autoAtDeadline &&
         (await participantCount()) === 5 &&
-        (await statusOf(d1)) === "WAITLISTED",
+        (await statusOf(d2)) === "WAITLISTED",
     );
     check("passagem do prazo: sorteio continua ativo", (await activeDraw()).id === second.id);
-    await sessions.adminPromoteRegistration(adminViewer, sessionId, await idOf(d1), "Vaga do jogador que viajou");
-    check("depois do prazo: ADMIN pode promover diarista", (await statusOf(d1)) === "PARTICIPANT");
+    await sessions.adminPromoteRegistration(adminViewer, sessionId, await idOf(d2), "Vaga do jogador que viajou");
+    check("depois do prazo: ADMIN pode promover diarista", (await statusOf(d2)) === "PARTICIPANT");
 
     // Depois do prazo: o sorteio normal não é marcado como antecipado.
     await draws.invalidateDraw(adminViewer, sessionId, { drawId: second.id, reason: "Teste", regenerate: true });

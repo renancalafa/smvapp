@@ -208,7 +208,7 @@ async function scenario(
   const playerViewer = viewerOf(group, daily[0]!);
   const reason = "Confirmado a pedido do jogador";
 
-  // --- prioridade aberta: mensalista → PARTICIPANT, diarista → WAITLISTED ---
+  // --- prioridade aberta: mensalista e diarista ocupam vagas livres; reassumir desloca ---
   const sessionPriority = await createOpenSession(tx, group.id, season.id, {
     maxPlayers: 2,
     priorityOpen: true,
@@ -222,12 +222,27 @@ async function scenario(
     memberId: daily[0]!.id,
     reason,
   });
-  check("prioridade: diarista → WAITLISTED", d1.status === "WAITLISTED");
+  check("prioridade: diarista ocupa vaga livre → PARTICIPANT", d1.status === "PARTICIPANT");
   const d1Row = await tx.sessionRegistration.findUniqueOrThrow({
     where: { gameSessionId_memberId: { gameSessionId: sessionPriority.id, memberId: daily[0]!.id } },
-    select: { priorityTier: true, source: true },
+    select: { priorityTier: true, source: true, status: true },
   });
   check("diarista GENERAL + source ADMIN", d1Row.priorityTier === "GENERAL" && d1Row.source === "ADMIN");
+
+  const m2Priority = await sessions.adminConfirmOnBehalf(adminViewer, sessionPriority.id, {
+    memberId: monthly[1]!.id,
+    reason,
+  });
+  check(
+    "prioridade: 2º mensalista desloca diarista",
+    m2Priority.status === "PARTICIPANT" &&
+      (
+        await tx.sessionRegistration.findUniqueOrThrow({
+          where: { gameSessionId_memberId: { gameSessionId: sessionPriority.id, memberId: daily[0]!.id } },
+          select: { status: true },
+        })
+      ).status === "WAITLISTED",
+  );
 
   const waitlistedAgain = await sessions.adminConfirmOnBehalf(adminViewer, sessionPriority.id, {
     memberId: daily[0]!.id,
