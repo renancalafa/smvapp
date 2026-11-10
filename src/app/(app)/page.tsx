@@ -17,12 +17,12 @@ export default async function HomePage() {
     <section className="flex flex-col gap-5 text-smv-cream">
       <header className="flex items-center gap-3">
         <Image
-          src="/icons/logo.png"
+          src="/icons/brasaosmv.png"
           alt=""
-          width={48}
-          height={48}
+          width={56}
+          height={64}
           priority
-          className="size-12 shrink-0 rounded-full bg-black/30 object-contain p-1 ring-1 ring-smv-gold/40"
+          className="h-14 w-auto shrink-0 object-contain drop-shadow-[0_4px_12px_rgba(0,0,0,0.35)]"
         />
         <div className="min-w-0">
           <p className="truncate text-xs font-semibold uppercase tracking-[0.14em] text-smv-gold">

@@ -30,18 +30,19 @@ export default async function AppLayout({ children }: { children: React.ReactNod
   return (
     <div className="flex flex-1 flex-col bg-smv-navy-deep md:flex-row">
       <aside className="hidden md:sticky md:top-0 md:flex md:h-dvh md:w-60 md:shrink-0 md:flex-col md:border-r md:border-white/10 md:bg-smv-navy md:p-4">
-        <Link href="/" className="mb-6 flex items-center gap-2.5 px-3 py-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-smv-gold">
+        <Link
+          href="/"
+          aria-label="Início · Safadeza e Ma Vontade FC"
+          className="mb-7 flex items-center justify-center px-2 py-3 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-smv-gold"
+        >
           <Image
-            src="/icons/logo.png"
+            src="/icons/brasaosmv.png"
             alt=""
-            width={32}
-            height={32}
-            className="size-8 shrink-0 rounded-full bg-black/30 object-contain p-0.5 ring-1 ring-smv-gold/35"
+            width={112}
+            height={128}
+            priority
+            className="h-16 w-auto object-contain drop-shadow-[0_6px_16px_rgba(0,0,0,0.45)]"
           />
-          <span className="min-w-0">
-            <span className="block text-lg font-semibold text-smv-cream">SMV</span>
-            <span className="block truncate text-xs text-white/50">{viewer.group.name}</span>
-          </span>
         </Link>
         <SideNav items={desktopItems} />
         <div className="mt-auto border-t border-white/10 pt-4">
@@ -62,11 +63,12 @@ export default async function AppLayout({ children }: { children: React.ReactNod
               className="flex items-center gap-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-smv-gold"
             >
               <Image
-                src="/icons/logo.png"
+                src="/icons/brasaosmv.png"
                 alt=""
-                width={28}
-                height={28}
-                className="size-7 rounded-full bg-black/30 object-contain p-0.5 ring-1 ring-smv-gold/35"
+                width={36}
+                height={40}
+                priority
+                className="h-8 w-auto object-contain"
               />
               <span className="text-lg font-semibold text-smv-cream">SMV</span>
             </Link>

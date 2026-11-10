@@ -1,4 +1,3 @@
-import Image from "next/image";
 import Link from "next/link";
 import type { Viewer } from "@/server/auth/dal";
 import type { SessionBoard } from "@/server/modules/sessions/queries";
@@ -45,28 +44,18 @@ export function NextSessionCard({
             "radial-gradient(ellipse at top right, rgba(201,162,39,0.18), transparent 55%), linear-gradient(145deg, #132a40 0%, #0b1c2c 48%, #061018 100%)",
         }}
       >
-        <div className="flex items-start gap-3">
-          <Image
-            src="/icons/logo.png"
-            alt="Escudo Safadeza e Ma Vontade FC"
-            width={72}
-            height={72}
-            priority
-            className="size-[4.5rem] shrink-0 rounded-2xl bg-black/25 object-contain p-1.5 ring-1 ring-smv-gold/40"
-          />
-          <div className="min-w-0 flex-1 pt-0.5">
-            <p className="text-[0.7rem] font-semibold uppercase tracking-[0.16em] text-smv-gold">
-              {kind ? "Próximo treino" : "Próxima pelada"}
-            </p>
-            <h2 className="mt-1 text-xl font-semibold capitalize leading-snug text-white sm:text-2xl">
-              {formatSessionTitle(session.startsAt, timeZone)}
-            </h2>
-            <p className="mt-1 text-sm text-white/75">
-              {formatTime(session.startsAt, timeZone)} às {formatTime(session.endsAt, timeZone)}
-              {session.venueName ? ` · ${session.venueName}` : ""}
-              {kind ? ` · ${kind}` : ""}
-            </p>
-          </div>
+        <div className="min-w-0">
+          <p className="text-[0.7rem] font-semibold uppercase tracking-[0.16em] text-smv-gold">
+            {kind ? "Próximo treino" : "Próxima pelada"}
+          </p>
+          <h2 className="mt-1 text-xl font-semibold capitalize leading-snug text-white sm:text-2xl">
+            {formatSessionTitle(session.startsAt, timeZone)}
+          </h2>
+          <p className="mt-1 text-sm text-white/75">
+            {formatTime(session.startsAt, timeZone)} às {formatTime(session.endsAt, timeZone)}
+            {session.venueName ? ` · ${session.venueName}` : ""}
+            {kind ? ` · ${kind}` : ""}
+          </p>
         </div>
 
         <p className="rounded-xl bg-white/8 px-3 py-2.5 text-sm text-white/85 ring-1 ring-white/10">
