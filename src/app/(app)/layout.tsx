@@ -19,17 +19,19 @@ export default async function AppLayout({ children }: { children: React.ReactNod
 
   // Itens de ADMIN nem chegam ao cliente para quem não é ADMIN; a página ainda
   // verifica o papel com requireAdmin().
-  // Estatísticas fica na lateral (e no atalho da home): a barra inferior do celular
-  // já tem Início / Rodada|Ao Vivo / Admin? / Conta e não deve lotar.
+  // Histórico é permanente em desktop e mobile. Estatísticas permanece na lateral
+  // (e no atalho da home). Rodada/Ao Vivo continuam exclusivos no night slot.
   const mobileItems: NavItem[] = [
     { href: "/", label: "Início", icon: "home" },
     nightNav,
+    { href: "/historico", label: "Histórico", icon: "historico" },
     ...(viewer.member.role === "ADMIN" ? [{ href: "/admin", label: "Admin", icon: "admin" } as const] : []),
     { href: "/account", label: "Conta", icon: "account" },
   ];
   const desktopItems: NavItem[] = [
     { href: "/", label: "Início", icon: "home" },
     nightNav,
+    { href: "/historico", label: "Histórico", icon: "historico" },
     { href: "/stats", label: "Estatísticas", icon: "stats" },
     ...(viewer.member.role === "ADMIN" ? [{ href: "/admin", label: "Admin", icon: "admin" } as const] : []),
     { href: "/account", label: "Conta", icon: "account" },
