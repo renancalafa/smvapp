@@ -62,9 +62,9 @@ export default async function HomePage() {
         </div>
       </header>
 
-      <HomePlayerSummaryCard player={player} />
-
       <NextSessionCard board={board} viewer={viewer} drawStatus={drawStatus} />
+
+      <HomePlayerSummaryCard player={player} />
 
       <HomeLastSessionCard recap={home.lastSession} timeZone={viewer.group.timezone} />
 
