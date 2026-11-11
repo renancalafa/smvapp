@@ -19,7 +19,7 @@ export default async function AppLayout({ children }: { children: React.ReactNod
 
   // Itens de ADMIN nem chegam ao cliente para quem não é ADMIN; a página ainda
   // verifica o papel com requireAdmin().
-  // Rankings fica na lateral (e no atalho da home): a barra inferior do celular
+  // Estatísticas fica na lateral (e no atalho da home): a barra inferior do celular
   // já tem Início / Rodada|Ao Vivo / Admin? / Conta e não deve lotar.
   const mobileItems: NavItem[] = [
     { href: "/", label: "Início", icon: "home" },
@@ -30,7 +30,7 @@ export default async function AppLayout({ children }: { children: React.ReactNod
   const desktopItems: NavItem[] = [
     { href: "/", label: "Início", icon: "home" },
     nightNav,
-    { href: "/stats", label: "Rankings", icon: "stats" },
+    { href: "/stats", label: "Estatísticas", icon: "stats" },
     ...(viewer.member.role === "ADMIN" ? [{ href: "/admin", label: "Admin", icon: "admin" } as const] : []),
     { href: "/account", label: "Conta", icon: "account" },
   ];

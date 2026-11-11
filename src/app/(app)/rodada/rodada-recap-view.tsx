@@ -441,11 +441,6 @@ function StandingsList({ recap }: { recap: RodadaRecap }) {
                       position={team?.initialQueuePosition}
                       size="md"
                     />
-                    {isChampion ? (
-                      <span className="ml-2 text-xs font-semibold uppercase tracking-wide text-smv-gold-bright">
-                        Campeão
-                      </span>
-                    ) : null}
                     {row.rankTied ? (
                       <span className="ml-2 text-xs font-medium text-white/45">empate</span>
                     ) : null}

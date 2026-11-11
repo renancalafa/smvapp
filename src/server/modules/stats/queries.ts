@@ -15,9 +15,34 @@ import {
   type RankedEntry,
   type StatsPeriodFilter,
 } from "@/domain/stats/aggregate";
+import {
+  buildDashboardOverview,
+  buildGoalsPerSessionSeries,
+  buildMetricRanking,
+  buildPlayerEfficiency,
+  buildPresenceRanking,
+  buildStatsInsights,
+  buildWinRateRanking,
+  countValidGoals,
+  type DashboardOverview,
+  type DashboardRankingCategory,
+  type DashboardRankingEntry,
+  type GoalsPerSessionSeries,
+  type PlayerEfficiency,
+  type StatsInsight,
+} from "@/domain/stats/dashboard";
+import { civilDateInZone } from "@/domain/time/zoned";
 import { db } from "@/server/db";
 
 export type { PlayerStatTotals, RankingMetric, StatsPeriodFilter };
+export type {
+  DashboardOverview,
+  DashboardRankingCategory,
+  DashboardRankingEntry,
+  GoalsPerSessionSeries,
+  PlayerEfficiency,
+  StatsInsight,
+};
 export {
   RANKING_METRIC_LABELS,
   RANKING_METRICS,
@@ -25,6 +50,13 @@ export {
   isRankingMetric,
   winPercentage,
 } from "@/domain/stats/aggregate";
+export {
+  DASHBOARD_RANKING_CATEGORIES,
+  DASHBOARD_RANKING_LABELS,
+  formatAvg,
+  formatDashboardRankingValue,
+  isDashboardRankingCategory,
+} from "@/domain/stats/dashboard";
 
 export type StatsPlayerIdentity = {
   memberId: string;
@@ -107,21 +139,40 @@ export function parseStatsPeriodFromSearchParams(
   });
 }
 
+function periodSessionConstraints(period: StatsPeriodFilter, timeZone: string) {
+  return {
+    ...(period.kind === "session" ? { id: period.sessionId } : {}),
+    ...(period.kind === "month" || period.kind === "year"
+      ? (() => {
+          const { start, end } = periodInstantRange(period, timeZone);
+          return { startsAt: { gte: start, lt: end } };
+        })()
+      : {}),
+  };
+}
+
 async function finishedMatchWhere(groupId: string, period: StatsPeriodFilter, timeZone: string) {
   return {
     status: "FINISHED" as const,
     gameSession: {
       groupId,
       status: { not: "CANCELLED" as const },
-      ...(period.kind === "session" ? { id: period.sessionId } : {}),
-      ...(period.kind === "month" || period.kind === "year"
-        ? (() => {
-            const { start, end } = periodInstantRange(period, timeZone);
-            return { startsAt: { gte: start, lt: end } };
-          })()
-        : {}),
+      ...periodSessionConstraints(period, timeZone),
     },
   };
+}
+
+function finishedSessionWhere(groupId: string, period: StatsPeriodFilter, timeZone: string) {
+  return {
+    groupId,
+    status: "FINISHED" as const,
+    ...periodSessionConstraints(period, timeZone),
+  };
+}
+
+function sessionDayLabel(startsAt: Date, timeZone: string): string {
+  const { day, month } = civilDateInZone(startsAt, timeZone);
+  return `${String(day).padStart(2, "0")}/${String(month).padStart(2, "0")}`;
 }
 
 async function loadMembers(groupId: string, memberIds: string[]): Promise<Map<string, StatsPlayerIdentity>> {
@@ -217,14 +268,12 @@ function aggregateFromMatches(
   };
 }
 
-/** Totais por jogador no período (inclui inativos; zeros para quem só apareceu). */
-export async function getPlayerStatsTable(
+async function buildPlayerStatsTableFromMatches(
   groupId: string,
-  timeZone: string,
-  period: StatsPeriodFilter,
+  matches: Awaited<ReturnType<typeof loadFinishedMatchesPayload>>,
+  memberIdsHint?: string[],
 ): Promise<PlayerStatsRow[]> {
-  const matches = await loadFinishedMatchesPayload(groupId, timeZone, period);
-  const { aggregated, memberIds } = aggregateFromMatches(matches);
+  const { aggregated, memberIds } = aggregateFromMatches(matches, memberIdsHint);
   const identities = await loadMembers(groupId, [...memberIds]);
 
   const rows: PlayerStatsRow[] = [];
@@ -238,6 +287,42 @@ export async function getPlayerStatsTable(
   }
   rows.sort((a, b) => displayLabel(a).localeCompare(displayLabel(b), "pt-BR", { sensitivity: "base" }));
   return rows;
+}
+
+/** Totais por jogador no período (inclui inativos; zeros para quem só apareceu). */
+export async function getPlayerStatsTable(
+  groupId: string,
+  timeZone: string,
+  period: StatsPeriodFilter,
+): Promise<PlayerStatsRow[]> {
+  const matches = await loadFinishedMatchesPayload(groupId, timeZone, period);
+  return buildPlayerStatsTableFromMatches(groupId, matches);
+}
+
+function boardsFromTable(table: PlayerStatsRow[], period: StatsPeriodFilter): RankingBoard[] {
+  const includeZeros = period.kind === "session";
+  const metrics: RankingMetric[] = [
+    "goals",
+    "assists",
+    "bigMisses",
+    "hitWoodwork",
+    "tackles",
+    "yellowCards",
+    "blueCards",
+    "redCards",
+    "ownGoals",
+  ];
+  return metrics.map((metric) => ({
+    metric,
+    entries: buildRanking(table, (row) => row.totals[metric], displayLabel, { includeZeros }).map((entry) => ({
+      memberId: entry.memberId,
+      name: entry.name,
+      nickname: entry.nickname,
+      status: entry.status,
+      value: entry.value,
+      rank: entry.rank,
+    })),
+  }));
 }
 
 export async function getRankingBoard(
@@ -268,28 +353,7 @@ export async function getAllRankingBoards(
   period: StatsPeriodFilter,
 ): Promise<RankingBoard[]> {
   const table = await getPlayerStatsTable(groupId, timeZone, period);
-  const includeZeros = period.kind === "session";
-  const metrics: RankingMetric[] = [
-    "goals",
-    "assists",
-    "bigMisses",
-    "hitWoodwork",
-    "tackles",
-    "yellowCards",
-    "blueCards",
-    "redCards",
-  ];
-  return metrics.map((metric) => ({
-    metric,
-    entries: buildRanking(table, (row) => row.totals[metric], displayLabel, { includeZeros }).map((entry) => ({
-      memberId: entry.memberId,
-      name: entry.name,
-      nickname: entry.nickname,
-      status: entry.status,
-      value: entry.value,
-      rank: entry.rank,
-    })),
-  }));
+  return boardsFromTable(table, period);
 }
 
 export async function getGeneralClassification(
@@ -300,6 +364,256 @@ export async function getGeneralClassification(
   const table = await getPlayerStatsTable(groupId, timeZone, period);
   return {
     entries: buildGeneralClassification(table, displayLabel),
+  };
+}
+
+export type StatsDashboard = {
+  overview: DashboardOverview;
+  goalsSeries: GoalsPerSessionSeries;
+  rankings: Record<DashboardRankingCategory, DashboardRankingEntry[]>;
+};
+
+export type StatsPlayerListItem = StatsPlayerIdentity & {
+  modality: "MONTHLY" | "DAILY";
+  role: "ADMIN" | "PLAYER";
+};
+
+/** Painel Geral: overview + série de gols + rankings (um único load de partidas). */
+export async function getStatsDashboard(
+  groupId: string,
+  timeZone: string,
+  period: StatsPeriodFilter,
+): Promise<StatsDashboard> {
+  const [matches, finishedSessions] = await Promise.all([
+    loadFinishedMatchesPayload(groupId, timeZone, period),
+    db.gameSession.findMany({
+      where: finishedSessionWhere(groupId, period, timeZone),
+      orderBy: { startsAt: "desc" },
+      select: {
+        id: true,
+        startsAt: true,
+        registrations: {
+          where: { status: "PARTICIPANT" },
+          select: { memberId: true },
+        },
+        matches: {
+          where: { status: "FINISHED" },
+          select: {
+            events: {
+              select: { type: true, assistMemberId: true, voidedAt: true },
+            },
+          },
+        },
+      },
+    }),
+  ]);
+
+  const table = await buildPlayerStatsTableFromMatches(groupId, matches);
+  const includeZeros = period.kind === "session";
+
+  const sessionGoalRows = finishedSessions.map((session) => {
+    const events = session.matches.flatMap((match) => match.events);
+    return {
+      sessionId: session.id,
+      startsAt: session.startsAt.toISOString(),
+      goals: countValidGoals(events),
+      assists: events.filter((event) => !event.voidedAt && event.type === "GOAL" && event.assistMemberId)
+        .length,
+      attendance: session.registrations.length,
+      participants: session.registrations.map((row) => row.memberId),
+    };
+  });
+
+  const totalGoals = sessionGoalRows.reduce((sum, row) => sum + row.goals, 0);
+  const totalParticipantSlots = sessionGoalRows.reduce((sum, row) => sum + row.attendance, 0);
+  const distinctPlayers = new Set(sessionGoalRows.flatMap((row) => row.participants)).size;
+
+  const presenceCounts = new Map<string, number>();
+  for (const row of sessionGoalRows) {
+    for (const memberId of row.participants) {
+      presenceCounts.set(memberId, (presenceCounts.get(memberId) ?? 0) + 1);
+    }
+  }
+  const presenceIdentities = await loadMembers(groupId, [...presenceCounts.keys()]);
+  const presenceRows = [...presenceCounts.entries()]
+    .map(([memberId, presences]) => {
+      const identity = presenceIdentities.get(memberId);
+      if (!identity) return null;
+      return { ...identity, presences };
+    })
+    .filter((row): row is StatsPlayerIdentity & { presences: number } => row != null);
+
+  const rankings: StatsDashboard["rankings"] = {
+    goals: buildMetricRanking(table, "goals", { includeZeros }),
+    assists: buildMetricRanking(table, "assists", { includeZeros }),
+    presence: buildPresenceRanking(presenceRows, { includeZeros }),
+    winRate: buildWinRateRanking(table),
+    tackles: buildMetricRanking(table, "tackles", { includeZeros }),
+    bigMisses: buildMetricRanking(table, "bigMisses", { includeZeros }),
+    ownGoals: buildMetricRanking(table, "ownGoals", { includeZeros }),
+    hitWoodwork: buildMetricRanking(table, "hitWoodwork", { includeZeros }),
+    yellowCards: buildMetricRanking(table, "yellowCards", { includeZeros }),
+    blueCards: buildMetricRanking(table, "blueCards", { includeZeros }),
+    redCards: buildMetricRanking(table, "redCards", { includeZeros }),
+  };
+
+  return {
+    overview: buildDashboardOverview({
+      completedPeladas: finishedSessions.length,
+      totalGoals,
+      distinctPlayers,
+      totalParticipantSlots,
+    }),
+    goalsSeries: buildGoalsPerSessionSeries(
+      sessionGoalRows.map((row) => ({
+        sessionId: row.sessionId,
+        startsAt: row.startsAt,
+        goals: row.goals,
+      })),
+    ),
+    rankings,
+  };
+}
+
+export async function getStatsInsights(
+  groupId: string,
+  timeZone: string,
+  period: StatsPeriodFilter,
+): Promise<StatsInsight[]> {
+  const finishedSessions = await db.gameSession.findMany({
+    where: finishedSessionWhere(groupId, period, timeZone),
+    orderBy: { startsAt: "desc" },
+    select: {
+      id: true,
+      startsAt: true,
+      registrations: {
+        where: { status: "PARTICIPANT" },
+        select: { memberId: true },
+      },
+      matches: {
+        where: { status: "FINISHED" },
+        select: {
+          events: {
+            select: { type: true, memberId: true, assistMemberId: true, voidedAt: true },
+          },
+        },
+      },
+    },
+  });
+
+  const sessions = finishedSessions.map((session) => {
+    const events = session.matches.flatMap((match) => match.events);
+    return {
+      sessionId: session.id,
+      startsAt: session.startsAt.toISOString(),
+      label: sessionDayLabel(session.startsAt, timeZone),
+      goals: countValidGoals(events),
+      assists: events.filter((event) => !event.voidedAt && event.type === "GOAL" && event.assistMemberId)
+        .length,
+      attendance: session.registrations.length,
+    };
+  });
+
+  const sessionsWithGoalByMember = new Map<string, Set<string>>();
+  for (const session of finishedSessions) {
+    const scorers = new Set<string>();
+    for (const match of session.matches) {
+      for (const event of match.events) {
+        if (event.voidedAt || event.type !== "GOAL") continue;
+        scorers.add(event.memberId);
+      }
+    }
+    for (const memberId of scorers) {
+      const set = sessionsWithGoalByMember.get(memberId) ?? new Set();
+      set.add(session.id);
+      sessionsWithGoalByMember.set(memberId, set);
+    }
+  }
+
+  const identities = await loadMembers(groupId, [...sessionsWithGoalByMember.keys()]);
+  const consistentScorers = [...sessionsWithGoalByMember.entries()]
+    .map(([memberId, set]) => {
+      const identity = identities.get(memberId);
+      if (!identity) return null;
+      return { ...identity, sessionsWithGoal: set.size };
+    })
+    .filter((row): row is StatsPlayerIdentity & { sessionsWithGoal: number } => row != null);
+
+  return buildStatsInsights({ sessions, consistentScorers });
+}
+
+export async function listStatsPlayers(groupId: string): Promise<StatsPlayerListItem[]> {
+  const rows = await db.groupMember.findMany({
+    where: { groupId },
+    orderBy: [{ status: "asc" }, { user: { name: "asc" } }],
+    select: {
+      id: true,
+      status: true,
+      nickname: true,
+      modality: true,
+      role: true,
+      user: { select: { name: true } },
+    },
+  });
+  return rows.map((row) => ({
+    memberId: row.id,
+    name: row.user.name,
+    nickname: row.nickname,
+    status: row.status,
+    modality: row.modality,
+    role: row.role,
+  }));
+}
+
+export async function getPlayerDashboardStats(
+  groupId: string,
+  memberId: string,
+  timeZone: string,
+  period: StatsPeriodFilter,
+): Promise<{
+  player: StatsPlayerIdentity & { modality: "MONTHLY" | "DAILY"; role: "ADMIN" | "PLAYER" };
+  totals: PlayerStatTotals;
+  winPercentage: number | null;
+  presences: number;
+  efficiency: PlayerEfficiency;
+  recentMatches: RecentMatchStat[];
+} | null> {
+  const member = await db.groupMember.findFirst({
+    where: { id: memberId, groupId },
+    select: {
+      id: true,
+      status: true,
+      nickname: true,
+      modality: true,
+      role: true,
+      user: { select: { name: true } },
+    },
+  });
+  if (!member) return null;
+
+  const [profile, presences] = await Promise.all([
+    getPlayerProfileStats(groupId, memberId, timeZone, period),
+    db.sessionRegistration.count({
+      where: {
+        memberId,
+        status: "PARTICIPANT",
+        gameSession: finishedSessionWhere(groupId, period, timeZone),
+      },
+    }),
+  ]);
+  if (!profile) return null;
+
+  return {
+    player: {
+      ...profile.player,
+      modality: member.modality,
+      role: member.role,
+    },
+    totals: profile.totals,
+    winPercentage: profile.winPercentage,
+    presences,
+    efficiency: buildPlayerEfficiency(profile.totals),
+    recentMatches: profile.recentMatches,
   };
 }
 

@@ -55,7 +55,7 @@ export default async function PlayerStatsPage({
     <section className="flex flex-col gap-5 text-smv-cream">
       <div>
         <Link href={`/stats${periodQuery ? `?${periodQuery}` : ""}`} className={darkBackLink}>
-          ‹ Rankings
+          ‹ Estatísticas
         </Link>
         <h1 className={darkTitle}>{title}</h1>
         <p className={shellSubtext}>

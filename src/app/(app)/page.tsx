@@ -71,8 +71,8 @@ export default async function HomePage() {
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
         <ShortcutLink
           href="/stats"
-          title="Rankings"
-          description="Artilharia, assistências, pixotadas e mais"
+          title="Estatísticas"
+          description="Geral, jogadores, rankings e insights"
         />
         <ShortcutLink href={night.href} title={night.label} description={nightDescription} />
       </div>

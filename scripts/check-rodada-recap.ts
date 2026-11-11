@@ -1,6 +1,8 @@
 // Regressão pura dos agregados da Rodada (placar, H2H, campeão com desempates, stats).
 //
 //   npm run check:rodada-recap
+import { readFileSync } from "node:fs";
+import path from "node:path";
 import {
   aggregateSessionPlayerStats,
   buildHeadToHeadMatrix,
@@ -390,6 +392,23 @@ function match(
   check(
     "tiebreakers only among win leaders (t3 GD ignored)",
     champion.kind === "determined" && champion.teamId === "t1" && champion.decidedBy === "wins",
+  );
+}
+
+{
+  const view = readFileSync(
+    path.resolve("src/app/(app)/rodada/rodada-recap-view.tsx"),
+    "utf8",
+  );
+  const standingsStart = view.indexOf("function StandingsList");
+  const standingsChunk = standingsStart >= 0 ? view.slice(standingsStart) : "";
+  check(
+    "classificação não mostra rótulo CAMPEÃO ao lado do 1º",
+    standingsChunk.includes("rankLabel") &&
+      standingsChunk.includes("TeamBadge") &&
+      !/isChampion\s*\?\s*\([\s\S]*?Campeão/.test(standingsChunk) &&
+      !standingsChunk.includes(">Campeão<") &&
+      !standingsChunk.includes("CAMPEÃO"),
   );
 }
 

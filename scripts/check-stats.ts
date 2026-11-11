@@ -13,11 +13,21 @@ import {
   aggregatePlayerStats,
   buildGeneralClassification,
   buildRanking,
+  emptyTotals,
   individualResultForTeam,
   periodInstantRange,
   sessionCivilMonth,
   winPercentage,
 } from "../src/domain/stats/aggregate";
+import {
+  buildDashboardOverview,
+  buildGoalsPerSessionSeries,
+  buildPlayerEfficiency,
+  buildPresenceRanking,
+  buildStatsInsights,
+  buildWinRateRanking,
+  countValidGoals,
+} from "../src/domain/stats/dashboard";
 import { PrismaClient, type Prisma } from "../src/generated/prisma/client";
 import type { Viewer } from "../src/server/auth/dal";
 
@@ -185,6 +195,192 @@ function domainChecks() {
   const range = periodInstantRange({ kind: "month", year: 2026, month: 10 }, "America/Sao_Paulo");
   const civil = sessionCivilMonth(new Date("2026-10-18T22:00:00.000Z"), "America/Sao_Paulo");
   check("filtro mês usa fuso do grupo", range.start < range.end && civil.year === 2026 && civil.month === 10);
+
+  check(
+    "countValidGoals ignora OWN_GOAL e anulados",
+    countValidGoals([
+      { type: "GOAL", voidedAt: null },
+      { type: "GOAL", voidedAt: null },
+      { type: "OWN_GOAL", voidedAt: null },
+      { type: "GOAL", voidedAt: new Date() },
+      { type: "TACKLE", voidedAt: null },
+    ]) === 2,
+  );
+
+  const overview = buildDashboardOverview({
+    completedPeladas: 4,
+    totalGoals: 10,
+    distinctPlayers: 12,
+    totalParticipantSlots: 40,
+  });
+  check("overview média gols/pelada = total/peladas (não PJ)", overview.avgGoalsPerPelada === 2.5);
+  check("overview média participação", overview.avgParticipationPerSession === 10);
+  check(
+    "overview vazio sem divisão por zero",
+    buildDashboardOverview({
+      completedPeladas: 0,
+      totalGoals: 0,
+      distinctPlayers: 0,
+      totalParticipantSlots: 0,
+    }).avgGoalsPerPelada === null,
+  );
+
+  const series = buildGoalsPerSessionSeries(
+    [
+      { sessionId: "s3", startsAt: "2026-11-01T00:00:00.000Z", goals: 5 },
+      { sessionId: "s2", startsAt: "2026-10-01T00:00:00.000Z", goals: 3 },
+      { sessionId: "s1", startsAt: "2026-09-01T00:00:00.000Z", goals: 1 },
+    ],
+    12,
+  );
+  check(
+    "série: ordem cronológica e latest marcado",
+    series.points.length === 3 &&
+      series.points[0]!.sessionId === "s1" &&
+      series.points[2]!.isLatest === true &&
+      series.points[0]!.isLatest === false,
+  );
+  check("série: média das barras", series.average != null && Math.abs(series.average - 3) < 0.01);
+  check("série: limite 12 com menos sessões", buildGoalsPerSessionSeries([], 12).points.length === 0);
+
+  const presence = buildPresenceRanking(
+    [
+      { memberId: "1", name: "Ana", nickname: null, status: "ACTIVE", presences: 4 },
+      { memberId: "2", name: "Bruno", nickname: null, status: "ACTIVE", presences: 4 },
+      { memberId: "3", name: "Carla", nickname: null, status: "ACTIVE", presences: 2 },
+      { memberId: "4", name: "Diego", nickname: null, status: "ACTIVE", presences: 0 },
+    ],
+    { includeZeros: false },
+  );
+  check(
+    "presença: empate 1,1,3 e zero omitido",
+    presence.length === 3 && presence[0]!.rank === 1 && presence[1]!.rank === 1 && presence[2]!.rank === 3,
+  );
+
+  const winRate = buildWinRateRanking([
+    {
+      memberId: "1",
+      name: "Ana",
+      nickname: null,
+      status: "ACTIVE",
+      totals: { ...emptyTotals(), matchesPlayed: 2, wins: 2 },
+    },
+    {
+      memberId: "2",
+      name: "Bruno",
+      nickname: null,
+      status: "ACTIVE",
+      totals: { ...emptyTotals(), matchesPlayed: 0, wins: 0 },
+    },
+  ]);
+  check("aproveitamento: só quem tem PJ", winRate.length === 1 && winRate[0]!.memberId === "1" && winRate[0]!.value === 100);
+
+  const efficiency = buildPlayerEfficiency({ ...emptyTotals(), matchesPlayed: 4, goals: 2, assists: 1 });
+  check(
+    "médias/jogador usam PJ e tratam PJ=0",
+    efficiency.goalsPerMatch === 0.5 &&
+      buildPlayerEfficiency(emptyTotals()).goalsPerMatch === null,
+  );
+
+  const insights = buildStatsInsights({
+    sessions: [
+      {
+        sessionId: "a",
+        startsAt: "2026-01-01T00:00:00.000Z",
+        label: "01/01",
+        goals: 8,
+        assists: 3,
+        attendance: 16,
+      },
+      {
+        sessionId: "b",
+        startsAt: "2026-02-01T00:00:00.000Z",
+        label: "01/02",
+        goals: 2,
+        assists: 5,
+        attendance: 20,
+      },
+      {
+        sessionId: "c",
+        startsAt: "2026-03-01T00:00:00.000Z",
+        label: "01/03",
+        goals: 4,
+        assists: 1,
+        attendance: 18,
+      },
+      {
+        sessionId: "d",
+        startsAt: "2026-04-01T00:00:00.000Z",
+        label: "01/04",
+        goals: 3,
+        assists: 2,
+        attendance: 15,
+      },
+      {
+        sessionId: "e",
+        startsAt: "2026-05-01T00:00:00.000Z",
+        label: "01/05",
+        goals: 6,
+        assists: 2,
+        attendance: 17,
+      },
+      {
+        sessionId: "f",
+        startsAt: "2026-06-01T00:00:00.000Z",
+        label: "01/06",
+        goals: 5,
+        assists: 1,
+        attendance: 19,
+      },
+      {
+        sessionId: "g",
+        startsAt: "2026-07-01T00:00:00.000Z",
+        label: "01/07",
+        goals: 7,
+        assists: 4,
+        attendance: 14,
+      },
+      {
+        sessionId: "h",
+        startsAt: "2026-08-01T00:00:00.000Z",
+        label: "01/08",
+        goals: 1,
+        assists: 0,
+        attendance: 12,
+      },
+      {
+        sessionId: "i",
+        startsAt: "2026-09-01T00:00:00.000Z",
+        label: "01/09",
+        goals: 2,
+        assists: 1,
+        attendance: 13,
+      },
+      {
+        sessionId: "j",
+        startsAt: "2026-10-01T00:00:00.000Z",
+        label: "01/10",
+        goals: 3,
+        assists: 2,
+        attendance: 15,
+      },
+    ],
+    consistentScorers: [
+      { memberId: "1", name: "Ana", nickname: null, status: "ACTIVE", sessionsWithGoal: 5 },
+      { memberId: "2", name: "Bruno", nickname: null, status: "ACTIVE", sessionsWithGoal: 5 },
+      { memberId: "3", name: "Carla", nickname: null, status: "ACTIVE", sessionsWithGoal: 2 },
+    ],
+    recentWindow: 5,
+  });
+  check(
+    "insights: recordes e tendência com janela suficiente",
+    insights.some((row) => row.kind === "most_goals_session" && row.valueLabel.includes("8")) &&
+      insights.some((row) => row.kind === "most_assists_session") &&
+      insights.some((row) => row.kind === "highest_attendance" && row.valueLabel.includes("20")) &&
+      insights.some((row) => row.kind === "most_consistent_scorer" && row.detail.includes("Ana")) &&
+      insights.some((row) => row.kind === "recent_goals_trend"),
+  );
+  check("insights: período vazio", buildStatsInsights({ sessions: [], consistentScorers: [] }).length === 0);
 }
 
 async function main() {

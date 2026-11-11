@@ -55,7 +55,7 @@ export default async function AccountPage() {
           Minhas estatísticas
         </Link>
         <Link href="/stats" className={darkBtnSecondary}>
-          Rankings
+          Estatísticas
         </Link>
         <Link href="/change-password" className={darkBtnSecondary}>
           Trocar senha
