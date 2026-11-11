@@ -71,7 +71,7 @@ npm run check:sw-push   # public/sw.js num contexto vm; sem banco nem navegador
 npm run check:push-client  # lógica do navegador (troca de chave, reinscrição) com PushManager falso
 ```
 
-`check:push` recusa rodar se `DATABASE_URL` não for localhost.
+`check:push` recusa rodar se `DATABASE_URL` não for loopback/`pelada_dev` (`requireLocalDatabaseUrl`).
 
 ## Teste manual local
 
@@ -144,7 +144,7 @@ Os dois precisam estar certos **e** as chaves VAPID configuradas. Sem isso, `dis
 npm run check:dispatch   # banco local, transação desfeita + um teste concorrente limpo ao final
 ```
 
-`check:dispatch` recusa rodar se `DATABASE_URL` não for localhost.
+`check:dispatch` recusa rodar se `DATABASE_URL` não for loopback/`pelada_dev` (`requireLocalDatabaseUrl`).
 
 O filtro opcional `onlyNotificationId` em `dispatchPending` e o tooling local
 `npm run check:smoke-dispatch` / `scripts/smoke-dispatch.ts` servem para testes

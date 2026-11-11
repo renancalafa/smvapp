@@ -2,6 +2,7 @@
 //
 //   npm run check:agenda-settings
 import "dotenv/config";
+import { requireLocalDatabaseUrl } from "../src/domain/db/database-safety";
 import { AsyncLocalStorage } from "node:async_hooks";
 import nodeModule from "node:module";
 import path from "node:path";
@@ -23,7 +24,6 @@ type ResolveHook = (
   nextResolve: (specifier: string, context: unknown) => unknown,
 ) => unknown;
 
-const LOCAL_HOSTS = new Set(["localhost", "127.0.0.1", "[::1]", "::1"]);
 
 class SetupError extends Error {}
 class Rollback extends Error {}
@@ -83,10 +83,7 @@ function viewerOf(
 }
 
 async function main() {
-  const connectionString = process.env.DATABASE_URL;
-  if (!connectionString) throw new SetupError("DATABASE_URL não definida.");
-  const host = new URL(connectionString).hostname;
-  if (!LOCAL_HOSTS.has(host)) throw new SetupError(`Recusado: host não local (${host}).`);
+  const connectionString = requireLocalDatabaseUrl(process.env.DATABASE_URL);
 
   const validation = await import("../src/server/modules/group-settings/validation");
   const service = await import("../src/server/modules/group-settings/service");

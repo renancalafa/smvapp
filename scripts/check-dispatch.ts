@@ -3,6 +3,7 @@
 //
 //   npm run check:dispatch
 import "dotenv/config";
+import { requireLocalDatabaseUrl } from "../src/domain/db/database-safety";
 import { AsyncLocalStorage } from "node:async_hooks";
 import { randomBytes, randomUUID } from "node:crypto";
 import nodeModule from "node:module";
@@ -21,7 +22,6 @@ type ResolveHook = (
   nextResolve: (specifier: string, context: unknown) => unknown,
 ) => unknown;
 
-const LOCAL_HOSTS = new Set(["localhost", "127.0.0.1", "[::1]", "::1"]);
 
 class SetupError extends Error {}
 class Rollback extends Error {}
@@ -94,10 +94,7 @@ async function main() {
   check("backoff 2ª falha = 60s", dispatch.dispatchBackoffMs(2) === 60_000);
   check("backoff 5ª falha limitado a 1h", dispatch.dispatchBackoffMs(8) === 3_600_000);
 
-  const connectionString = process.env.DATABASE_URL;
-  if (!connectionString) throw new SetupError("DATABASE_URL não definida.");
-  const host = new URL(connectionString).hostname;
-  if (!LOCAL_HOSTS.has(host)) throw new SetupError(`Recusado: host não local (${host}).`);
+  const connectionString = requireLocalDatabaseUrl(process.env.DATABASE_URL);
 
   const prisma = new PrismaClient({ adapter: new PrismaPg({ connectionString }) });
   const defaultAfter = schedule.pushDispatchRuntime.after;

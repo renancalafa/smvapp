@@ -9,6 +9,7 @@
 //
 //   npm run check:attendance-lock
 import "dotenv/config";
+import { requireLocalDatabaseUrl } from "../src/domain/db/database-safety";
 import { AsyncLocalStorage } from "node:async_hooks";
 import nodeModule from "node:module";
 import path from "node:path";
@@ -25,7 +26,6 @@ type ResolveHook = (
   nextResolve: (specifier: string, context: unknown) => unknown,
 ) => unknown;
 
-const LOCAL_HOSTS = new Set(["localhost", "127.0.0.1", "[::1]", "::1"]);
 const LOCK_HOLD_MS = 1_500;
 
 class SetupError extends Error {}
@@ -79,10 +79,7 @@ function viewerOf(group: Group, member: MemberRow): Viewer {
 }
 
 async function main() {
-  const connectionString = process.env.DATABASE_URL;
-  if (!connectionString) throw new SetupError("DATABASE_URL não definida (veja .env.example).");
-  const host = new URL(connectionString).hostname;
-  if (!LOCAL_HOSTS.has(host)) throw new SetupError(`Recusado: banco em host não local (${host}). Só para desenvolvimento.`);
+  const connectionString = requireLocalDatabaseUrl(process.env.DATABASE_URL);
 
   const sessions = await import("../src/server/modules/sessions/service");
   const draws = await import("../src/server/modules/draws/service");

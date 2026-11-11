@@ -1,0 +1,29 @@
+---
+description: Guardas de banco SMV — proíbe Prisma schema-changing e writes de produção sem aprovação
+alwaysApply: true
+---
+
+# Database safety (SMV)
+
+## Proibido sem aprovação humana explícita nesta conversa
+
+- `prisma migrate deploy|dev|reset|resolve`, `prisma db push|execute|seed|pull`
+- Qualquer escrita ou alteração de schema no banco de **produção** (Neon)
+- Copiar `DATABASE_URL` / `DIRECT_URL` de produção para `.env` local
+- Usar `vercel env pull` / secrets de produção para desenvolvimento rotineiro ou agentes
+- `npm run bootstrap -- --allow-remote` sem aprovação explícita + `SMV_ALLOW_REMOTE_BOOTSTRAP=I_UNDERSTAND`
+
+## Permitido no fluxo local
+
+- `npm run db:migrate:local` — único wrapper npm de migrate; exige loopback + database `pelada_dev`
+- `prisma generate` / `npm run build` (não migram)
+- Scripts `check:*` e `seed:test-players` contra `pelada_dev` local (já usam `requireLocalDatabaseUrl`)
+- Diagnósticos **read-only** de produção com confirmação explícita de host/nome (ex.: `smoke-dispatch` sem `--execute`)
+
+## Regras
+
+- Não confiar só em hostname: credenciais e privilégios locais isolados são obrigatórios.
+- Flags (`SMV_DB_TARGET`, `SMV_ALLOW_PRODUCTION_MIGRATE`, etc.) **não** são fronteira de segurança.
+- Produção: seguir `docs/deploy-vercel-neon.md`; **não** adicionar `db:migrate:production` no `package.json`.
+- Nunca imprimir connection strings, senhas ou dumps de `.env` com secrets.
+- Implementação: `src/domain/db/database-safety.ts` + `prisma.config.ts`.

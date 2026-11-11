@@ -1,6 +1,14 @@
 # Deploy de produção — Vercel + Neon
 
-Runbook do primeiro deploy do SMV. **Não** rode `migrate reset` em produção. Migrations **não** entram no `npm run build` da Vercel: aplique-as manualmente (ou em CI separado) com `DIRECT_URL`.
+Runbook do primeiro deploy do SMV. **Não** rode `migrate reset` em produção. Migrations **não** entram no `npm run build` da Vercel: aplique-as manualmente com procedimento humano aprovado (abaixo).
+
+## Segurança de banco (leia antes)
+
+- O `.env` **local** deve conter **somente** conexões loopback/`pelada_dev`. Nunca copie `DATABASE_URL`/`DIRECT_URL` de produção para desenvolvimento.
+- Credenciais de migração de produção ficam fora do fluxo rotineiro (agentes, `npm run db:migrate:local`, `.env` de dev).
+- `npm run db:migrate:local` **nunca** migra produção. Não existe script npm padrão `db:migrate:production`.
+- Flags (`SMV_DB_TARGET`, `SMV_ALLOW_PRODUCTION_MIGRATE`, `SMV_ALLOW_REMOTE_BOOTSTRAP`) são freios operacionais — **não** são fronteira de segurança. Isolamento real = credenciais e privilégios separados.
+- Checagem de hostname sozinha **não** prova que o banco é seguro.
 
 ## Pré-requisitos
 
@@ -13,7 +21,7 @@ Runbook do primeiro deploy do SMV. **Não** rode `migrate reset` em produção. 
 | Nome | Valor | Onde |
 | --- | --- | --- |
 | `DATABASE_URL` | Neon **pooled** (`…-pooler…`, `sslmode=require`) | Production (e Preview se quiser banco separado) |
-| `DIRECT_URL` | Neon **direct** (sem `-pooler`) | Só necessário na máquina/CI que roda `migrate` / `bootstrap` — pode ficar só no shell local, não precisa estar na Vercel se o build não migrar |
+| `DIRECT_URL` | Neon **direct** (sem `-pooler`) | **Não** na Vercel do app. Só no shell/CI de release humano que aplica migrate / bootstrap |
 | `CRON_SECRET` | Segredo longo aleatório | Production. Protege `/api/cron/tick`; sem ele a rota responde 401. Necessário só se algum agendador chamar a rota (hoje não há cron, veja o passo 6) |
 | `NEXT_PUBLIC_VAPID_PUBLIC_KEY` | Chave pública VAPID (`npx web-push generate-vapid-keys`) | Production; sem ela o push fica desligado |
 | `VAPID_PRIVATE_KEY` | Chave privada VAPID do mesmo par (Sensitive) | Production |
@@ -50,31 +58,38 @@ Faça commit (e push) de tudo que entra no MVP — inclusive:
 2. Em **Connect**, copie a URL **pooled** → será `DATABASE_URL`.
 3. Copie a URL **direct** → será `DIRECT_URL` no shell local.
 
-### 3. Aplicar migrations (uma vez, fora do build Vercel)
+### 3. Aplicar migrations (humano, fora do build Vercel)
 
-Na máquina local (ou job de release), com as URLs de **produção**:
+**Desenvolvimento local:** `npm run db:migrate:local` (exige `SMV_DB_TARGET=local` + loopback/`pelada_dev`).
 
-```bash
-# PowerShell / bash — não use o .env de desenvolvimento
-set DATABASE_URL=postgresql://…-pooler…/neondb?sslmode=require
-set DIRECT_URL=postgresql://…(sem pooler)…/neondb?sslmode=require
+**Produção:** procedimento **humano aprovado**. Não use `db:migrate:local`. Não há comando npm padrão de migrate produção.
+
+No shell de release (PowerShell exemplo), **sem** carregar o `.env` de desenvolvimento — exporte só as URLs de produção neste processo:
+
+```powershell
+$env:DATABASE_URL = "postgresql://…-pooler…/neondb?sslmode=require"
+$env:DIRECT_URL = "postgresql://…(sem pooler)…/neondb?sslmode=require"
+$env:SMV_DB_TARGET = "production"
+$env:SMV_ALLOW_PRODUCTION_MIGRATE = "I_UNDERSTAND"
 
 npx prisma migrate status
 npx prisma migrate deploy
 npx prisma migrate status
 ```
 
-`prisma.config.ts` usa `DIRECT_URL || DATABASE_URL` para o CLI. Confirme as **três** migrations aplicadas. **Não** use `migrate reset` / `db push` em produção.
+`prisma.config.ts` falha fechado em `migrate`/`db *` sem alvo válido. Com `SMV_DB_TARGET=production` exige também `SMV_ALLOW_PRODUCTION_MIGRATE=I_UNDERSTAND` e recusa loopback. Confirme as migrations aplicadas. **Não** use `migrate reset` / `db push` em produção.
 
 ### 4. Bootstrap do primeiro ADMIN (banco vazio)
 
-```bash
+```powershell
+$env:SMV_ALLOW_REMOTE_BOOTSTRAP = "I_UNDERSTAND"
 npm run bootstrap -- --username seu.usuario --name "Seu Nome" --modality MONTHLY --allow-remote
 ```
 
 - Só funciona se não houver `Group`/`User`.
+- Remoto exige `--allow-remote` **e** `SMV_ALLOW_REMOTE_BOOTSTRAP=I_UNDERSTAND`.
 - Imprime a senha temporária **uma vez** — guarde offline e troque no primeiro login.
-- Use `DATABASE_URL` apontando ao Neon (direto ou pooled; preferível direto para o script).
+- Use `DATABASE_URL` apontando ao Neon (direto ou pooled; preferível direto para o script), nunca o `.env` local de `pelada_dev`.
 
 ### 5. Configurar a Vercel
 

@@ -5,6 +5,7 @@
 //   npm run seed:test-players
 //   npm run seed:test-players -- --count 20 --monthly 12 --confirm
 import "dotenv/config";
+import { requireLocalDatabaseUrl } from "../src/domain/db/database-safety";
 import { parseArgs } from "node:util";
 import { PrismaPg } from "@prisma/adapter-pg";
 import { allocate, type QueueEntry } from "../src/domain/presence/allocate";
@@ -16,7 +17,6 @@ const USAGE = `Uso:
   npm run seed:test-players -- [--count 20] [--monthly 12] [--prefix teste]
                                [--password teste1234] [--confirm]`;
 
-const LOCAL_HOSTS = new Set(["localhost", "127.0.0.1", "[::1]", "::1"]);
 const SOURCE = "scripts/seed-test-players.ts";
 // Notas variadas (1 a 5) para o sorteio ter o que equilibrar.
 const RATINGS = [3, 4, 2, 5, 3, 1, 4, 3, 2, 5, 3, 4, 1, 3, 2, 4, 5, 3, 2, 3];
@@ -227,15 +227,7 @@ async function confirmPlayers(prisma: Prisma, groupId: string, memberIds: string
 
 async function main() {
   const options = parseOptions();
-  const connectionString = process.env.DATABASE_URL;
-  if (!connectionString) throw new UsageError("DATABASE_URL não definida (veja .env.example).");
-  let host: string;
-  try {
-    host = new URL(connectionString).hostname;
-  } catch {
-    throw new UsageError("DATABASE_URL inválida.");
-  }
-  if (!LOCAL_HOSTS.has(host)) throw new UsageError(`Recusado: banco em host não local (${host}). Só para desenvolvimento.`);
+  const connectionString = requireLocalDatabaseUrl(process.env.DATABASE_URL);
 
   const prisma = new PrismaClient({ adapter: new PrismaPg({ connectionString }) });
   try {

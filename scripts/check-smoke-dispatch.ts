@@ -3,6 +3,7 @@
 //
 //   npm run check:smoke-dispatch
 import "dotenv/config";
+import { requireLocalDatabaseUrl } from "../src/domain/db/database-safety";
 import { AsyncLocalStorage } from "node:async_hooks";
 import { randomBytes } from "node:crypto";
 import nodeModule from "node:module";
@@ -20,7 +21,6 @@ type ResolveHook = (
   nextResolve: (specifier: string, context: unknown) => unknown,
 ) => unknown;
 
-const LOCAL_HOSTS = new Set(["localhost", "127.0.0.1", "[::1]", "::1"]);
 class SetupError extends Error {}
 class Rollback extends Error {}
 
@@ -68,10 +68,7 @@ async function main() {
   );
   check("URL inválida não vira identidade", identity.readDatabaseIdentity("não-é-url") === null);
 
-  const connectionString = process.env.DATABASE_URL;
-  if (!connectionString) throw new SetupError("DATABASE_URL não definida.");
-  const host = new URL(connectionString).hostname;
-  if (!LOCAL_HOSTS.has(host)) throw new SetupError(`Recusado: host não local (${host}).`);
+  const connectionString = requireLocalDatabaseUrl(process.env.DATABASE_URL);
 
   const dispatch = await import("../src/server/modules/notifications/dispatch");
   const smoke = await import("../src/server/modules/notifications/smoke");

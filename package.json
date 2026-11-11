@@ -12,6 +12,8 @@
     "lint": "eslint",
     "typecheck": "tsc --noEmit",
     "bootstrap": "tsx scripts/bootstrap.ts",
+    "db:migrate:local": "tsx scripts/db-migrate-local.ts",
+    "check:db-safety": "tsx scripts/check-db-safety.ts",
     "seed:test-players": "tsx scripts/seed-test-players.ts",
     "check:attendance-lock": "tsx scripts/check-attendance-lock.ts",
     "check:self-respond": "tsx scripts/check-self-respond.ts",

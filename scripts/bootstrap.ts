@@ -1,10 +1,19 @@
 // Cria o Group, o GroupSettings (valores do seed) e o primeiro ADMIN, com senha temporária.
-// Só roda em banco vazio; recusa hosts não locais sem --allow-remote.
+// Só roda em banco vazio. Local: exige loopback/pelada_dev.
+// Remoto: --allow-remote + SMV_ALLOW_REMOTE_BOOTSTRAP=I_UNDERSTAND (não é fronteira de segurança).
 //
 //   npm run bootstrap -- --username renan --name "Renan" --modality MONTHLY
 import "dotenv/config";
 import { parseArgs } from "node:util";
 import { PrismaPg } from "@prisma/adapter-pg";
+import {
+  DatabaseSafetyError,
+  assertRemoteBootstrapApproved,
+  formatDatabaseIdentity,
+  isLoopbackHost,
+  readDatabaseIdentity,
+  requireLocalDatabaseUrl,
+} from "../src/domain/db/database-safety";
 import { PrismaClient, type PlayerModality } from "../src/generated/prisma/client";
 import { generateTemporaryPassword, hashPassword } from "../src/server/auth/password";
 import { isValidUsername, normalizeUsername } from "../src/server/auth/validation";
@@ -12,9 +21,8 @@ import { isValidUsername, normalizeUsername } from "../src/server/auth/validatio
 const USAGE = `Uso:
   npm run bootstrap -- --username <usuario> --name "<nome>" --modality MONTHLY|DAILY
                        [--rating 1-5] [--group-name "Pelada"] [--group-slug pelada]
-                       [--timezone America/Sao_Paulo] [--allow-remote]`;
-
-const LOCAL_HOSTS = new Set(["localhost", "127.0.0.1", "[::1]", "::1"]);
+                       [--timezone America/Sao_Paulo] [--allow-remote]
+  Remoto também exige SMV_ALLOW_REMOTE_BOOTSTRAP=I_UNDERSTAND no ambiente.`;
 
 class UsageError extends Error {}
 
@@ -77,22 +85,25 @@ function parseOptions() {
   };
 }
 
-function databaseHost(connectionString: string): string {
-  try {
-    return new URL(connectionString).hostname;
-  } catch {
-    throw new UsageError("DATABASE_URL inválida.");
-  }
-}
-
 async function main() {
   const options = parseOptions();
 
-  const connectionString = process.env.DATABASE_URL;
-  if (!connectionString) throw new UsageError("DATABASE_URL não definida (veja .env.example).");
-  const host = databaseHost(connectionString);
-  if (!LOCAL_HOSTS.has(host) && !options.allowRemote) {
-    throw new UsageError(`Banco em host não local (${host}). Use --allow-remote se for intencional.`);
+  let connectionString: string;
+  if (options.allowRemote) {
+    assertRemoteBootstrapApproved(process.env);
+    const raw = process.env.DATABASE_URL;
+    if (!raw?.trim()) throw new UsageError("DATABASE_URL não definida (veja .env.example).");
+    const identity = readDatabaseIdentity(raw);
+    if (!identity) throw new UsageError("DATABASE_URL inválida.");
+    if (isLoopbackHost(identity.host)) {
+      throw new UsageError(
+        `--allow-remote com banco loopback (${formatDatabaseIdentity(identity)}). Omita --allow-remote para local pelada_dev.`,
+      );
+    }
+    connectionString = raw;
+    console.log(`Bootstrap remoto em ${formatDatabaseIdentity(identity)} (aprovação explícita).`);
+  } else {
+    connectionString = requireLocalDatabaseUrl(process.env.DATABASE_URL);
   }
 
   const temporaryPassword = generateTemporaryPassword();
@@ -192,7 +203,7 @@ async function main() {
 }
 
 main().catch((error: unknown) => {
-  if (error instanceof UsageError) {
+  if (error instanceof UsageError || error instanceof DatabaseSafetyError) {
     console.error(`Erro: ${error.message}\n\n${USAGE}`);
   } else {
     console.error(error);

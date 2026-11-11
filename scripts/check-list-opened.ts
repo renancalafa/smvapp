@@ -2,6 +2,7 @@
 //
 //   npm run check:list-opened
 import "dotenv/config";
+import { requireLocalDatabaseUrl } from "../src/domain/db/database-safety";
 import { AsyncLocalStorage } from "node:async_hooks";
 import { randomUUID } from "node:crypto";
 import nodeModule from "node:module";
@@ -18,7 +19,6 @@ type ResolveHook = (
   nextResolve: (specifier: string, context: unknown) => unknown,
 ) => unknown;
 
-const LOCAL_HOSTS = new Set(["localhost", "127.0.0.1", "[::1]", "::1"]);
 const hour = 3_600_000;
 
 class SetupError extends Error {}
@@ -51,10 +51,7 @@ function check(name: string, ok: boolean, detail?: string) {
 }
 
 async function main() {
-  const connectionString = process.env.DATABASE_URL;
-  if (!connectionString) throw new SetupError("DATABASE_URL não definida.");
-  const host = new URL(connectionString).hostname;
-  if (!LOCAL_HOSTS.has(host)) throw new SetupError(`Recusado: host não local (${host}).`);
+  const connectionString = requireLocalDatabaseUrl(process.env.DATABASE_URL);
 
   const engine = await import("../src/server/modules/sessions/engine");
 
