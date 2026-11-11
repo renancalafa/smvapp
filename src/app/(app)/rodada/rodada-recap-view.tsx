@@ -75,8 +75,6 @@ export function RodadaRecapView({
         </div>
       </header>
 
-      <SessionProgress />
-
       {recap.incompleteNote && (
         <p className="rounded-xl border border-dashed border-smv-gold/35 bg-smv-gold/10 px-4 py-3 text-sm text-smv-gold-bright">
           {recap.incompleteNote}
@@ -253,49 +251,6 @@ export function RodadaRecapView({
   );
 }
 
-function SessionProgress() {
-  const steps = ["Presença", "Times", "Ao Vivo", "Resultado"] as const;
-  return (
-    <nav aria-label="Progresso da sessão" className="rounded-2xl border border-white/10 bg-smv-navy-card px-3 py-3">
-      <ol className="flex items-center gap-1 sm:gap-2">
-        {steps.map((step, index) => {
-          const isFinal = index === steps.length - 1;
-          const done = !isFinal;
-          return (
-            <li key={step} className="flex min-w-0 flex-1 items-center gap-1 sm:gap-2">
-              <div className="flex min-w-0 flex-1 flex-col items-center gap-1 text-center">
-                <span
-                  className={`flex size-7 items-center justify-center rounded-full text-xs font-bold sm:size-8 ${
-                    isFinal
-                      ? "bg-smv-gold text-smv-navy ring-2 ring-smv-gold/40"
-                      : "bg-emerald-400/20 text-emerald-200 ring-1 ring-emerald-300/35"
-                  }`}
-                  aria-current={isFinal ? "step" : undefined}
-                >
-                  {done ? "✓" : index + 1}
-                </span>
-                <span
-                  className={`truncate text-[10px] font-medium uppercase tracking-wide sm:text-xs ${
-                    isFinal ? "text-smv-gold-bright" : "text-white/55"
-                  }`}
-                >
-                  {step}
-                </span>
-              </div>
-              {index < steps.length - 1 && (
-                <span
-                  className="mb-4 hidden h-0.5 flex-1 rounded-full bg-emerald-300/40 sm:block"
-                  aria-hidden
-                />
-              )}
-            </li>
-          );
-        })}
-      </ol>
-    </nav>
-  );
-}
-
 function ChampionCard({ recap }: { recap: RodadaRecap }) {
   const { champion } = recap;
 
@@ -433,7 +388,7 @@ function HighlightsGrid({ recap }: { recap: RodadaRecap }) {
                   </p>
                 )}
                 <p className="mt-1 text-sm tabular-nums text-smv-gold-bright">
-                  {highlight.value} {highlight.metricLabel}
+                  {highlight.detail ?? `${highlight.value} ${highlight.metricLabel}`}
                 </p>
               </>
             )}

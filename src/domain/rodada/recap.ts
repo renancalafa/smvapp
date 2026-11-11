@@ -436,14 +436,17 @@ export function aggregateSessionPlayerStats(input: {
     );
 }
 
-export type RodadaHighlightKind = "artilheiro" | "garcom" | "xerife";
+export type RodadaHighlightKind = "artilheiro" | "garcom" | "pereba";
 
 export type RodadaHighlight = {
   kind: RodadaHighlightKind;
   label: string;
+  /** Texto do estado vazio, ex.: "pixotadas". */
   metricLabel: string;
   /** null quando ninguém registrou a métrica (>0). */
   value: number | null;
+  /** Linha de métrica amigável (ex.: "2 pixotadas" ou "1 gol contra · 1 pixotada"). */
+  detail: string | null;
   /** Um ou mais líderes; vazio se value é null. */
   leaders: { memberId: string; name: string; nickname: string | null }[];
 };
@@ -466,19 +469,74 @@ function leadersForMetric(
   };
 }
 
-/** Destaques da sessão: Artilheiro (gols), Garçom (assistências), Xerife (desarmes). */
+function formatCountLabel(count: number, singular: string, plural: string): string {
+  return `${count} ${count === 1 ? singular : plural}`;
+}
+
+/** Pior contribuição: mais pixotadas; desempate por gols contra; depois memberId. */
+export function resolvePerebaLeaders(
+  rows: ReadonlyArray<RodadaPlayerStatRow>,
+): {
+  value: number | null;
+  detail: string | null;
+  leaders: RodadaHighlight["leaders"];
+  bigMisses: number;
+  ownGoals: number;
+} {
+  let bestPix = 0;
+  for (const row of rows) {
+    if (row.totals.bigMisses > bestPix) bestPix = row.totals.bigMisses;
+  }
+  if (bestPix <= 0) {
+    return { value: null, detail: null, leaders: [], bigMisses: 0, ownGoals: 0 };
+  }
+
+  let candidates = rows.filter((row) => row.totals.bigMisses === bestPix);
+  let bestOwn = -1;
+  for (const row of candidates) {
+    if (row.totals.ownGoals > bestOwn) bestOwn = row.totals.ownGoals;
+  }
+  candidates = candidates
+    .filter((row) => row.totals.ownGoals === bestOwn)
+    .sort((a, b) => a.memberId.localeCompare(b.memberId));
+
+  const sample = candidates[0]!;
+  const parts: string[] = [];
+  if (sample.totals.ownGoals > 0) {
+    parts.push(formatCountLabel(sample.totals.ownGoals, "gol contra", "gols contra"));
+  }
+  parts.push(formatCountLabel(sample.totals.bigMisses, "pixotada", "pixotadas"));
+
+  return {
+    value: sample.totals.bigMisses,
+    detail: parts.join(" · "),
+    leaders: candidates.map((row) => ({
+      memberId: row.memberId,
+      name: row.name,
+      nickname: row.nickname,
+    })),
+    bigMisses: sample.totals.bigMisses,
+    ownGoals: sample.totals.ownGoals,
+  };
+}
+
+/** Destaques da sessão: Artilheiro (gols), Garçom (assistências), Pereba (pixotadas). */
 export function buildRodadaHighlights(
   rows: ReadonlyArray<RodadaPlayerStatRow>,
 ): RodadaHighlight[] {
   const artilheiro = leadersForMetric(rows, (row) => row.totals.goals);
   const garcom = leadersForMetric(rows, (row) => row.totals.assists);
-  const xerife = leadersForMetric(rows, (row) => row.totals.tackles);
+  const pereba = resolvePerebaLeaders(rows);
   return [
     {
       kind: "artilheiro",
       label: "Artilheiro",
       metricLabel: "gols",
       value: artilheiro.value,
+      detail:
+        artilheiro.value == null
+          ? null
+          : formatCountLabel(artilheiro.value, "gol", "gols"),
       leaders: artilheiro.leaders,
     },
     {
@@ -486,14 +544,19 @@ export function buildRodadaHighlights(
       label: "Garçom",
       metricLabel: "assistências",
       value: garcom.value,
+      detail:
+        garcom.value == null
+          ? null
+          : formatCountLabel(garcom.value, "assistência", "assistências"),
       leaders: garcom.leaders,
     },
     {
-      kind: "xerife",
-      label: "Xerife",
-      metricLabel: "desarmes",
-      value: xerife.value,
-      leaders: xerife.leaders,
+      kind: "pereba",
+      label: "Pereba",
+      metricLabel: "pixotadas",
+      value: pereba.value,
+      detail: pereba.detail,
+      leaders: pereba.leaders,
     },
   ];
 }

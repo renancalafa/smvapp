@@ -173,20 +173,50 @@ function check(name: string, ok: boolean) {
       memberId: "p1",
       name: "Ana",
       nickname: null,
-      totals: { ...emptyTotals(), goals: 3, assists: 1, tackles: 2 },
+      totals: { ...emptyTotals(), goals: 3, assists: 1, bigMisses: 2, ownGoals: 0 },
     },
     {
       memberId: "p2",
       name: "Beto",
       nickname: "B",
-      totals: { ...emptyTotals(), goals: 3, assists: 0, tackles: 5 },
+      totals: { ...emptyTotals(), goals: 3, assists: 0, bigMisses: 2, ownGoals: 1 },
+    },
+    {
+      memberId: "p3",
+      name: "Caio",
+      nickname: null,
+      totals: { ...emptyTotals(), goals: 0, assists: 0, bigMisses: 1, ownGoals: 3 },
     },
   ];
   const h = buildRodadaHighlights(withGoals);
   const art = h.find((x) => x.kind === "artilheiro");
-  const xer = h.find((x) => x.kind === "xerife");
+  const pereba = h.find((x) => x.kind === "pereba");
   check("artilheiro empate em gols", !!art && art.leaders.length === 2 && art.value === 3);
-  check("xerife = desarmes", !!xer && xer.leaders[0]?.memberId === "p2" && xer.value === 5);
+  check(
+    "pereba: pixotadas first, own goals tiebreak",
+    !!pereba &&
+      pereba.leaders.length === 1 &&
+      pereba.leaders[0]?.memberId === "p2" &&
+      pereba.detail === "1 gol contra · 2 pixotadas",
+  );
+  check("no xerife highlight", h.every((x) => x.kind !== ("xerife" as string)));
+}
+
+{
+  const onlyOwnGoals: RodadaPlayerStatRow[] = [
+    {
+      memberId: "p1",
+      name: "Ana",
+      nickname: null,
+      totals: { ...emptyTotals(), ownGoals: 4 },
+    },
+  ];
+  const h = buildRodadaHighlights(onlyOwnGoals);
+  const pereba = h.find((x) => x.kind === "pereba");
+  check(
+    "pereba requires pixotadas (own goals alone do not qualify)",
+    !!pereba && pereba.value === null,
+  );
 }
 
 for (const result of results) {

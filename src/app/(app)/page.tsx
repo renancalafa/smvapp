@@ -2,22 +2,41 @@ import Image from "next/image";
 import Link from "next/link";
 import { requireViewer } from "@/server/auth/dal";
 import { getActiveDrawStatus } from "@/server/modules/draws/queries";
+import { getHomeDashboard } from "@/server/modules/home/queries";
 import { getNightNavMode, nightNavItem } from "@/server/modules/nav/night-mode";
 import { getNextSession } from "@/server/modules/sessions/queries";
 import { syncSessionsForRead } from "@/server/modules/sessions/sync";
+import { HomeLastSessionCard } from "./home-last-session";
+import { HomePlayerSummaryCard } from "./home-player-summary";
 import { MODALITY_LABEL, ROLE_LABEL } from "./labels";
 import { NextSessionCard } from "./sessions/next-session-card";
 
 export default async function HomePage() {
   const viewer = await requireViewer();
   await syncSessionsForRead(viewer.group.id);
-  const board = await getNextSession(viewer.group.id);
+  const [board, home, nightMode] = await Promise.all([
+    getNextSession(viewer.group.id),
+    getHomeDashboard({
+      groupId: viewer.group.id,
+      memberId: viewer.member.id,
+      timeZone: viewer.group.timezone,
+      modality: viewer.member.modality,
+      role: viewer.member.role,
+    }),
+    getNightNavMode(viewer.group.id),
+  ]);
   const drawStatus = board ? await getActiveDrawStatus(board.session.id) : null;
-  const night = nightNavItem(await getNightNavMode(viewer.group.id));
+  const night = nightNavItem(nightMode);
   const nightDescription =
     night.href === "/live"
       ? "Placar e partida em andamento"
       : "Recap da última pelada encerrada";
+
+  // Se o nome não veio do profile (membro órfão), cai no viewer.
+  const player = {
+    ...home.player,
+    name: home.player.name || viewer.user.name,
+  };
 
   return (
     <section className="flex flex-col gap-5 text-smv-cream">
@@ -43,7 +62,11 @@ export default async function HomePage() {
         </div>
       </header>
 
+      <HomePlayerSummaryCard player={player} />
+
       <NextSessionCard board={board} viewer={viewer} drawStatus={drawStatus} />
+
+      <HomeLastSessionCard recap={home.lastSession} timeZone={viewer.group.timezone} />
 
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
         <ShortcutLink
