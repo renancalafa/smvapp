@@ -3,13 +3,16 @@ import { scoreFromEvents } from "@/domain/match/queue";
 import {
   aggregateSessionPlayerStats,
   buildHeadToHeadMatrix,
+  buildRodadaHighlights,
   buildTeamStandings,
   resolveRodadaChampion,
   type RodadaChampion,
   type RodadaHeadToHeadCell,
+  type RodadaHighlight,
   type RodadaPlayerStatRow,
   type RodadaTeamStanding,
 } from "@/domain/rodada/recap";
+import { resolveTeamDisplay } from "@/domain/team/colors";
 import { db } from "@/server/db";
 
 export type RodadaRecap = {
@@ -26,6 +29,7 @@ export type RodadaRecap = {
     name: string;
     color: string | null;
     kind: "REGULAR" | "BIRTHDAY" | "ROTATION_POOL";
+    initialQueuePosition: number | null;
     players: { memberId: string; name: string; nickname: string | null }[];
   }[];
   matches: {
@@ -42,6 +46,7 @@ export type RodadaRecap = {
   standings: RodadaTeamStanding[];
   headToHead: { teamIds: string[]; cells: RodadaHeadToHeadCell[] };
   champion: RodadaChampion;
+  highlights: RodadaHighlight[];
   playerStats: RodadaPlayerStatRow[];
   incompleteNote: string | null;
 };
@@ -110,6 +115,18 @@ export async function getRodadaRecap(
     },
   });
 
+  const displayById = new Map(
+    session.teams.map((team) => {
+      const display = resolveTeamDisplay({
+        name: team.name,
+        color: team.color,
+        kind: team.kind,
+        position: team.initialQueuePosition,
+      });
+      return [team.id, display] as const;
+    }),
+  );
+
   const finishedInputs = matches.map((match) => {
     const { scoreA, scoreB } = scoreFromEvents(match.events, match.teamAId, match.teamBId);
     return {
@@ -117,38 +134,35 @@ export async function getRodadaRecap(
       sequence: match.sequence,
       teamAId: match.teamAId,
       teamBId: match.teamBId,
-      teamAName: match.teamA.name,
-      teamBName: match.teamB.name,
+      teamAName: displayById.get(match.teamAId)?.displayName ?? match.teamA.name,
+      teamBName: displayById.get(match.teamBId)?.displayName ?? match.teamB.name,
       scoreA,
       scoreB,
       penaltyWinnerTeamId: match.penaltyWinnerTeamId,
     };
   });
 
-  const teamInputs = session.teams.map((team) => ({
-    id: team.id,
-    name: team.name,
-    color: team.color,
-    kind: team.kind,
-    initialQueuePosition: team.initialQueuePosition,
-  }));
+  const teamInputs = session.teams.map((team) => {
+    const display = displayById.get(team.id)!;
+    return {
+      id: team.id,
+      name: display.displayName,
+      color: display.colorHex,
+      kind: team.kind,
+      initialQueuePosition: team.initialQueuePosition,
+    };
+  });
 
   const standings = buildTeamStandings(teamInputs, finishedInputs);
   const headToHead = buildHeadToHeadMatrix(teamInputs, finishedInputs);
 
-  const regularTeams = session.teams
-    .filter(
-      (team): team is (typeof team) & { initialQueuePosition: number } =>
-        team.kind === "REGULAR" && team.initialQueuePosition !== null,
-    )
-    .map((team) => ({
-      id: team.id,
-      name: team.name,
-      initialQueuePosition: team.initialQueuePosition,
-    }));
+  const regularTeams = session.teams.filter(
+    (team): team is (typeof team) & { initialQueuePosition: number } =>
+      team.kind === "REGULAR" && team.initialQueuePosition !== null,
+  );
 
   const champion = resolveRodadaChampion({
-    teams: session.teams.map((team) => ({ id: team.id, name: team.name })),
+    teams: teamInputs.map((team) => ({ id: team.id, name: team.name })),
     finished: finishedInputs,
   });
 
@@ -193,6 +207,7 @@ export async function getRodadaRecap(
       penaltyWinnerTeamId: match.penaltyWinnerTeamId,
     })),
   });
+  const highlights = buildRodadaHighlights(playerStats);
 
   let incompleteNote: string | null = null;
   if (finishedInputs.length === 0) {
@@ -210,21 +225,26 @@ export async function getRodadaRecap(
     finishedAt: session.finishedAt?.toISOString() ?? null,
     origin: session.origin,
     playerCount: session.registrations.length,
-    teams: session.teams.map((team) => ({
-      id: team.id,
-      name: team.name,
-      color: team.color,
-      kind: team.kind,
-      players: team.players.map((player) => ({
-        memberId: player.memberId,
-        name: player.member.user.name,
-        nickname: player.member.nickname,
-      })),
-    })),
+    teams: session.teams.map((team) => {
+      const display = displayById.get(team.id)!;
+      return {
+        id: team.id,
+        name: display.displayName,
+        color: display.colorHex,
+        kind: team.kind,
+        initialQueuePosition: team.initialQueuePosition,
+        players: team.players.map((player) => ({
+          memberId: player.memberId,
+          name: player.member.user.name,
+          nickname: player.member.nickname,
+        })),
+      };
+    }),
     matches: finishedInputs,
     standings,
     headToHead,
     champion,
+    highlights,
     playerStats,
     incompleteNote,
   };

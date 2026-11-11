@@ -6,6 +6,7 @@ import {
   suggestMatchupAfterHistory,
   type QueueTeam,
 } from "@/domain/match/queue";
+import { resolveTeamDisplay } from "@/domain/team/colors";
 import { db } from "@/server/db";
 import { buildMatchView, type MatchView } from "./view";
 
@@ -91,6 +92,28 @@ export async function getLiveBoard(groupId: string, sessionId: string, now = new
   });
   if (!session) return null;
 
+  const displayById = new Map(
+    session.teams.map((team) => {
+      const display = resolveTeamDisplay({
+        name: team.name,
+        color: team.color,
+        kind: team.kind,
+        position: team.initialQueuePosition,
+      });
+      return [team.id, display] as const;
+    }),
+  );
+  const resolvedTeams: TeamSummary[] = session.teams.map((team) => {
+    const display = displayById.get(team.id)!;
+    return {
+      id: team.id,
+      name: display.displayName,
+      color: display.colorHex,
+      initialQueuePosition: team.initialQueuePosition,
+      kind: team.kind,
+    };
+  });
+
   const matches = await db.match.findMany({
     where: { gameSessionId: sessionId, status: { not: "CANCELLED" } },
     orderBy: { sequence: "asc" },
@@ -123,8 +146,8 @@ export async function getLiveBoard(groupId: string, sessionId: string, now = new
         sequence: match.sequence,
         teamAId: match.teamAId,
         teamBId: match.teamBId,
-        teamAName: match.teamA.name,
-        teamBName: match.teamB.name,
+        teamAName: displayById.get(match.teamAId)?.displayName ?? match.teamA.name,
+        teamBName: displayById.get(match.teamBId)?.displayName ?? match.teamB.name,
         scoreA,
         scoreB,
         penaltyWinnerTeamId: match.penaltyWinnerTeamId,
@@ -183,7 +206,6 @@ export async function getLiveBoard(groupId: string, sessionId: string, now = new
   });
   const rostersByTeamId: Record<string, TeamRosterPlayer[]> = {};
   const homeTeamByMember = new Map<string, { id: string; name: string }>();
-  const teamNameById = new Map(session.teams.map((team) => [team.id, team.name]));
   for (const row of rosterRows) {
     if (row.member.registrations.length === 0) continue;
     const list = rostersByTeamId[row.sessionTeamId] ?? [];
@@ -197,7 +219,7 @@ export async function getLiveBoard(groupId: string, sessionId: string, now = new
     rostersByTeamId[row.sessionTeamId] = list;
     homeTeamByMember.set(row.memberId, {
       id: row.sessionTeamId,
-      name: teamNameById.get(row.sessionTeamId) ?? "Time",
+      name: displayById.get(row.sessionTeamId)?.displayName ?? "Time",
     });
   }
 
@@ -223,7 +245,7 @@ export async function getLiveBoard(groupId: string, sessionId: string, now = new
     sessionId: session.id,
     matchDurationSec: session.matchDurationSec,
     teamCount,
-    teams: session.teams,
+    teams: resolvedTeams,
     rostersByTeamId,
     participants,
     current,

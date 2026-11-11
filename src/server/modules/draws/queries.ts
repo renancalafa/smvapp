@@ -1,4 +1,5 @@
 import "server-only";
+import { resolveTeamDisplay } from "@/domain/team/colors";
 import { db } from "@/server/db";
 
 // Leituras do sorteio. Força (balanceScore, strengthTotal, strengthSnapshot) e nomes de
@@ -9,6 +10,7 @@ export type DrawTeamView = {
   id: string;
   position: number;
   name: string;
+  color: string | null;
   kind: "REGULAR" | "BIRTHDAY" | "ROTATION_POOL";
   strengthTotal: number | null;
   players: DrawPlayerView[];
@@ -72,6 +74,7 @@ async function loadDraws(where: { gameSessionId: string; invalidatedAt?: null | 
               id: true,
               position: true,
               name: true,
+              color: true,
               kind: true,
               strengthTotal: true,
               players: {
@@ -109,20 +112,29 @@ function toView(draw: DrawRow, eligible: Set<string>, admin: boolean, viewerMemb
       balanceScore: admin ? option.balanceScore : null,
       votes: counted.length,
       voterNames: admin ? counted.map((vote) => memberName(vote.voter)).sort((a, b) => a.localeCompare(b, "pt-BR")) : null,
-      teams: option.teams.map((team) => ({
-        id: team.id,
-        position: team.position,
-        name: team.name,
-        kind: team.kind,
-        strengthTotal: admin ? team.strengthTotal : null,
-        players: team.players
-          .map((player) => ({
-            memberId: player.memberId,
-            name: memberName(player.member),
-            strength: admin ? player.strengthSnapshot : null,
-          }))
-          .sort((a, b) => a.name.localeCompare(b.name, "pt-BR")),
-      })),
+      teams: option.teams.map((team) => {
+        const display = resolveTeamDisplay({
+          name: team.name,
+          color: team.color,
+          kind: team.kind,
+          position: team.position,
+        });
+        return {
+          id: team.id,
+          position: team.position,
+          name: display.displayName,
+          color: display.colorHex,
+          kind: team.kind,
+          strengthTotal: admin ? team.strengthTotal : null,
+          players: team.players
+            .map((player) => ({
+              memberId: player.memberId,
+              name: memberName(player.member),
+              strength: admin ? player.strengthSnapshot : null,
+            }))
+            .sort((a, b) => a.name.localeCompare(b.name, "pt-BR")),
+        };
+      }),
     };
   });
   return {

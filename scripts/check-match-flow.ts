@@ -339,8 +339,8 @@ async function dbScenario(
   check(
     "apito atômico: times livres (3×1) e cronômetro ligado",
     !kicked.awaitingKickoff &&
-      kicked.teamA.name === "Time 3" &&
-      kicked.teamB.name === "Time 1" &&
+      kicked.teamA.name === "Preto" &&
+      kicked.teamB.name === "Branco" &&
       kicked.remainingMs <= 420_000,
   );
   check("apito da 1ª partida congela a lista", await participantsFrozen(tx, session.id));
@@ -550,8 +550,8 @@ async function dbScenario(
     "próxima partida: apito com times livres (2×4)",
     next.sequence === 2 &&
       !next.awaitingKickoff &&
-      next.teamA.name === "Time 2" &&
-      next.teamB.name === "Time 4",
+      next.teamA.name === "Azul" &&
+      next.teamB.name === "Vermelho",
   );
 
   const drawStill = await tx.draw.findUniqueOrThrow({
@@ -569,7 +569,7 @@ async function dbScenario(
     "espectador lê placar em andamento",
     !!liveDuring &&
       liveDuring.current?.sequence === 2 &&
-      liveDuring.current.teamA.name === "Time 2" &&
+      liveDuring.current.teamA.name === "Azul" &&
       liveDuring.history.length === 1,
   );
 

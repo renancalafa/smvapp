@@ -27,6 +27,7 @@
     "check:spectator-focus": "tsx scripts/check-spectator-focus.ts",
     "check:night-mode": "tsx scripts/check-night-mode.ts",
     "check:rodada-recap": "tsx scripts/check-rodada-recap.ts",
+    "check:team-colors": "tsx scripts/check-team-colors.ts",
     "check:login-throttle": "tsx scripts/check-login-throttle.ts",
     "check:dev-reset": "tsx scripts/check-dev-reset.ts",
     "check:member-role": "tsx scripts/check-member-role.ts",

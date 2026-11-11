@@ -1,3 +1,4 @@
+import { TeamBadge } from "@/components/team-badge";
 import { darkBadge, darkBadgeGold, darkCard } from "@/lib/ui/dark-surfaces";
 import type { DrawOptionView } from "@/server/modules/draws/queries";
 
@@ -43,7 +44,11 @@ export function OptionCard({
             }`}
           >
             <h4 className="flex items-baseline justify-between text-sm font-medium text-white">
-              {team.name}
+              <TeamBadge
+                name={team.name}
+                color={team.color}
+                position={team.kind === "ROTATION_POOL" ? null : team.position}
+              />
               {team.strengthTotal !== null && (
                 <span className="text-xs tabular-nums text-white/50">{team.strengthTotal}</span>
               )}

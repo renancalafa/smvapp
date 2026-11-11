@@ -3,6 +3,7 @@ import { isAwaitingKickoff } from "@/domain/match/kickoff";
 import { activeMatchPlayers } from "@/domain/match/lineup";
 import { scoreFromEvents } from "@/domain/match/queue";
 import { matchElapsedMs, matchRemainingMs } from "@/domain/match/timer";
+import { resolveTeamDisplay } from "@/domain/team/colors";
 import type { Prisma } from "@/generated/prisma/client";
 
 export { activeMatchPlayers };
@@ -78,8 +79,12 @@ export async function buildMatchView(tx: Tx, matchId: string, now = new Date()):
       penaltyWinnerTeamId: true,
       teamAId: true,
       teamBId: true,
-      teamA: { select: { id: true, name: true, color: true } },
-      teamB: { select: { id: true, name: true, color: true } },
+      teamA: {
+        select: { id: true, name: true, color: true, kind: true, initialQueuePosition: true },
+      },
+      teamB: {
+        select: { id: true, name: true, color: true, kind: true, initialQueuePosition: true },
+      },
       players: {
         select: {
           memberId: true,
@@ -133,8 +138,24 @@ export async function buildMatchView(tx: Tx, matchId: string, now = new Date()):
     endedAt: match.endedAt?.toISOString() ?? null,
     plannedDurationSec: match.plannedDurationSec,
     penaltyWinnerTeamId: match.penaltyWinnerTeamId,
-    teamA: match.teamA,
-    teamB: match.teamB,
+    teamA: (() => {
+      const display = resolveTeamDisplay({
+        name: match.teamA.name,
+        color: match.teamA.color,
+        kind: match.teamA.kind,
+        position: match.teamA.initialQueuePosition,
+      });
+      return { id: match.teamA.id, name: display.displayName, color: display.colorHex };
+    })(),
+    teamB: (() => {
+      const display = resolveTeamDisplay({
+        name: match.teamB.name,
+        color: match.teamB.color,
+        kind: match.teamB.kind,
+        position: match.teamB.initialQueuePosition,
+      });
+      return { id: match.teamB.id, name: display.displayName, color: display.colorHex };
+    })(),
     scoreA,
     scoreB,
     elapsedMs: matchElapsedMs(timer, now),

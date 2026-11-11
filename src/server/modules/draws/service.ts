@@ -14,6 +14,7 @@ import {
 import { createRng } from "@/domain/draw/random";
 import { playerStrength } from "@/domain/draw/strength";
 import { isAwaitingKickoff } from "@/domain/match/kickoff";
+import { drawTeamIdentity } from "@/domain/team/colors";
 import type { DrawDecisionMethod, OverflowMode, Prisma } from "@/generated/prisma/client";
 import { writeAuditLog } from "@/server/audit";
 import type { Viewer } from "@/server/auth/dal";
@@ -163,13 +164,18 @@ async function createDrawLocked(
           balanceScore: option.balanceScore,
           teams: {
             create: [
-              ...option.teams.map((team, teamIndex) => ({
-                position: teamIndex + 1,
-                name: `Time ${teamIndex + 1}`,
-                kind: "REGULAR" as const,
-                strengthTotal: total(team),
-                players: { create: teamRows(team) },
-              })),
+              ...option.teams.map((team, teamIndex) => {
+                const position = teamIndex + 1;
+                const identity = drawTeamIdentity(position);
+                return {
+                  position,
+                  name: identity.name,
+                  color: identity.color,
+                  kind: "REGULAR" as const,
+                  strengthTotal: total(team),
+                  players: { create: teamRows(team) },
+                };
+              }),
               ...(rotationPool.length > 0
                 ? [
                     {

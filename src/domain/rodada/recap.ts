@@ -37,6 +37,10 @@ export type RodadaTeamStanding = {
   goalsAgainst: number;
   goalDifference: number;
   points: number;
+  /** Colocação 1-based; times empatados após todos os critérios compartilham o mesmo rank. */
+  rank: number;
+  /** true se outro time compartilha o mesmo rank (empate total nos critérios). */
+  rankTied: boolean;
 };
 
 export type RodadaHeadToHeadCell = {
@@ -89,6 +93,60 @@ export type RodadaPlayerStatRow = {
   totals: PlayerStatTotals;
 };
 
+function filterBestBy(
+  group: RodadaTeamStanding[],
+  metric: (row: RodadaTeamStanding) => number,
+): RodadaTeamStanding[] {
+  let best = Number.NEGATIVE_INFINITY;
+  for (const row of group) {
+    const value = metric(row);
+    if (value > best) best = value;
+  }
+  return group.filter((row) => metric(row) === best);
+}
+
+/**
+ * Ordena e ranqueia com os mesmos critérios do campeão:
+ * vitórias → SG → GP → vitórias H2H entre os ainda empatados.
+ * Empate total → mesmo `rank` (não inventa ordem definitiva).
+ */
+function assignStandingsRanks(
+  rows: RodadaTeamStanding[],
+  matches: ReadonlyArray<RodadaFinishedMatchInput>,
+): RodadaTeamStanding[] {
+  const remaining = [...rows];
+  const ordered: RodadaTeamStanding[] = [];
+
+  while (remaining.length > 0) {
+    let leaders = filterBestBy(remaining, (row) => row.wins);
+    if (leaders.length > 1) leaders = filterBestBy(leaders, (row) => row.goalDifference);
+    if (leaders.length > 1) leaders = filterBestBy(leaders, (row) => row.goalsFor);
+    if (leaders.length > 1) {
+      const h2h = countHeadToHeadWinsAmong(
+        leaders.map((row) => row.teamId),
+        matches,
+      );
+      leaders = filterBestBy(leaders, (row) => h2h.get(row.teamId) ?? 0);
+    }
+
+    leaders.sort((a, b) => a.teamId.localeCompare(b.teamId));
+    const rank = ordered.length + 1;
+    const tied = leaders.length > 1;
+    for (const row of leaders) {
+      row.rank = rank;
+      row.rankTied = tied;
+      ordered.push(row);
+    }
+
+    const taken = new Set(leaders.map((row) => row.teamId));
+    for (let i = remaining.length - 1; i >= 0; i--) {
+      if (taken.has(remaining[i]!.teamId)) remaining.splice(i, 1);
+    }
+  }
+
+  return ordered;
+}
+
 /** Placar agregado e W/D/L por time a partir só de partidas FINISHED. */
 export function buildTeamStandings(
   teams: ReadonlyArray<RodadaTeamInput>,
@@ -108,6 +166,8 @@ export function buildTeamStandings(
       goalsAgainst: 0,
       goalDifference: 0,
       points: 0,
+      rank: 0,
+      rankTied: false,
     });
   }
 
@@ -149,13 +209,7 @@ export function buildTeamStandings(
     row.goalDifference = row.goalsFor - row.goalsAgainst;
   }
 
-  return [...byId.values()].sort(
-    (a, b) =>
-      b.points - a.points ||
-      b.goalDifference - a.goalDifference ||
-      b.goalsFor - a.goalsFor ||
-      a.name.localeCompare(b.name, "pt-BR"),
-  );
+  return assignStandingsRanks([...byId.values()], matches);
 }
 
 /**
@@ -380,4 +434,66 @@ export function aggregateSessionPlayerStats(input: {
         b.totals.bigMisses - a.totals.bigMisses ||
         a.name.localeCompare(b.name, "pt-BR"),
     );
+}
+
+export type RodadaHighlightKind = "artilheiro" | "garcom" | "xerife";
+
+export type RodadaHighlight = {
+  kind: RodadaHighlightKind;
+  label: string;
+  metricLabel: string;
+  /** null quando ninguém registrou a métrica (>0). */
+  value: number | null;
+  /** Um ou mais líderes; vazio se value é null. */
+  leaders: { memberId: string; name: string; nickname: string | null }[];
+};
+
+function leadersForMetric(
+  rows: ReadonlyArray<RodadaPlayerStatRow>,
+  metric: (row: RodadaPlayerStatRow) => number,
+): { value: number | null; leaders: RodadaHighlight["leaders"] } {
+  let best = 0;
+  for (const row of rows) {
+    const value = metric(row);
+    if (value > best) best = value;
+  }
+  if (best <= 0) return { value: null, leaders: [] };
+  return {
+    value: best,
+    leaders: rows
+      .filter((row) => metric(row) === best)
+      .map((row) => ({ memberId: row.memberId, name: row.name, nickname: row.nickname })),
+  };
+}
+
+/** Destaques da sessão: Artilheiro (gols), Garçom (assistências), Xerife (desarmes). */
+export function buildRodadaHighlights(
+  rows: ReadonlyArray<RodadaPlayerStatRow>,
+): RodadaHighlight[] {
+  const artilheiro = leadersForMetric(rows, (row) => row.totals.goals);
+  const garcom = leadersForMetric(rows, (row) => row.totals.assists);
+  const xerife = leadersForMetric(rows, (row) => row.totals.tackles);
+  return [
+    {
+      kind: "artilheiro",
+      label: "Artilheiro",
+      metricLabel: "gols",
+      value: artilheiro.value,
+      leaders: artilheiro.leaders,
+    },
+    {
+      kind: "garcom",
+      label: "Garçom",
+      metricLabel: "assistências",
+      value: garcom.value,
+      leaders: garcom.leaders,
+    },
+    {
+      kind: "xerife",
+      label: "Xerife",
+      metricLabel: "desarmes",
+      value: xerife.value,
+      leaders: xerife.leaders,
+    },
+  ];
 }

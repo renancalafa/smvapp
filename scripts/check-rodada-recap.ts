@@ -72,6 +72,10 @@ function match(
       champion.decidedBy === "wins" &&
       champion.reason === "Campeão pelas vitórias",
   );
+  check(
+    "standings rank 1º único por vitórias",
+    !!preto && preto.rank === 1 && preto.rankTied === false && standings[0]?.teamId === "t1",
+  );
 }
 
 {
