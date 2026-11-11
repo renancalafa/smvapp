@@ -156,10 +156,10 @@ export function LiveSpectator({
 
       {state.kind === "idle" && (
         <div className={darkEmpty}>
-          <p className="text-base font-medium text-smv-cream">Nenhuma pelada em andamento.</p>
+          <p className="text-base font-medium text-smv-cream">Nenhuma pelada ao vivo.</p>
           <p className="mt-1 text-sm text-white/55">
-            Quando a pelada começar, o placar, o cronômetro e o histórico aparecem aqui
-            automaticamente.
+            O Ao Vivo aparece quando o sorteio final for decidido. O recap da última sessão
+            encerrada fica em Rodada.
           </p>
         </div>
       )}

@@ -2,26 +2,34 @@ import Image from "next/image";
 import Link from "next/link";
 import { LogoutForm } from "@/components/logout-form";
 import { requireViewer } from "@/server/auth/dal";
-import { BottomNav, SideNav, type NavItem } from "./app-nav";
+import { getNightNavMode, nightNavItem } from "@/server/modules/nav/night-mode";
+import type { NavItem } from "./app-nav";
+import { NightAwareBottomNav, NightAwareSideNav } from "./night-mode-nav";
 
 // O layout não substitui a verificação em cada página e Server Action: ele não é
 // renderizado de novo a cada navegação.
 export default async function AppLayout({ children }: { children: React.ReactNode }) {
   const viewer = await requireViewer();
+  const nightItem = nightNavItem(await getNightNavMode(viewer.group.id));
+  const nightNav: NavItem = {
+    href: nightItem.href,
+    label: nightItem.label,
+    icon: nightItem.href === "/live" ? "live" : "rodada",
+  };
 
   // Itens de ADMIN nem chegam ao cliente para quem não é ADMIN; a página ainda
   // verifica o papel com requireAdmin().
   // Rankings fica na lateral (e no atalho da home): a barra inferior do celular
-  // já tem Início / Ao Vivo / Admin? / Conta e não deve lotar.
+  // já tem Início / Rodada|Ao Vivo / Admin? / Conta e não deve lotar.
   const mobileItems: NavItem[] = [
     { href: "/", label: "Início", icon: "home" },
-    { href: "/live", label: "Ao Vivo", icon: "live" },
+    nightNav,
     ...(viewer.member.role === "ADMIN" ? [{ href: "/admin", label: "Admin", icon: "admin" } as const] : []),
     { href: "/account", label: "Conta", icon: "account" },
   ];
   const desktopItems: NavItem[] = [
     { href: "/", label: "Início", icon: "home" },
-    { href: "/live", label: "Ao Vivo", icon: "live" },
+    nightNav,
     { href: "/stats", label: "Rankings", icon: "stats" },
     ...(viewer.member.role === "ADMIN" ? [{ href: "/admin", label: "Admin", icon: "admin" } as const] : []),
     { href: "/account", label: "Conta", icon: "account" },
@@ -44,7 +52,14 @@ export default async function AppLayout({ children }: { children: React.ReactNod
             className="h-16 w-auto object-contain drop-shadow-[0_6px_16px_rgba(0,0,0,0.45)]"
           />
         </Link>
-        <SideNav items={desktopItems} />
+        <NightAwareSideNav
+          items={desktopItems}
+          initialNight={{
+            href: nightItem.href,
+            label: nightItem.label,
+            icon: nightNav.icon,
+          }}
+        />
         <div className="mt-auto border-t border-white/10 pt-4">
           <p className="truncate px-3 text-sm font-medium text-smv-cream">{viewer.user.name}</p>
           <p className="truncate px-3 text-xs text-white/50">{viewer.user.username}</p>
@@ -80,7 +95,14 @@ export default async function AppLayout({ children }: { children: React.ReactNod
         </main>
       </div>
 
-      <BottomNav items={mobileItems} />
+      <NightAwareBottomNav
+        items={mobileItems}
+        initialNight={{
+          href: nightItem.href,
+          label: nightItem.label,
+          icon: nightNav.icon,
+        }}
+      />
     </div>
   );
 }

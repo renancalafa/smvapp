@@ -1,12 +1,8 @@
 import "server-only";
-import {
-  decideInProgressSpectatorFocus,
-  playWindowEndMs,
-  RECENT_ENDED_MS,
-} from "@/domain/live/spectator-focus";
 import { isAwaitingKickoff } from "@/domain/match/kickoff";
 import type { SpectatorPollPhase } from "@/domain/live/polling";
 import { db } from "@/server/db";
+import { getNightNavMode } from "@/server/modules/nav/night-mode";
 import { getLiveBoard, type LiveBoard } from "./queries";
 
 export type SpectatorSessionSummary = {
@@ -75,64 +71,21 @@ function toSummary(session: SessionCandidate): SpectatorSessionSummary {
   };
 }
 
-function playWindowEnd(session: SessionCandidate): Date {
-  return new Date(playWindowEndMs(session.endsAt.getTime(), session.maxExtraMinutes));
-}
-
-/** Sessão em foco (sem carregar o placar completo). */
+/**
+ * Foco público do Ao Vivo: só a sessão live-eligible do modo noturno
+ * (Draw ativo DECIDED em sessão não FINISHED/CANCELLED). Recap pós-sessão → /rodada.
+ */
 export async function findSpectatorFocus(groupId: string, now = new Date()): Promise<Focus> {
-  const nowMs = now.getTime();
-  const inProgress = await db.gameSession.findFirst({
-    where: { groupId, status: "IN_PROGRESS" },
-    orderBy: { startsAt: "desc" },
+  void now;
+  const mode = await getNightNavMode(groupId);
+  if (mode.kind !== "ao_vivo") return { kind: "idle" };
+
+  const session = await db.gameSession.findFirst({
+    where: { id: mode.liveSessionId, groupId, status: { notIn: ["FINISHED", "CANCELLED"] } },
     select: SESSION_SELECT,
   });
-  if (inProgress) {
-    const withinWindow =
-      nowMs <= playWindowEndMs(inProgress.endsAt.getTime(), inProgress.maxExtraMinutes);
-    // Só consulta partida ativa quando a janela já passou (overtime além do extra).
-    const activeMatch = withinWindow
-      ? null
-      : await db.match.findFirst({
-          where: { gameSessionId: inProgress.id, status: "IN_PROGRESS" },
-          select: { id: true },
-        });
-    const decision = decideInProgressSpectatorFocus({
-      nowMs,
-      endsAtMs: inProgress.endsAt.getTime(),
-      maxExtraMinutes: inProgress.maxExtraMinutes,
-      hasActiveMatch: activeMatch !== null,
-    });
-    if (decision === "live") return { kind: "live", session: inProgress };
-    if (decision === "ended") return { kind: "ended", session: inProgress };
-    // stale: janela expirou há mais de 12h e sem partida ativa — continua a busca.
-  }
-
-  const windowCandidates = await db.gameSession.findMany({
-    where: {
-      groupId,
-      status: { notIn: ["CANCELLED", "FINISHED"] },
-      startsAt: { lte: now },
-    },
-    orderBy: { startsAt: "desc" },
-    take: 5,
-    select: SESSION_SELECT,
-  });
-  const inWindow = windowCandidates.find((session) => nowMs <= playWindowEnd(session).getTime());
-  if (inWindow) return { kind: "live", session: inWindow };
-
-  const recentlyEnded = await db.gameSession.findFirst({
-    where: {
-      groupId,
-      status: "FINISHED",
-      finishedAt: { gte: new Date(nowMs - RECENT_ENDED_MS) },
-    },
-    orderBy: { finishedAt: "desc" },
-    select: SESSION_SELECT,
-  });
-  if (recentlyEnded) return { kind: "ended", session: recentlyEnded };
-
-  return { kind: "idle" };
+  if (!session) return { kind: "idle" };
+  return { kind: "live", session };
 }
 
 /**
@@ -247,8 +200,8 @@ export async function getSpectatorRevision(
 }
 
 /**
- * Sessão em foco para /live: partida em andamento, janela de jogo, ou
- * recentemente encerrada (preserva placar/histórico).
+ * Sessão em foco para /live: apenas noite com sorteio DECIDED ativo.
+ * Recap de sessão encerrada fica em /rodada.
  */
 export async function getSpectatorLiveState(
   groupId: string,

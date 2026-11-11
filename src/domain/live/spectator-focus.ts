@@ -41,8 +41,8 @@ export type SpectatorFocusSelection =
   | { kind: "live" | "ended"; sessionId: string };
 
 /**
- * Algoritmo puro de seleção do Ao Vivo (espelha findSpectatorFocus).
- * Usado em regressão; a implementação com DB aplica as mesmas regras via queries.
+ * Algoritmo puro legado de foco por janela de tempo (regressão check:spectator-focus).
+ * O Ao Vivo público usa resolveNightNavMode / getNightNavMode (Draw DECIDED), não este seletor.
  */
 export function selectSpectatorFocus(
   sessions: ReadonlyArray<SpectatorFocusSessionInput>,
