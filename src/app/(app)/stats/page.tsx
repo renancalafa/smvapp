@@ -65,21 +65,23 @@ export default async function StatsPage({
 
   return (
     <section className="flex flex-col gap-5 text-smv-cream">
-      <div>
-        <h1 className={darkTitle}>Estatísticas</h1>
-        <p className={shellSubtext}>Visão geral, jogadores e recordes a partir das peladas encerradas.</p>
+      <div className="flex items-start justify-between gap-3">
+        <div className="min-w-0">
+          <h1 className={darkTitle}>Estatísticas</h1>
+          <p className={shellSubtext}>Visão geral, jogadores e recordes a partir das peladas encerradas.</p>
+        </div>
+        <PeriodFilter
+          key={periodQuery || "all"}
+          action="/stats"
+          period={period}
+          options={options}
+          timeZone={timeZone}
+          hiddenFields={{
+            tab,
+            ...(selectedPlayer && tab === "jogador" ? { memberId: selectedPlayer.memberId } : {}),
+          }}
+        />
       </div>
-
-      <PeriodFilter
-        action="/stats"
-        period={period}
-        options={options}
-        timeZone={timeZone}
-        hiddenFields={{
-          tab,
-          ...(selectedPlayer && tab === "jogador" ? { memberId: selectedPlayer.memberId } : {}),
-        }}
-      />
 
       <StatsTabs active={tab} baseQuery={tabQuery} />
 

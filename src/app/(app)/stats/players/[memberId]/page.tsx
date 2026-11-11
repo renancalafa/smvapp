@@ -53,23 +53,25 @@ export default async function PlayerStatsPage({
 
   return (
     <section className="flex flex-col gap-5 text-smv-cream">
-      <div>
-        <Link href={`/stats${periodQuery ? `?${periodQuery}` : ""}`} className={darkBackLink}>
-          ‹ Estatísticas
-        </Link>
-        <h1 className={darkTitle}>{title}</h1>
-        <p className={shellSubtext}>
-          {player.status === "INACTIVE" ? "Jogador inativo · " : ""}
-          Estatísticas do período selecionado
-        </p>
+      <div className="flex items-start justify-between gap-3">
+        <div className="min-w-0">
+          <Link href={`/stats${periodQuery ? `?${periodQuery}` : ""}`} className={darkBackLink}>
+            ‹ Estatísticas
+          </Link>
+          <h1 className={darkTitle}>{title}</h1>
+          <p className={shellSubtext}>
+            {player.status === "INACTIVE" ? "Jogador inativo · " : ""}
+            Estatísticas do período selecionado
+          </p>
+        </div>
+        <PeriodFilter
+          key={periodQuery || "all"}
+          action={`/stats/players/${memberId}`}
+          period={period}
+          options={options}
+          timeZone={timeZone}
+        />
       </div>
-
-      <PeriodFilter
-        action={`/stats/players/${memberId}`}
-        period={period}
-        options={options}
-        timeZone={timeZone}
-      />
 
       <StatCards totals={totals} />
 
