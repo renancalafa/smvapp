@@ -46,8 +46,26 @@ export type RodadaHeadToHeadCell = {
   score: { for: number; against: number; penaltyWin: boolean } | null;
 };
 
+/** Critério que separou o campeão após filtrar o empate anterior. */
+export type RodadaChampionDecidedBy =
+  | "wins"
+  | "goalDifference"
+  | "goalsFor"
+  | "headToHead";
+
 export type RodadaChampion =
-  | { kind: "determined"; teamId: string; teamName: string; wins: number }
+  | {
+      kind: "determined";
+      teamId: string;
+      teamName: string;
+      wins: number;
+      goalsFor: number;
+      goalsAgainst: number;
+      goalDifference: number;
+      decidedBy: RodadaChampionDecidedBy;
+      /** Ex.: "Campeão pelo saldo de gols". */
+      reason: string;
+    }
   | {
       kind: "tied";
       teamIds: string[];
@@ -56,6 +74,13 @@ export type RodadaChampion =
       reason: "Empate na liderança";
     }
   | { kind: "undetermined"; reason: string };
+
+const CHAMPION_REASON: Record<RodadaChampionDecidedBy, string> = {
+  wins: "Campeão pelas vitórias",
+  goalDifference: "Campeão pelo saldo de gols",
+  goalsFor: "Campeão pelos gols marcados",
+  headToHead: "Campeão pelo confronto direto",
+};
 
 export type RodadaPlayerStatRow = {
   memberId: string;
@@ -177,9 +202,8 @@ export function buildHeadToHeadMatrix(
 }
 
 /**
- * Campeão da Rodada = time com mais vitórias em partidas FINISHED.
- * WIN e PENALTY_WIN (via individualResultForTeam) contam 1 vitória; empates não.
- * Não usa o vencedor da última partida. Não persiste campo — só deriva.
+ * Vitórias em partidas FINISHED. WIN e PENALTY_WIN contam 1; empates não.
+ * Placar de pênaltis não entra em gols — só penaltyWinnerTeamId define o resultado.
  */
 export function countTeamWins(
   teams: ReadonlyArray<Pick<RodadaTeamInput, "id">>,
@@ -198,13 +222,67 @@ export function countTeamWins(
   return wins;
 }
 
+/**
+ * Vitórias no confronto direto entre um conjunto de times ainda empatados:
+ * agrega TODOS os FINISHED em que ambos os lados estão no conjunto (não só o último).
+ */
+export function countHeadToHeadWinsAmong(
+  candidateIds: ReadonlyArray<string>,
+  finished: ReadonlyArray<RodadaFinishedMatchInput>,
+): Map<string, number> {
+  const candidates = new Set(candidateIds);
+  const wins = new Map<string, number>();
+  for (const id of candidateIds) wins.set(id, 0);
+
+  for (const match of finished) {
+    if (!candidates.has(match.teamAId) || !candidates.has(match.teamBId)) continue;
+    for (const teamId of [match.teamAId, match.teamBId]) {
+      const result = individualResultForTeam(teamId, match);
+      if (result === "WIN") {
+        wins.set(teamId, (wins.get(teamId) ?? 0) + 1);
+      }
+      // result null (dados incompletos) ou DRAW: não conta vitória.
+    }
+  }
+  return wins;
+}
+
+function filterLeadersByMetric(
+  candidateIds: ReadonlyArray<string>,
+  metric: (teamId: string) => number,
+): string[] {
+  let best = Number.NEGATIVE_INFINITY;
+  for (const id of candidateIds) {
+    const value = metric(id);
+    if (value > best) best = value;
+  }
+  return candidateIds.filter((id) => metric(id) === best).sort((a, b) => a.localeCompare(b));
+}
+
+/**
+ * Campeão da Rodada derivado só do histórico FINISHED (sem campo persistido).
+ * Critérios em ordem, só entre os ainda empatados:
+ * 1) vitórias 2) saldo de gols 3) gols marcados 4) vitórias no confronto direto.
+ * Empate total → "Empate na liderança". Nunca usa o vencedor da última partida.
+ */
 export function resolveRodadaChampion(input: {
   teams: ReadonlyArray<Pick<RodadaTeamInput, "id" | "name">>;
   finished: ReadonlyArray<RodadaFinishedMatchInput>;
 }): RodadaChampion {
-  const winsByTeam = countTeamWins(input.teams, input.finished);
   const nameById = new Map(input.teams.map((team) => [team.id, team.name]));
+  const standings = buildTeamStandings(
+    input.teams.map((team) => ({
+      id: team.id,
+      name: team.name,
+      color: null,
+      kind: "REGULAR" as const,
+      initialQueuePosition: null,
+    })),
+    input.finished,
+  );
+  const standingById = new Map(standings.map((row) => [row.teamId, row]));
 
+  const winsByTeam = countTeamWins(input.teams, input.finished);
   let bestWins = 0;
   for (const wins of winsByTeam.values()) {
     if (wins > bestWins) bestWins = wins;
@@ -214,10 +292,31 @@ export function resolveRodadaChampion(input: {
     return { kind: "undetermined", reason: "Nenhuma vitória registrada nesta sessão." };
   }
 
-  const leaders = [...winsByTeam.entries()]
+  let leaders = [...winsByTeam.entries()]
     .filter(([, wins]) => wins === bestWins)
     .map(([teamId]) => teamId)
-    .sort((a, b) => (nameById.get(a) ?? a).localeCompare(nameById.get(b) ?? b, "pt-BR"));
+    .sort((a, b) => a.localeCompare(b));
+
+  let decidedBy: RodadaChampionDecidedBy = "wins";
+
+  if (leaders.length > 1) {
+    leaders = filterLeadersByMetric(
+      leaders,
+      (id) => standingById.get(id)?.goalDifference ?? 0,
+    );
+    decidedBy = "goalDifference";
+  }
+
+  if (leaders.length > 1) {
+    leaders = filterLeadersByMetric(leaders, (id) => standingById.get(id)?.goalsFor ?? 0);
+    decidedBy = "goalsFor";
+  }
+
+  if (leaders.length > 1) {
+    const h2hWins = countHeadToHeadWinsAmong(leaders, input.finished);
+    leaders = filterLeadersByMetric(leaders, (id) => h2hWins.get(id) ?? 0);
+    decidedBy = "headToHead";
+  }
 
   if (leaders.length > 1) {
     return {
@@ -233,11 +332,17 @@ export function resolveRodadaChampion(input: {
   if (!teamId) {
     return { kind: "undetermined", reason: "Nenhuma vitória registrada nesta sessão." };
   }
+  const row = standingById.get(teamId);
   return {
     kind: "determined",
     teamId,
     teamName: nameById.get(teamId) ?? teamId,
     wins: bestWins,
+    goalsFor: row?.goalsFor ?? 0,
+    goalsAgainst: row?.goalsAgainst ?? 0,
+    goalDifference: row?.goalDifference ?? 0,
+    decidedBy,
+    reason: CHAMPION_REASON[decidedBy],
   };
 }
 

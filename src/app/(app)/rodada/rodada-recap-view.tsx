@@ -250,14 +250,21 @@ function Section({ title, children }: { title: string; children: React.ReactNode
   );
 }
 
+function formatSigned(n: number): string {
+  if (n > 0) return `+${n}`;
+  return String(n);
+}
+
 function ChampionCard({ champion }: { champion: RodadaRecap["champion"] }) {
   if (champion.kind === "determined") {
     return (
       <div className="rounded-2xl border border-smv-gold/35 bg-gradient-to-br from-smv-gold/20 to-transparent px-4 py-4 ring-1 ring-smv-gold/25">
         <p className="text-xs font-semibold uppercase tracking-[0.14em] text-smv-gold">Campeão da noite</p>
         <p className="mt-1 text-xl font-semibold text-white">{champion.teamName}</p>
+        <p className="mt-1 text-sm font-medium text-smv-gold-bright">{champion.reason}</p>
         <p className={`mt-1 text-sm ${darkMuted}`}>
-          {champion.wins} vitória{champion.wins === 1 ? "" : "s"} na rodada (incluindo pênaltis).
+          {champion.wins} vitória{champion.wins === 1 ? "" : "s"} · {champion.goalsFor} GP ·{" "}
+          {champion.goalsAgainst} GC · SG {formatSigned(champion.goalDifference)}
         </p>
       </div>
     );
@@ -268,8 +275,8 @@ function ChampionCard({ champion }: { champion: RodadaRecap["champion"] }) {
         <p className="text-xs font-semibold uppercase tracking-[0.14em] text-white/45">Campeão</p>
         <p className="mt-1 font-medium text-white">Empate na liderança</p>
         <p className={`mt-1 text-sm ${darkMuted}`}>
-          {champion.teamNames.join(", ")} com {champion.wins} vitória
-          {champion.wins === 1 ? "" : "s"} cada.
+          {champion.teamNames.join(", ")} empatados após vitórias, saldo, gols e confronto direto (
+          {champion.wins} vitória{champion.wins === 1 ? "" : "s"} cada).
         </p>
       </div>
     );
