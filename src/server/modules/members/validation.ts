@@ -3,6 +3,10 @@ import { formText, isValidUsername, normalizeUsername } from "@/server/auth/vali
 
 export const NAME_MAX_LENGTH = 80;
 export const NICKNAME_MAX_LENGTH = 40;
+export const EMAIL_MAX_LENGTH = 254;
+
+/** Formato prático de email; valor final é sempre lowercased. */
+const EMAIL_PATTERN = /^[a-z0-9.!#$%&'*+/=?^_`{|}~-]+@[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?(?:\.[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?)+$/i;
 
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -94,6 +98,61 @@ export function validateCreatePlayer(
       birthDate,
       modality: values.modality,
       baseRating,
+    },
+  };
+}
+
+export type OwnProfileInput = {
+  name: string;
+  nickname: string | null;
+  email: string | null;
+};
+
+export type OwnProfileFormValues = {
+  name: string;
+  nickname: string;
+  email: string;
+};
+
+export function readOwnProfileForm(formData: FormData): OwnProfileFormValues {
+  return {
+    name: formText(formData, "name"),
+    nickname: formText(formData, "nickname"),
+    email: formText(formData, "email"),
+  };
+}
+
+export function normalizeEmail(raw: string): string | null | "invalid" {
+  const trimmed = raw.normalize("NFKC").trim();
+  if (!trimmed) return null;
+  if (trimmed.length > EMAIL_MAX_LENGTH) return "invalid";
+  const email = trimmed.toLowerCase();
+  if (!EMAIL_PATTERN.test(email)) return "invalid";
+  return email;
+}
+
+/** Só nome, apelido e email — ignora qualquer outro campo do formulário. */
+export function validateOwnProfile(
+  values: OwnProfileFormValues,
+): { ok: true; input: OwnProfileInput } | { ok: false; error: string } {
+  const name = collapseSpaces(values.name);
+  if (name.length < 2 || name.length > NAME_MAX_LENGTH) {
+    return { ok: false, error: `Nome: de 2 a ${NAME_MAX_LENGTH} caracteres.` };
+  }
+  const nickname = collapseSpaces(values.nickname);
+  if (nickname.length > NICKNAME_MAX_LENGTH) {
+    return { ok: false, error: `Apelido: até ${NICKNAME_MAX_LENGTH} caracteres.` };
+  }
+  const email = normalizeEmail(values.email);
+  if (email === "invalid") {
+    return { ok: false, error: "Email inválido. Use um endereço no formato nome@dominio.com." };
+  }
+  return {
+    ok: true,
+    input: {
+      name,
+      nickname: nickname || null,
+      email,
     },
   };
 }

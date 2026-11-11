@@ -1,7 +1,7 @@
 "use server";
 
 import { refresh } from "next/cache";
-import { requireAdminAction } from "@/server/auth/dal";
+import { requireAdminAction, requireViewer } from "@/server/auth/dal";
 import { formText } from "@/server/auth/validation";
 import { UserFacingError } from "@/server/errors";
 import {
@@ -10,9 +10,18 @@ import {
   createPlayer,
   resetPlayerPassword,
   setMemberStatus,
+  updateOwnProfile,
   type CreatedPlayer,
 } from "./service";
-import { isUuid, readCreatePlayerForm, validateCreatePlayer, type CreatePlayerFormValues } from "./validation";
+import {
+  isUuid,
+  readCreatePlayerForm,
+  readOwnProfileForm,
+  validateCreatePlayer,
+  validateOwnProfile,
+  type CreatePlayerFormValues,
+  type OwnProfileFormValues,
+} from "./validation";
 
 function parseBaseRating(raw: string): number | null {
   const value = Number(raw.trim());
@@ -30,12 +39,35 @@ export type MemberActionState =
   | { status: "done"; message: string; temporaryPassword?: string }
   | undefined;
 
+export type OwnProfileActionState =
+  | { status: "error"; error: string; values: OwnProfileFormValues }
+  | { status: "done"; message: string }
+  | undefined;
+
 const UNEXPECTED_ERROR = "Não foi possível concluir agora. Tente novamente em instantes.";
 
 function errorMessage(scope: string, error: unknown): string {
   if (error instanceof UserFacingError) return error.message;
   console.error(scope, error);
   return UNEXPECTED_ERROR;
+}
+
+/** Conta: só nome, apelido e email do próprio usuário (whitelist em validateOwnProfile). */
+export async function updateOwnProfileAction(
+  _previous: OwnProfileActionState,
+  formData: FormData,
+): Promise<OwnProfileActionState> {
+  const viewer = await requireViewer();
+  const values = readOwnProfileForm(formData);
+  const parsed = validateOwnProfile(values);
+  if (!parsed.ok) return { status: "error", error: parsed.error, values };
+  try {
+    await updateOwnProfile(viewer, parsed.input);
+    refresh();
+    return { status: "done", message: "Dados pessoais atualizados." };
+  } catch (error) {
+    return { status: "error", error: errorMessage("updateOwnProfileAction", error), values };
+  }
 }
 
 export async function createPlayerAction(

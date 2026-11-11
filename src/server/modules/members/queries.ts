@@ -5,6 +5,17 @@ import { db } from "@/server/db";
 
 type DbClient = typeof db | Prisma.TransactionClient;
 
+/** Dados editáveis na Conta do próprio jogador. */
+export async function getOwnAccountProfile(groupId: string, memberId: string, userId: string) {
+  return db.groupMember.findFirst({
+    where: { id: memberId, groupId, userId },
+    select: {
+      nickname: true,
+      user: { select: { name: true, username: true, email: true } },
+    },
+  });
+}
+
 /** Telas de ADMIN: inclui a nota base, que nunca vai para PLAYER. */
 export async function listGroupMembers(groupId: string) {
   return db.groupMember.findMany({

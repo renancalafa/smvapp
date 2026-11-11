@@ -4,6 +4,7 @@ import type { Prisma } from "@/generated/prisma/client";
 export type AuditAction =
   | "SYSTEM_BOOTSTRAPPED"
   | "PASSWORD_CHANGED"
+  | "USER_PROFILE_UPDATED"
   | "MEMBER_CREATED"
   | "MEMBER_DEACTIVATED"
   | "MEMBER_REACTIVATED"

@@ -269,6 +269,8 @@ model User {
   /// Armazenado normalizado (minúsculas).
   username           String    @unique
   name               String
+  /// Contato opcional (minúsculas). Não é usado no login; null em contas antigas.
+  email              String?   @unique
   birthDate          DateTime? @db.Date
   /// Hash da senha (string PHC; hoje scrypt do node:crypto). A senha em texto puro nunca é
   /// persistida.

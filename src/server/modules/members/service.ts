@@ -8,12 +8,13 @@ import { db } from "@/server/db";
 import { UserFacingError } from "@/server/errors";
 import { releaseMemberFromUpcomingSessions } from "@/server/modules/sessions/service";
 import { getMonthlyJoinPolicy } from "./queries";
-import type { CreatePlayerInput } from "./validation";
+import type { CreatePlayerInput, OwnProfileInput } from "./validation";
 
 const LAST_ADMIN_MESSAGE =
   "Não é possível rebaixar o último administrador ativo do grupo. Promova outro jogador a ADMIN antes.";
 
 const DUPLICATE_USERNAME = "Já existe uma conta com esse usuário.";
+const DUPLICATE_EMAIL = "Já existe uma conta com esse email.";
 
 export type CreatedPlayer = {
   memberId: string;
@@ -301,6 +302,80 @@ export async function changeMemberRating(
 
     return { previousRating: member.baseRating, newRating };
   });
+}
+
+/**
+ * Atualiza só nome (User), apelido (GroupMember atual) e email (User) do próprio viewer.
+ * Não altera username, papel, modalidade, nota, status, financeiro nem sessões de login.
+ */
+export async function updateOwnProfile(viewer: Viewer, input: OwnProfileInput): Promise<void> {
+  try {
+    await db.$transaction(async (tx) => {
+      const member = await tx.groupMember.findFirst({
+        where: { id: viewer.member.id, groupId: viewer.group.id, userId: viewer.user.id },
+        select: {
+          id: true,
+          nickname: true,
+          role: true,
+          modality: true,
+          status: true,
+          baseRating: true,
+          user: { select: { id: true, name: true, email: true, username: true } },
+        },
+      });
+      if (!member) throw new UserFacingError("Conta não encontrada.");
+
+      const before = {
+        name: member.user.name,
+        nickname: member.nickname,
+        email: member.user.email,
+      };
+      const after = {
+        name: input.name,
+        nickname: input.nickname,
+        email: input.email,
+      };
+      if (
+        before.name === after.name &&
+        before.nickname === after.nickname &&
+        before.email === after.email
+      ) {
+        return;
+      }
+
+      await tx.user.update({
+        where: { id: member.user.id },
+        data: { name: input.name, email: input.email },
+      });
+      await tx.groupMember.update({
+        where: { id: member.id },
+        data: { nickname: input.nickname },
+      });
+      await writeAuditLog(tx, {
+        groupId: viewer.group.id,
+        actorUserId: viewer.user.id,
+        action: "USER_PROFILE_UPDATED",
+        entityType: "User",
+        entityId: member.user.id,
+        before,
+        after,
+        metadata: {
+          memberId: member.id,
+          username: member.user.username,
+          role: member.role,
+          modality: member.modality,
+          status: member.status,
+          baseRating: member.baseRating,
+        },
+      });
+    });
+  } catch (error) {
+    // Só email é único e mutável neste comando; P2002 aqui é quase sempre email.
+    if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2002") {
+      throw new UserFacingError(DUPLICATE_EMAIL);
+    }
+    throw error;
+  }
 }
 
 /** Nova senha temporária, troca obrigatória e revogação de todas as sessões (seção 2). */
