@@ -150,19 +150,33 @@ export function RodadaRecapView({
                 </tr>
               </thead>
               <tbody className="divide-y divide-white/8">
-                {recap.standings.map((row) => (
-                  <tr key={row.teamId}>
-                    <td className="px-3 py-2 font-medium text-white">{row.name}</td>
-                    <td className="px-2 py-2 text-white/70">{row.played}</td>
-                    <td className="px-2 py-2 text-white/70">{row.wins}</td>
-                    <td className="px-2 py-2 text-white/70">{row.draws}</td>
-                    <td className="px-2 py-2 text-white/70">{row.losses}</td>
-                    <td className="px-2 py-2 text-white/70">{row.goalsFor}</td>
-                    <td className="px-2 py-2 text-white/70">{row.goalsAgainst}</td>
-                    <td className="px-2 py-2 text-white/70">{row.goalDifference}</td>
-                    <td className="px-2 py-2 font-semibold text-smv-gold-bright">{row.points}</td>
-                  </tr>
-                ))}
+                {recap.standings.map((row) => {
+                  const isChampion =
+                    recap.champion.kind === "determined" && recap.champion.teamId === row.teamId;
+                  return (
+                    <tr
+                      key={row.teamId}
+                      className={isChampion ? "bg-smv-gold/10" : undefined}
+                    >
+                      <td className="px-3 py-2 font-medium text-white">
+                        {row.name}
+                        {isChampion ? (
+                          <span className="ml-2 text-xs font-semibold uppercase tracking-wide text-smv-gold-bright">
+                            Campeão
+                          </span>
+                        ) : null}
+                      </td>
+                      <td className="px-2 py-2 text-white/70">{row.played}</td>
+                      <td className="px-2 py-2 text-white/70">{row.wins}</td>
+                      <td className="px-2 py-2 text-white/70">{row.draws}</td>
+                      <td className="px-2 py-2 text-white/70">{row.losses}</td>
+                      <td className="px-2 py-2 text-white/70">{row.goalsFor}</td>
+                      <td className="px-2 py-2 text-white/70">{row.goalsAgainst}</td>
+                      <td className="px-2 py-2 text-white/70">{row.goalDifference}</td>
+                      <td className="px-2 py-2 font-semibold text-smv-gold-bright">{row.points}</td>
+                    </tr>
+                  );
+                })}
               </tbody>
             </table>
           </div>
@@ -242,6 +256,21 @@ function ChampionCard({ champion }: { champion: RodadaRecap["champion"] }) {
       <div className="rounded-2xl border border-smv-gold/35 bg-gradient-to-br from-smv-gold/20 to-transparent px-4 py-4 ring-1 ring-smv-gold/25">
         <p className="text-xs font-semibold uppercase tracking-[0.14em] text-smv-gold">Campeão da noite</p>
         <p className="mt-1 text-xl font-semibold text-white">{champion.teamName}</p>
+        <p className={`mt-1 text-sm ${darkMuted}`}>
+          {champion.wins} vitória{champion.wins === 1 ? "" : "s"} na rodada (incluindo pênaltis).
+        </p>
+      </div>
+    );
+  }
+  if (champion.kind === "tied") {
+    return (
+      <div className="rounded-2xl border border-white/10 bg-smv-navy-card px-4 py-4">
+        <p className="text-xs font-semibold uppercase tracking-[0.14em] text-white/45">Campeão</p>
+        <p className="mt-1 font-medium text-white">Empate na liderança</p>
+        <p className={`mt-1 text-sm ${darkMuted}`}>
+          {champion.teamNames.join(", ")} com {champion.wins} vitória
+          {champion.wins === 1 ? "" : "s"} cada.
+        </p>
       </div>
     );
   }

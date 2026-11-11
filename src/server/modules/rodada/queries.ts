@@ -148,7 +148,7 @@ export async function getRodadaRecap(
     }));
 
   const champion = resolveRodadaChampion({
-    regularTeams,
+    teams: session.teams.map((team) => ({ id: team.id, name: team.name })),
     finished: finishedInputs,
   });
 

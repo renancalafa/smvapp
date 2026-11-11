@@ -47,7 +47,14 @@ export type RodadaHeadToHeadCell = {
 };
 
 export type RodadaChampion =
-  | { kind: "determined"; teamId: string; teamName: string; reason: "last_match_winner" }
+  | { kind: "determined"; teamId: string; teamName: string; wins: number }
+  | {
+      kind: "tied";
+      teamIds: string[];
+      teamNames: string[];
+      wins: number;
+      reason: "Empate na liderança";
+    }
   | { kind: "undetermined"; reason: string };
 
 export type RodadaPlayerStatRow = {
@@ -170,23 +177,67 @@ export function buildHeadToHeadMatrix(
 }
 
 /**
- * Campeão da noite sob Rei da Mesa.
- *
- * O histórico persistido NÃO garante um campeão: o ADMIN escolhe confrontos
- * livremente (a sugestão pós-partida é opcional) e, ao encerrar a sessão,
- * partidas aguardando apito são apagadas — então o vencedor da última FINISHED
- * pode não ser o time que estava prestes a jogar. Sem campo persistido de
- * “Rei ao encerrar”, qualquer inferência seria chute → sempre Indeterminado.
+ * Campeão da Rodada = time com mais vitórias em partidas FINISHED.
+ * WIN e PENALTY_WIN (via individualResultForTeam) contam 1 vitória; empates não.
+ * Não usa o vencedor da última partida. Não persiste campo — só deriva.
  */
+export function countTeamWins(
+  teams: ReadonlyArray<Pick<RodadaTeamInput, "id">>,
+  finished: ReadonlyArray<RodadaFinishedMatchInput>,
+): Map<string, number> {
+  const wins = new Map<string, number>();
+  for (const team of teams) wins.set(team.id, 0);
+  for (const match of finished) {
+    for (const teamId of [match.teamAId, match.teamBId]) {
+      if (!wins.has(teamId)) wins.set(teamId, 0);
+      if (individualResultForTeam(teamId, match) === "WIN") {
+        wins.set(teamId, (wins.get(teamId) ?? 0) + 1);
+      }
+    }
+  }
+  return wins;
+}
+
 export function resolveRodadaChampion(input: {
-  regularTeams: ReadonlyArray<{ id: string; name: string; initialQueuePosition: number }>;
+  teams: ReadonlyArray<Pick<RodadaTeamInput, "id" | "name">>;
   finished: ReadonlyArray<RodadaFinishedMatchInput>;
 }): RodadaChampion {
-  void input;
+  const winsByTeam = countTeamWins(input.teams, input.finished);
+  const nameById = new Map(input.teams.map((team) => [team.id, team.name]));
+
+  let bestWins = 0;
+  for (const wins of winsByTeam.values()) {
+    if (wins > bestWins) bestWins = wins;
+  }
+
+  if (bestWins <= 0) {
+    return { kind: "undetermined", reason: "Nenhuma vitória registrada nesta sessão." };
+  }
+
+  const leaders = [...winsByTeam.entries()]
+    .filter(([, wins]) => wins === bestWins)
+    .map(([teamId]) => teamId)
+    .sort((a, b) => (nameById.get(a) ?? a).localeCompare(nameById.get(b) ?? b, "pt-BR"));
+
+  if (leaders.length > 1) {
+    return {
+      kind: "tied",
+      teamIds: leaders,
+      teamNames: leaders.map((id) => nameById.get(id) ?? id),
+      wins: bestWins,
+      reason: "Empate na liderança",
+    };
+  }
+
+  const teamId = leaders[0];
+  if (!teamId) {
+    return { kind: "undetermined", reason: "Nenhuma vitória registrada nesta sessão." };
+  }
   return {
-    kind: "undetermined",
-    reason:
-      "O Rei da Mesa não grava um campeão oficial da noite: confrontos são livres e o histórico finalizado sozinho não prova quem estava no comando ao encerrar.",
+    kind: "determined",
+    teamId,
+    teamName: nameById.get(teamId) ?? teamId,
+    wins: bestWins,
   };
 }
 

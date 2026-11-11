@@ -5,6 +5,7 @@ import {
   aggregateSessionPlayerStats,
   buildHeadToHeadMatrix,
   buildTeamStandings,
+  countTeamWins,
   resolveRodadaChampion,
 } from "../src/domain/rodada/recap";
 
@@ -23,6 +24,10 @@ const teams4 = [
   ...teams3,
   { id: "t4", name: "Azul", color: "#00f", kind: "REGULAR" as const, initialQueuePosition: 4 },
 ];
+
+function teamRefs(teams: typeof teams3) {
+  return teams.map((team) => ({ id: team.id, name: team.name }));
+}
 
 {
   const matches = [
@@ -51,16 +56,58 @@ const teams4 = [
     "3 times: standings GF/GA/V",
     !!preto && preto.wins === 2 && preto.goalsFor === 2 && preto.goalsAgainst === 1 && preto.points === 6,
   );
-  const champion = resolveRodadaChampion({
-    regularTeams: teams3.map((team) => ({
-      id: team.id,
-      name: team.name,
-      initialQueuePosition: team.initialQueuePosition!,
-    })),
-    finished: matches,
-  });
+  const champion = resolveRodadaChampion({ teams: teamRefs(teams3), finished: matches });
   check(
-    "3 times com histórico claro ainda → campeão indeterminado (sem campo oficial)",
+    "clear winner: 2 vitórias (placar + pênaltis)",
+    champion.kind === "determined" && champion.teamId === "t1" && champion.wins === 2,
+  );
+}
+
+{
+  const matches = [
+    {
+      id: "m1",
+      sequence: 1,
+      teamAId: "t1",
+      teamBId: "t2",
+      scoreA: 1,
+      scoreB: 0,
+      penaltyWinnerTeamId: null,
+    },
+    {
+      id: "m2",
+      sequence: 2,
+      teamAId: "t2",
+      teamBId: "t3",
+      scoreA: 2,
+      scoreB: 1,
+      penaltyWinnerTeamId: null,
+    },
+    {
+      id: "m3",
+      sequence: 3,
+      teamAId: "t1",
+      teamBId: "t3",
+      scoreA: 0,
+      scoreB: 1,
+      penaltyWinnerTeamId: null,
+    },
+  ];
+  // t1:1, t2:1, t3:1 → empate
+  const champion = resolveRodadaChampion({ teams: teamRefs(teams3), finished: matches });
+  check(
+    "tied highest wins → Empate na liderança",
+    champion.kind === "tied" &&
+      champion.wins === 1 &&
+      champion.reason === "Empate na liderança" &&
+      champion.teamIds.length === 3,
+  );
+}
+
+{
+  const champion = resolveRodadaChampion({ teams: teamRefs(teams3), finished: [] });
+  check(
+    "no completed matches → Indeterminado",
     champion.kind === "undetermined",
   );
 }
@@ -76,33 +123,141 @@ const teams4 = [
       scoreB: 1,
       penaltyWinnerTeamId: null,
     },
+    {
+      id: "m2",
+      sequence: 2,
+      teamAId: "t3",
+      teamBId: "t4",
+      scoreA: 2,
+      scoreB: 2,
+      penaltyWinnerTeamId: null,
+    },
   ];
-  const champion = resolveRodadaChampion({
-    regularTeams: teams4.map((team) => ({
-      id: team.id,
-      name: team.name,
-      initialQueuePosition: team.initialQueuePosition!,
-    })),
-    finished: matches,
-  });
-  check("4 times: campeão indeterminado", champion.kind === "undetermined");
+  const champion = resolveRodadaChampion({ teams: teamRefs(teams4), finished: matches });
+  check("draws only → Indeterminado (sem vitórias)", champion.kind === "undetermined");
   const standings = buildTeamStandings(teams4, matches);
   check(
     "4 times: empate conta como E nos dois",
-    standings.filter((row) => row.draws === 1).length === 2,
+    standings.filter((row) => row.draws === 1).length === 4,
   );
 }
 
 {
-  const champion = resolveRodadaChampion({
-    regularTeams: teams3.map((team) => ({
-      id: team.id,
-      name: team.name,
-      initialQueuePosition: team.initialQueuePosition!,
-    })),
-    finished: [],
-  });
-  check("sem partidas → campeão indeterminado", champion.kind === "undetermined");
+  const matches = [
+    {
+      id: "m1",
+      sequence: 1,
+      teamAId: "t1",
+      teamBId: "t2",
+      scoreA: 0,
+      scoreB: 0,
+      penaltyWinnerTeamId: "t2",
+    },
+  ];
+  const champion = resolveRodadaChampion({ teams: teamRefs(teams3), finished: matches });
+  check(
+    "penalty victory counts as win",
+    champion.kind === "determined" && champion.teamId === "t2" && champion.wins === 1,
+  );
+}
+
+{
+  // t1 wins 2, others 1 — clear winner among 4 teams
+  const matches = [
+    {
+      id: "m1",
+      sequence: 1,
+      teamAId: "t1",
+      teamBId: "t2",
+      scoreA: 1,
+      scoreB: 0,
+      penaltyWinnerTeamId: null,
+    },
+    {
+      id: "m2",
+      sequence: 2,
+      teamAId: "t1",
+      teamBId: "t3",
+      scoreA: 2,
+      scoreB: 1,
+      penaltyWinnerTeamId: null,
+    },
+    {
+      id: "m3",
+      sequence: 3,
+      teamAId: "t4",
+      teamBId: "t2",
+      scoreA: 1,
+      scoreB: 0,
+      penaltyWinnerTeamId: null,
+    },
+  ];
+  const champion = resolveRodadaChampion({ teams: teamRefs(teams4), finished: matches });
+  check(
+    "4-team session clear winner",
+    champion.kind === "determined" && champion.teamId === "t1" && champion.wins === 2,
+  );
+}
+
+{
+  // Unfinished matches are never passed into resolveRodadaChampion — only FINISHED inputs.
+  // Simulate: one finished win for t2, plus a "would-be" unfinished match that must not count.
+  const finishedOnly = [
+    {
+      id: "m1",
+      sequence: 1,
+      teamAId: "t2",
+      teamBId: "t3",
+      scoreA: 3,
+      scoreB: 0,
+      penaltyWinnerTeamId: null,
+    },
+  ];
+  const wins = countTeamWins(teamRefs(teams3), finishedOnly);
+  check("unfinished excluded: only FINISHED wins counted", wins.get("t2") === 1 && wins.get("t1") === 0);
+  const champion = resolveRodadaChampion({ teams: teamRefs(teams3), finished: finishedOnly });
+  check(
+    "unfinished excluded: champion from FINISHED only",
+    champion.kind === "determined" && champion.teamId === "t2",
+  );
+}
+
+{
+  // Last match winner is t3, but t1 has more wins — must NOT use last-match rule.
+  const matches = [
+    {
+      id: "m1",
+      sequence: 1,
+      teamAId: "t1",
+      teamBId: "t2",
+      scoreA: 1,
+      scoreB: 0,
+      penaltyWinnerTeamId: null,
+    },
+    {
+      id: "m2",
+      sequence: 2,
+      teamAId: "t1",
+      teamBId: "t3",
+      scoreA: 2,
+      scoreB: 0,
+      penaltyWinnerTeamId: null,
+    },
+    {
+      id: "m3",
+      sequence: 3,
+      teamAId: "t3",
+      teamBId: "t2",
+      scoreA: 1,
+      scoreB: 0,
+      penaltyWinnerTeamId: null,
+    },
+  ];
+  const champion = resolveRodadaChampion({ teams: teamRefs(teams3), finished: matches });
+  check(
+    "never last-match winner: t1 (2V) beats last winner t3",
+    champion.kind === "determined" && champion.teamId === "t1" && champion.wins === 2,
+  );
 }
 
 {
