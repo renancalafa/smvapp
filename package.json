@@ -28,6 +28,7 @@
     "check:night-mode": "tsx scripts/check-night-mode.ts",
     "check:rodada-recap": "tsx scripts/check-rodada-recap.ts",
     "check:historico": "tsx scripts/check-historico.ts",
+    "check:mobile-nav": "tsx scripts/check-mobile-nav.ts",
     "check:team-colors": "tsx scripts/check-team-colors.ts",
     "check:login-throttle": "tsx scripts/check-login-throttle.ts",
     "check:dev-reset": "tsx scripts/check-dev-reset.ts",

@@ -17,23 +17,22 @@ export default async function AppLayout({ children }: { children: React.ReactNod
     icon: nightItem.href === "/live" ? "live" : "rodada",
   };
 
-  // Itens de ADMIN nem chegam ao cliente para quem não é ADMIN; a página ainda
-  // verifica o papel com requireAdmin().
-  // Histórico é permanente em desktop e mobile. Estatísticas permanece na lateral
-  // (e no atalho da home). Rodada/Ao Vivo continuam exclusivos no night slot.
+  // Mobile: 5 itens fixos (Início · Rodada/Ao Vivo · Histórico · Estatísticas · Mais).
+  // Admin/Conta/Sair ficam no sheet "Mais". Desktop mantém a lateral completa.
+  // Admin nas páginas ainda exige requireAdmin() — ocultar no UI não é a fronteira.
+  const isAdmin = viewer.member.role === "ADMIN";
   const mobileItems: NavItem[] = [
     { href: "/", label: "Início", icon: "home" },
     nightNav,
     { href: "/historico", label: "Histórico", icon: "historico" },
-    ...(viewer.member.role === "ADMIN" ? [{ href: "/admin", label: "Admin", icon: "admin" } as const] : []),
-    { href: "/account", label: "Conta", icon: "account" },
+    { href: "/stats", label: "Estatísticas", icon: "stats" },
   ];
   const desktopItems: NavItem[] = [
     { href: "/", label: "Início", icon: "home" },
     nightNav,
     { href: "/historico", label: "Histórico", icon: "historico" },
     { href: "/stats", label: "Estatísticas", icon: "stats" },
-    ...(viewer.member.role === "ADMIN" ? [{ href: "/admin", label: "Admin", icon: "admin" } as const] : []),
+    ...(isAdmin ? [{ href: "/admin", label: "Admin", icon: "admin" } as const] : []),
     { href: "/account", label: "Conta", icon: "account" },
   ];
 
@@ -99,6 +98,7 @@ export default async function AppLayout({ children }: { children: React.ReactNod
 
       <NightAwareBottomNav
         items={mobileItems}
+        showAdminInMore={isAdmin}
         initialNight={{
           href: nightItem.href,
           label: nightItem.label,

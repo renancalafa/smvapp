@@ -2,9 +2,13 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { useSyncExternalStore } from "react";
+import { useCallback, useRef, useState, useSyncExternalStore } from "react";
+import { isMaisNavActive, isNavHrefActive } from "@/domain/nav/mobile-active";
+import { MobileMoreSheet } from "./mobile-more-sheet";
 
-export type NavIcon = "home" | "live" | "rodada" | "historico" | "stats" | "admin" | "account";
+export { isMaisNavActive, isNavHrefActive } from "@/domain/nav/mobile-active";
+
+export type NavIcon = "home" | "live" | "rodada" | "historico" | "stats" | "admin" | "account" | "more";
 export type NavItem = { href: string; label: string; icon: NavIcon };
 
 const ICON_PATHS: Record<NavIcon, string> = {
@@ -15,9 +19,10 @@ const ICON_PATHS: Record<NavIcon, string> = {
   stats: "M4 19V9m5 10V5m5 14v-6m5 6V3",
   admin: "M12 3 4 6v6c0 4.5 3.4 8.3 8 9 4.6-.7 8-4.5 8-9V6zm0 6v4m0 3h.01",
   account: "M12 12a4 4 0 1 0 0-8 4 4 0 0 0 0 8zm-8 9a8 8 0 0 1 16 0",
+  more: "M5 12h.01M12 12h.01M19 12h.01",
 };
 
-function Icon({ name }: { name: NavIcon }) {
+export function Icon({ name, className = "size-6 shrink-0" }: { name: NavIcon; className?: string }) {
   return (
     <svg
       viewBox="0 0 24 24"
@@ -27,15 +32,11 @@ function Icon({ name }: { name: NavIcon }) {
       strokeLinecap="round"
       strokeLinejoin="round"
       aria-hidden="true"
-      className="size-6 shrink-0"
+      className={className}
     >
       <path d={ICON_PATHS[name]} />
     </svg>
   );
-}
-
-function isActive(pathname: string, href: string): boolean {
-  return href === "/" ? pathname === "/" : pathname === href || pathname.startsWith(`${href}/`);
 }
 
 /**
@@ -55,34 +56,70 @@ function useHydratedPathname(): string | null {
   return hydrated ? pathname : null;
 }
 
-/** Barra inferior fixa, só no celular. */
-export function BottomNav({ items }: { items: NavItem[] }) {
+/** Barra inferior fixa (5 itens), só no celular. */
+export function BottomNav({
+  items,
+  showAdminInMore,
+}: {
+  /** Início, Rodada/Ao Vivo, Histórico, Estatísticas — Mais é local. */
+  items: NavItem[];
+  showAdminInMore: boolean;
+}) {
   const pathname = useHydratedPathname();
+  const [moreOpen, setMoreOpen] = useState(false);
+  const moreButtonRef = useRef<HTMLButtonElement>(null);
+  const closeMore = useCallback(() => setMoreOpen(false), []);
+
   return (
-    <nav
-      aria-label="Navegação principal"
-      className="fixed inset-x-0 bottom-0 z-20 border-t border-white/10 bg-smv-navy/95 pb-[env(safe-area-inset-bottom)] backdrop-blur md:hidden"
-    >
-      <ul className="flex">
-        {items.map((item) => {
-          const active = pathname !== null && isActive(pathname, item.href);
-          return (
-            <li key={item.href} className="flex-1">
-              <Link
-                href={item.href}
-                {...(active ? { "aria-current": "page" as const } : {})}
-                className={`flex min-h-16 flex-col items-center justify-center gap-0.5 text-xs font-medium focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-smv-gold focus-visible:ring-inset ${
-                  active ? "text-smv-gold-bright" : "text-white/55 active:text-smv-cream"
-                }`}
-              >
-                <Icon name={item.icon} />
-                {item.label}
-              </Link>
-            </li>
-          );
-        })}
-      </ul>
-    </nav>
+    <>
+      <MobileMoreSheet
+        open={moreOpen}
+        onClose={closeMore}
+        showAdmin={showAdminInMore}
+        returnFocusRef={moreButtonRef}
+      />
+      <nav
+        aria-label="Navegação principal"
+        className="fixed inset-x-0 bottom-0 z-40 border-t border-white/10 bg-smv-navy/95 pb-[env(safe-area-inset-bottom)] backdrop-blur md:hidden"
+      >
+        <ul className="grid grid-cols-5">
+          {items.map((item) => {
+            const active = pathname !== null && isNavHrefActive(pathname, item.href);
+            return (
+              <li key={item.href} className="min-w-0">
+                <Link
+                  href={item.href}
+                  {...(active ? { "aria-current": "page" as const } : {})}
+                  className={`flex min-h-16 flex-col items-center justify-center gap-0.5 px-0.5 text-center text-[10px] font-medium leading-tight focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-smv-gold focus-visible:ring-inset sm:text-xs ${
+                    active ? "text-smv-gold-bright" : "text-white/55 active:text-smv-cream"
+                  }`}
+                >
+                  <Icon name={item.icon} className="size-5 shrink-0 sm:size-6" />
+                  <span className="max-w-full truncate">{item.label}</span>
+                </Link>
+              </li>
+            );
+          })}
+          <li className="min-w-0">
+            <button
+              ref={moreButtonRef}
+              type="button"
+              aria-haspopup="dialog"
+              aria-expanded={moreOpen}
+              onClick={() => setMoreOpen((value) => !value)}
+              className={`flex min-h-16 w-full flex-col items-center justify-center gap-0.5 px-0.5 text-center text-[10px] font-medium leading-tight focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-smv-gold focus-visible:ring-inset sm:text-xs ${
+                pathname !== null && (moreOpen || isMaisNavActive(pathname))
+                  ? "text-smv-gold-bright"
+                  : "text-white/55 active:text-smv-cream"
+              }`}
+            >
+              <Icon name="more" className="size-5 shrink-0 sm:size-6" />
+              <span className="max-w-full truncate">Mais</span>
+            </button>
+          </li>
+        </ul>
+      </nav>
+    </>
   );
 }
 
@@ -93,7 +130,7 @@ export function SideNav({ items }: { items: NavItem[] }) {
     <nav aria-label="Navegação principal">
       <ul className="flex flex-col gap-1">
         {items.map((item) => {
-          const active = pathname !== null && isActive(pathname, item.href);
+          const active = pathname !== null && isNavHrefActive(pathname, item.href);
           return (
             <li key={item.href}>
               <Link
