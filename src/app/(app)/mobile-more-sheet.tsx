@@ -55,9 +55,16 @@ export function MobileMoreSheet({
     };
 
     const returnFocusNode = returnFocusRef.current;
+    let unlocked = false;
+    const unlock = () => {
+      if (unlocked) return;
+      unlocked = true;
+      document.body.style.overflow = previousOverflow;
+    };
+
     document.addEventListener("keydown", onKeyDown);
     return () => {
-      document.body.style.overflow = previousOverflow;
+      unlock();
       document.removeEventListener("keydown", onKeyDown);
       returnFocusNode?.focus();
     };

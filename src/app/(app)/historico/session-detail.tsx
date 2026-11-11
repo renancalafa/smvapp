@@ -220,12 +220,15 @@ export function SessionDetailTabs({
           {recap.playerStats.length === 0 ? (
             <p className={darkEmpty}>Sem estatísticas de jogadores.</p>
           ) : (
-            <div className="overflow-x-auto rounded-2xl border border-white/10">
-              <table className="w-full min-w-[36rem] text-left text-sm">
+            <div className="min-w-0 rounded-2xl border border-white/10">
+              <table className="w-full table-fixed text-left text-sm">
                 <thead className="bg-white/5 text-xs uppercase tracking-wide text-white/45">
                   <tr>
                     {["Jogador", "G", "A", "D", "Px", "GC", "CA", "Az", "CV"].map((label) => (
-                      <th key={label} className="px-3 py-2 font-semibold">
+                      <th
+                        key={label}
+                        className={`py-2 font-semibold ${label === "Jogador" ? "w-[36%] px-3" : "px-1.5 text-center"}`}
+                      >
                         {label}
                       </th>
                     ))}
@@ -234,17 +237,17 @@ export function SessionDetailTabs({
                 <tbody className="divide-y divide-white/8">
                   {recap.playerStats.map((row) => (
                     <tr key={row.memberId}>
-                      <td className="px-3 py-2 text-white">
+                      <td className="truncate px-3 py-2 text-white">
                         {playerLabel(row.name, row.nickname)}
                       </td>
-                      <td className="px-3 py-2 tabular-nums text-white/80">{row.totals.goals}</td>
-                      <td className="px-3 py-2 tabular-nums text-white/80">{row.totals.assists}</td>
-                      <td className="px-3 py-2 tabular-nums text-white/80">{row.totals.tackles}</td>
-                      <td className="px-3 py-2 tabular-nums text-white/80">{row.totals.bigMisses}</td>
-                      <td className="px-3 py-2 tabular-nums text-white/80">{row.totals.ownGoals}</td>
-                      <td className="px-3 py-2 tabular-nums text-white/80">{row.totals.yellowCards}</td>
-                      <td className="px-3 py-2 tabular-nums text-white/80">{row.totals.blueCards}</td>
-                      <td className="px-3 py-2 tabular-nums text-white/80">{row.totals.redCards}</td>
+                      <td className="px-1.5 py-2 text-center tabular-nums text-white/80">{row.totals.goals}</td>
+                      <td className="px-1.5 py-2 text-center tabular-nums text-white/80">{row.totals.assists}</td>
+                      <td className="px-1.5 py-2 text-center tabular-nums text-white/80">{row.totals.tackles}</td>
+                      <td className="px-1.5 py-2 text-center tabular-nums text-white/80">{row.totals.bigMisses}</td>
+                      <td className="px-1.5 py-2 text-center tabular-nums text-white/80">{row.totals.ownGoals}</td>
+                      <td className="px-1.5 py-2 text-center tabular-nums text-white/80">{row.totals.yellowCards}</td>
+                      <td className="px-1.5 py-2 text-center tabular-nums text-white/80">{row.totals.blueCards}</td>
+                      <td className="px-1.5 py-2 text-center tabular-nums text-white/80">{row.totals.redCards}</td>
                     </tr>
                   ))}
                 </tbody>
@@ -272,12 +275,15 @@ export function SessionDetailTabs({
           {recap.standings.length === 0 ? (
             <p className={darkEmpty}>Sem classificação.</p>
           ) : (
-            <div className="overflow-x-auto rounded-2xl border border-white/10">
-              <table className="w-full min-w-[34rem] text-left text-sm">
+            <div className="min-w-0 rounded-2xl border border-white/10">
+              <table className="w-full table-fixed text-left text-sm">
                 <thead className="bg-white/5 text-xs uppercase tracking-wide text-white/45">
                   <tr>
                     {["#", "Time", "J", "V", "E", "D", "GP", "GC", "SG"].map((label) => (
-                      <th key={label} className="px-3 py-2 font-semibold">
+                      <th
+                        key={label}
+                        className={`py-2 font-semibold ${label === "Time" ? "w-[40%] px-3" : "px-1.5 text-center"}`}
+                      >
                         {label}
                       </th>
                     ))}
@@ -288,7 +294,7 @@ export function SessionDetailTabs({
                     const team = teamById.get(row.teamId);
                     return (
                       <tr key={row.teamId}>
-                        <td className="px-3 py-2 tabular-nums text-white/45">
+                        <td className="px-1.5 py-2 text-center tabular-nums text-white/45">
                           {row.rank}
                           {row.rankTied ? "º*" : "º"}
                         </td>
@@ -299,13 +305,13 @@ export function SessionDetailTabs({
                             position={team?.initialQueuePosition}
                           />
                         </td>
-                        <td className="px-3 py-2 tabular-nums text-white/80">{row.played}</td>
-                        <td className="px-3 py-2 tabular-nums text-white/80">{row.wins}</td>
-                        <td className="px-3 py-2 tabular-nums text-white/80">{row.draws}</td>
-                        <td className="px-3 py-2 tabular-nums text-white/80">{row.losses}</td>
-                        <td className="px-3 py-2 tabular-nums text-white/80">{row.goalsFor}</td>
-                        <td className="px-3 py-2 tabular-nums text-white/80">{row.goalsAgainst}</td>
-                        <td className="px-3 py-2 tabular-nums text-smv-gold-bright">
+                        <td className="px-1.5 py-2 text-center tabular-nums text-white/80">{row.played}</td>
+                        <td className="px-1.5 py-2 text-center tabular-nums text-white/80">{row.wins}</td>
+                        <td className="px-1.5 py-2 text-center tabular-nums text-white/80">{row.draws}</td>
+                        <td className="px-1.5 py-2 text-center tabular-nums text-white/80">{row.losses}</td>
+                        <td className="px-1.5 py-2 text-center tabular-nums text-white/80">{row.goalsFor}</td>
+                        <td className="px-1.5 py-2 text-center tabular-nums text-white/80">{row.goalsAgainst}</td>
+                        <td className="px-1.5 py-2 text-center tabular-nums text-smv-gold-bright">
                           {row.goalDifference > 0 ? `+${row.goalDifference}` : row.goalDifference}
                         </td>
                       </tr>

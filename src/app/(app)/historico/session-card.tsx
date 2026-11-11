@@ -105,7 +105,7 @@ export function SessionCard({
     <article
       className={
         featured
-          ? "relative overflow-hidden rounded-3xl border border-smv-gold/40 p-4 shadow-lg shadow-smv-navy/30 ring-1 ring-smv-gold/25 sm:p-5"
+          ? "relative rounded-3xl border border-smv-gold/40 p-4 shadow-lg shadow-smv-navy/30 ring-1 ring-smv-gold/25 sm:p-5"
           : "rounded-2xl border border-white/10 bg-smv-navy-card p-4"
       }
       style={

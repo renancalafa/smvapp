@@ -36,8 +36,11 @@ export default async function AppLayout({ children }: { children: React.ReactNod
     { href: "/account", label: "Conta", icon: "account" },
   ];
 
+  // min-h-full (not flex-1): shell grows with content so the document scrolls.
+  // flex-1 under a fixed html/body height locked the shell to the viewport and
+  // blocked desktop wheel / Page Down / End on long pages like Histórico.
   return (
-    <div className="flex flex-1 flex-col bg-smv-navy-deep md:flex-row">
+    <div className="flex min-h-full flex-col bg-smv-navy-deep md:flex-row">
       <aside className="hidden md:sticky md:top-0 md:flex md:h-dvh md:w-60 md:shrink-0 md:flex-col md:border-r md:border-white/10 md:bg-smv-navy md:p-4">
         <Link
           href="/"
