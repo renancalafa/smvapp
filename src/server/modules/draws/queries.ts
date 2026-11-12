@@ -1,4 +1,5 @@
 import "server-only";
+import { sortDrawRosterPlayers } from "@/domain/draw/roster-order";
 import { resolveTeamDisplay } from "@/domain/team/colors";
 import { db } from "@/server/db";
 
@@ -126,13 +127,18 @@ function toView(draw: DrawRow, eligible: Set<string>, admin: boolean, viewerMemb
           color: display.colorHex,
           kind: team.kind,
           strengthTotal: admin ? team.strengthTotal : null,
-          players: team.players
-            .map((player) => ({
+          // Ordenação só de apresentação: snapshot da época (não a nota atual).
+          players: sortDrawRosterPlayers(
+            team.players.map((player) => ({
               memberId: player.memberId,
               name: memberName(player.member),
-              strength: admin ? player.strengthSnapshot : null,
-            }))
-            .sort((a, b) => a.name.localeCompare(b.name, "pt-BR")),
+              strength: player.strengthSnapshot,
+            })),
+          ).map((player) => ({
+            memberId: player.memberId,
+            name: player.name,
+            strength: admin ? player.strength : null,
+          })),
         };
       }),
     };
