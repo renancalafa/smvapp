@@ -255,7 +255,7 @@ async function scenario(tx: Tx, sessions: typeof import("../src/server/modules/s
   check("WAITLISTED → DECLINE vira WITHDRAWN", leftQueue.status === "WITHDRAWN");
   check("sair da espera não mexe no participante promovido", (await statusOf(d1)) === "PARTICIPANT");
 
-  // --- PRIORITY phase (prazo futuro): diarista sobe no Não vou; reassumir desloca LIFO ---
+  // --- PRIORITY phase: diaristas ficam WAITLISTED mesmo com vagas; promoção só após o prazo ---
   const { id: prioritySessionId } = await tx.gameSession.create({
     data: {
       groupId: group.id,
@@ -288,59 +288,108 @@ async function scenario(tx: Tx, sessions: typeof import("../src/server/modules/s
     (
       await tx.sessionRegistration.findUnique({
         where: { gameSessionId_memberId: { gameSessionId: prioritySessionId, memberId: member.id } },
-        select: { status: true, promotedAt: true, queueSortAt: true, queuedAt: true, priorityTier: true },
+        select: {
+          status: true,
+          promotedAt: true,
+          queueSortAt: true,
+          queuedAt: true,
+          priorityTier: true,
+          manualOverrideAt: true,
+        },
       })
     );
+  const participantCountP = () =>
+    tx.sessionRegistration.count({ where: { gameSessionId: prioritySessionId, status: "PARTICIPANT" } });
+
+  // Sessão vazia / parcial: DAILY → WAITLISTED
+  const d1Empty = await respondP(d1, "CONFIRM");
+  check(
+    "PRIORITY: DAILY sessão vazia → WAITLISTED",
+    d1Empty.status === "WAITLISTED" && d1Empty.dailyHeldForPriority === true && (await statusP(d1))?.status === "WAITLISTED",
+  );
+  check("PRIORITY: sessão vazia sem PARTICIPANT diarista", (await participantCountP()) === 0);
 
   await respondP(m1, "CONFIRM");
-  await respondP(m2, "CONFIRM");
-  check("PRIORITY: dois mensalistas lotam a sessão", (await statusP(m1))?.status === "PARTICIPANT" && (await statusP(m2))?.status === "PARTICIPANT");
-  await respondP(d1, "CONFIRM");
-  await respondP(d2, "CONFIRM");
+  check("PRIORITY: MONTHLY com vaga → PARTICIPANT", (await statusP(m1))?.status === "PARTICIPANT");
+  const d2Partial = await respondP(d2, "CONFIRM");
   check(
-    "PRIORITY: diaristas ficam na espera enquanto cheio",
-    (await statusP(d1))?.status === "WAITLISTED" && (await statusP(d2))?.status === "WAITLISTED",
+    "PRIORITY: DAILY com sessão parcial → WAITLISTED",
+    d2Partial.status === "WAITLISTED" && (await statusP(d2))?.status === "WAITLISTED" && (await participantCountP()) === 1,
+  );
+
+  await respondP(m2, "CONFIRM");
+  check(
+    "PRIORITY: dois mensalistas lotam; diaristas seguem WAITLISTED",
+    (await statusP(m1))?.status === "PARTICIPANT" &&
+      (await statusP(m2))?.status === "PARTICIPANT" &&
+      (await statusP(d1))?.status === "WAITLISTED" &&
+      (await statusP(d2))?.status === "WAITLISTED",
   );
   const d1Queue = (await statusP(d1))!;
   const d2Queue = (await statusP(d2))!;
 
+  // Não vou não promove diarista antes do prazo
   await respondP(m1, "DECLINE");
-  const d1AfterDecline = (await statusP(d1))!;
   check(
-    "PRIORITY: Não vou promove diarista FIFO (d1) antes do prazo",
-    d1AfterDecline.status === "PARTICIPANT" && d1AfterDecline.promotedAt !== null && (await statusP(d2))?.status === "WAITLISTED",
-  );
-
-  await respondP(m2, "DECLINE");
-  const d2AfterDecline = (await statusP(d2))!;
-  check(
-    "PRIORITY: segundo Não vou promove d2",
-    d2AfterDecline.status === "PARTICIPANT" && d2AfterDecline.promotedAt !== null,
-  );
-
-  // Reassumir m2 (mais recente a sair): deve deslocar d2 (promovido por último)
-  const m2Back = await respondP(m2, "CONFIRM");
-  check("PRIORITY: mensalista reassumindo vira PARTICIPANT", m2Back.status === "PARTICIPANT");
-  const d2Demoted = (await statusP(d2))!;
-  check(
-    "PRIORITY: desloca diarista mais recentemente promovido (LIFO d2)",
-    d2Demoted.status === "WAITLISTED" &&
-      d2Demoted.promotedAt === null &&
-      d2Demoted.queueSortAt?.getTime() === d2Queue.queueSortAt?.getTime() &&
-      d2Demoted.queuedAt?.getTime() === d2Queue.queuedAt?.getTime(),
-  );
-  check("PRIORITY: d1 permanece participante após 1º reassumir", (await statusP(d1))?.status === "PARTICIPANT");
-
-  const m1Back = await respondP(m1, "CONFIRM");
-  check("PRIORITY: segundo mensalista reassumindo vira PARTICIPANT", m1Back.status === "PARTICIPANT");
-  const d1Demoted = (await statusP(d1))!;
-  check(
-    "PRIORITY: desloca d1 em seguida; fila d1→d2 preservada",
-    d1Demoted.status === "WAITLISTED" &&
-      d1Demoted.promotedAt === null &&
-      d1Demoted.queueSortAt?.getTime() === d1Queue.queueSortAt?.getTime() &&
+    "PRIORITY: Não vou NÃO promove diarista antes do prazo",
+    (await statusP(d1))?.status === "WAITLISTED" &&
       (await statusP(d2))?.status === "WAITLISTED" &&
-      (d1Demoted.queueSortAt?.getTime() ?? 0) <= ((await statusP(d2))?.queueSortAt?.getTime() ?? 0),
+      (await participantCountP()) === 1,
+  );
+  // Mensalista reassumindo / novo ocupa a vaga antes de qualquer diarista
+  await respondP(m1, "CONFIRM");
+  check(
+    "PRIORITY: mensalista reassumindo recupera vaga; diaristas não furam fila",
+    (await statusP(m1))?.status === "PARTICIPANT" &&
+      (await statusP(d1))?.status === "WAITLISTED" &&
+      (await statusP(d2))?.status === "WAITLISTED" &&
+      (await participantCountP()) === 2,
+  );
+
+  // Passagem do prazo sem nova confirmação: advanceLockedSession promove FIFO
+  await tx.gameSession.update({
+    where: { id: prioritySessionId },
+    data: { priorityDeadlineAt: new Date(now - 60_000) },
+  });
+  const { advanceLockedSession, lockSession } = await import("../src/server/modules/sessions/engine");
+  const lockedPriority = await lockSession(tx, prioritySessionId);
+  if (!lockedPriority) throw new SetupError("priority session sumiu");
+  await advanceLockedSession(tx, lockedPriority, new Date(now));
+  const afterDeadline = await tx.gameSession.findUniqueOrThrow({
+    where: { id: prioritySessionId },
+    select: { priorityClosedAt: true },
+  });
+  check("PRIORITY→GENERAL: priorityClosedAt gravado sem ação do jogador", afterDeadline.priorityClosedAt !== null);
+  // Sessão ainda cheia: diaristas continuam WAITLISTED
+  check(
+    "após prazo com sessão cheia: diaristas seguem WAITLISTED",
+    (await statusP(d1))?.status === "WAITLISTED" && (await statusP(d2))?.status === "WAITLISTED",
+  );
+  await respondP(m1, "DECLINE");
+  check(
+    "após prazo: Não vou promove d1 FIFO (queuedAt preservado)",
+    (await statusP(d1))?.status === "PARTICIPANT" &&
+      (await statusP(d1))?.promotedAt !== null &&
+      (await statusP(d1))?.queueSortAt?.getTime() === d1Queue.queueSortAt?.getTime() &&
+      (await statusP(d2))?.status === "WAITLISTED",
+  );
+  await respondP(m2, "DECLINE");
+  check(
+    "após prazo: segundo Não vou promove d2 FIFO",
+    (await statusP(d2))?.status === "PARTICIPANT" &&
+      (await statusP(d2))?.promotedAt !== null &&
+      (await statusP(d2))?.queueSortAt?.getTime() === d2Queue.queueSortAt?.getTime(),
+  );
+
+  // Novo diarista confirmando depois do prazo não fura a fila (ambos já participantes; m3 entra wait)
+  // Liberar uma vaga e confirmar m3 mensalista tardio GENERAL — sem deslocar
+  // (capacity 2, both d1+d2 seated — confirm m3 waitlisted)
+  const m3Late = await respondP(m3, "CONFIRM");
+  check(
+    "após prazo: mensalista tardio WAITLISTED sem deslocar diaristas",
+    m3Late.status === "WAITLISTED" &&
+      (await statusP(d1))?.status === "PARTICIPANT" &&
+      (await statusP(d2))?.status === "PARTICIPANT",
   );
 
   // manualOverride: diarista incluído/promovido pelo ADMIN não é deslocado; mensalista fica na espera.

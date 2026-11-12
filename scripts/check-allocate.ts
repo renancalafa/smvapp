@@ -36,11 +36,19 @@ function entry(
 
 function domainChecks() {
   check(
-    "vaga livre: diarista elegível antes do prazo",
-    isEligible(entry({ id: "d", status: "WAITLISTED", priorityTier: "GENERAL" }), "PRIORITY"),
+    "PRIORITY: diarista NÃO elegível a vaga livre",
+    !isEligible(entry({ id: "d", status: "WAITLISTED", priorityTier: "GENERAL" }), "PRIORITY"),
+  );
+  check(
+    "PRIORITY: mensalista elegível a vaga livre",
+    isEligible(entry({ id: "m", status: "WAITLISTED", priorityTier: "MONTHLY_PRIORITY" }), "PRIORITY"),
+  );
+  check(
+    "GENERAL: diarista elegível depois do prazo",
+    isEligible(entry({ id: "d", status: "WAITLISTED", priorityTier: "GENERAL" }), "GENERAL"),
   );
 
-  // --- FIFO promotion into free seats (PRIORITY), including diaristas ---
+  // --- Free seats before deadline: only MONTHLY_PRIORITY; GENERAL stays waitlisted ---
   {
     const joao = entry({
       id: "joao",
@@ -62,7 +70,34 @@ function domainChecks() {
     });
     const result = allocate([seated, joao, pedro], 3, "PRIORITY");
     check(
-      "PRIORITY: Não vou implícito / vagas livres promovem FIFO diaristas",
+      "PRIORITY: vagas livres NÃO promovem diaristas",
+      result.promote.length === 0 && result.demote.length === 0,
+    );
+  }
+
+  // --- After deadline: FIFO promotion of GENERAL into free seats ---
+  {
+    const joao = entry({
+      id: "joao",
+      status: "WAITLISTED",
+      priorityTier: "GENERAL",
+      queueSortAt: t0,
+    });
+    const pedro = entry({
+      id: "pedro",
+      status: "WAITLISTED",
+      priorityTier: "GENERAL",
+      queueSortAt: t1,
+    });
+    const seated = entry({
+      id: "m1",
+      status: "PARTICIPANT",
+      priorityTier: "GENERAL",
+      queueSortAt: t0,
+    });
+    const result = allocate([seated, joao, pedro], 3, "GENERAL");
+    check(
+      "GENERAL: vagas livres promovem FIFO diaristas",
       result.promote.join(",") === "joao,pedro" && result.demote.length === 0,
     );
   }
@@ -182,7 +217,7 @@ function domainChecks() {
     );
   }
 
-  // --- Capacity clamp ---
+  // --- Capacity clamp (after deadline; before deadline GENERAL is ineligible) ---
   {
     const waiters = [t0, t1, t2].map((queueSortAt, index) =>
       entry({
@@ -192,8 +227,22 @@ function domainChecks() {
         queueSortAt,
       }),
     );
-    const result = allocate(waiters, 2, "PRIORITY");
-    check("nunca promove além da capacidade", result.promote.join(",") === "w0,w1");
+    const priority = allocate(waiters, 2, "PRIORITY");
+    check("PRIORITY: só GENERAL na espera → ninguém sobe", priority.promote.length === 0);
+    const general = allocate(waiters, 2, "GENERAL");
+    check("nunca promove além da capacidade", general.promote.join(",") === "w0,w1");
+  }
+
+  // --- Empty session before deadline: DAILY waitlisted stays out ---
+  {
+    const daily = entry({
+      id: "d-empty",
+      status: "WAITLISTED",
+      priorityTier: "GENERAL",
+      queueSortAt: t0,
+    });
+    const result = allocate([daily], 20, "PRIORITY");
+    check("PRIORITY: sessão vazia não promove diarista", result.promote.length === 0);
   }
 
   // --- Excess capacity demotion prefers GENERAL LIFO ---

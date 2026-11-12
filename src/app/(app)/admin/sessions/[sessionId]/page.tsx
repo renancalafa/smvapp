@@ -63,7 +63,19 @@ export default async function AdminSessionPage({ params }: { params: Promise<{ s
   const confirmable = earlyDrawWaitlist
     ? roster.confirmable.filter((member) => member.modality === "MONTHLY")
     : roster.confirmable;
-  const actions = (registration: (typeof board.participants)[number]) => (
+  const confirmedActions = (registration: (typeof board.participants)[number]) => (
+    <RegistrationActions
+      sessionId={session.id}
+      registrationId={registration.id}
+      status={registration.status}
+      attendance={registration.attendance}
+      canChangeList={canChangeList}
+      canMarkAttendance={canMarkAttendance}
+      hasFreeSpot={hasFreeSpot}
+      compact
+    />
+  );
+  const waitlistActions = (registration: (typeof board.participants)[number]) => (
     <RegistrationActions
       sessionId={session.id}
       registrationId={registration.id}
@@ -141,13 +153,15 @@ export default async function AdminSessionPage({ params }: { params: Promise<{ s
         title={`Confirmados · ${board.participants.length}/${board.capacity}`}
         registrations={board.participants}
         empty="Ninguém confirmado ainda."
-        extra={actions}
+        extra={confirmedActions}
+        layout="compact"
+        showCount={false}
       />
       <RegistrationList
         title="Lista de espera"
         registrations={board.waitlist}
         empty="Ninguém na lista de espera."
-        extra={actions}
+        extra={waitlistActions}
       />
 
       {canChangeList && (!board.attendanceLocked || earlyDrawWaitlist) && (

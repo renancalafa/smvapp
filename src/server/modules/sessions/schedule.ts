@@ -8,7 +8,11 @@ import { advanceLockedSession, lockSession } from "./engine";
 import { enqueueDuePriorityReminders } from "./priority-reminder";
 
 // Job ensureUpcomingSession + transições programadas. Roda por avaliação preguiçosa
-// (antes das leituras de sessão) e pelo /api/cron/tick; tudo é idempotente.
+// (antes das leituras de sessão via syncSessionsForRead) e pelo /api/cron/tick.
+// A passagem do prazo (priorityClosedAt + rebalance) promove diaristas WAITLISTED sem
+// exigir novo CONFIRM — mas só roda quando alguém sincroniza o grupo ou o cron chama.
+// Sem cron (Hobby) e sem tráfego após o prazo, a promoção fica pendente até o próximo sync.
+// Tudo é idempotente.
 
 export async function resolveSeasonId(tx: Prisma.TransactionClient, groupId: string, date: CivilDate): Promise<string> {
   const day = civilDateToDb(date);

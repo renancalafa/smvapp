@@ -47,13 +47,15 @@ export function comparePromotedLifo(a: QueueEntry, b: QueueEntry): number {
 }
 
 /**
- * Elegibilidade para ocupar vaga livre: mensalistas e diaristas em qualquer fase.
- * A prioridade MONTHLY_PRIORITY continua vencendo via compareQueue; deslocamento de
- * diaristas só ocorre na fase PRIORITY (ver allocate).
+ * Elegibilidade para ocupar vaga livre (promoção automática / confirmação normal):
+ * - PRIORITY (antes do prazo): só MONTHLY_PRIORITY. Diaristas (GENERAL) permanecem
+ *   WAITLISTED mesmo com vagas — inclusive confirmação pelo ADMIN em nome do jogador.
+ * - GENERAL (depois do prazo): mensalistas e diaristas, FIFO via compareQueue.
+ * Deslocamento LIFO de GENERAL sem manualOverride na fase PRIORITY continua em allocate
+ * (legado / casos sem override). Inclusão excepcional do ADMIN usa outro caminho.
  */
 export function isEligible(entry: QueueEntry, phase: AllocationPhase): boolean {
-  void entry;
-  void phase;
+  if (phase === "PRIORITY") return entry.priorityTier === "MONTHLY_PRIORITY";
   return true;
 }
 
@@ -77,7 +79,8 @@ function pickExcessDemotions(participants: QueueEntry[], excess: number): string
 
 /**
  * 1) Excess over capacity → demote (GENERAL by LIFO promotedAt, then MONTHLY reverse FIFO).
- * 2) Free seats → promote waitlist FIFO (both tiers).
+ * 2) Free seats → promote waitlist FIFO only for isEligible entries (PRIORITY: mensalistas;
+ *    GENERAL: ambos).
  * 3) PRIORITY only: MONTHLY_PRIORITY still waiting displace GENERAL participants
  *    (LIFO via comparePromotedLifo). Se só houver GENERAL com manualOverride (ou só
  *    mensalistas), o mensalista permanece WAITLISTED — sem override automático.

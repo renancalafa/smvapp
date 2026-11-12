@@ -48,6 +48,8 @@ function readReason(formData: FormData): string | null {
 const RESPONSE_MESSAGES = {
   PARTICIPANT: "Presença confirmada. Você está na lista!",
   WAITLISTED: "Você entrou na lista de espera. Se abrir vaga, entra automaticamente.",
+  WAITLISTED_DAILY_PRIORITY:
+    "Você entrou na lista de espera. Diaristas só entram na lista principal depois do prazo dos mensalistas (ou se um administrador incluir excepcionalmente).",
   DECLINED: "Recusa registrada.",
   WITHDRAWN: "Você saiu da lista. Sua vaga foi liberada.",
   REMOVED: "Você foi removido desta sessão.",
@@ -68,6 +70,9 @@ export async function respondAction(
     refresh();
     if (result.needsAdminReclaim) {
       return { status: "done", message: ADMIN_RECLAIM_REQUIRED_MESSAGE };
+    }
+    if (result.status === "WAITLISTED" && result.dailyHeldForPriority) {
+      return { status: "done", message: RESPONSE_MESSAGES.WAITLISTED_DAILY_PRIORITY };
     }
     return { status: "done", message: RESPONSE_MESSAGES[result.status] };
   } catch (error) {
@@ -161,7 +166,9 @@ export async function adminConfirmOnBehalfAction(
         status: "done",
         message: result.needsAdminReclaim
           ? `Confirmado pelo jogador: ${ADMIN_RECLAIM_REQUIRED_MESSAGE}`
-          : "Confirmado pelo jogador: entrou na lista de espera.",
+          : result.dailyHeldForPriority
+            ? "Confirmado pelo jogador: diarista na lista de espera até o prazo dos mensalistas."
+            : "Confirmado pelo jogador: entrou na lista de espera.",
       };
     }
     return { status: "done", message: `Confirmação registrada (${result.status}).` };

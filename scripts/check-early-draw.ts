@@ -352,12 +352,12 @@ async function main() {
     );
     await respond(d1, "CONFIRM");
     check(
-      "antes do prazo: diarista ocupa a vaga livre",
-      (await statusOf(d1)) === "PARTICIPANT" && (await participantCount()) === 6,
+      "antes do prazo: diarista com vaga livre fica WAITLISTED",
+      (await statusOf(d1)) === "WAITLISTED" && (await participantCount()) === 5,
     );
     await respond(m6, "CONFIRM");
     check(
-      "antes do prazo: mensalista reassumindo desloca diarista (6/6 prioritário)",
+      "antes do prazo: 6º mensalista completa a sessão; diarista permanece WAITLISTED",
       (await statusOf(m6)) === "PARTICIPANT" &&
         (await statusOf(d1)) === "WAITLISTED" &&
         (await participantCount()) === 6,

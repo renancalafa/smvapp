@@ -205,7 +205,7 @@ async function scenario(
   const playerViewer = viewerOf(group, daily[0]!);
   const reason = "Confirmado a pedido do jogador";
 
-  // --- prioridade aberta: mensalista e diarista ocupam vagas livres; reassumir desloca ---
+  // --- prioridade aberta: mensalista ocupa vaga; diarista fica WAITLISTED mesmo com vagas ---
   const sessionPriority = await createOpenSession(tx, group.id, season.id, {
     maxPlayers: 2,
     priorityOpen: true,
@@ -219,19 +219,25 @@ async function scenario(
     memberId: daily[0]!.id,
     reason,
   });
-  check("prioridade: diarista ocupa vaga livre → PARTICIPANT", d1.status === "PARTICIPANT");
+  check(
+    "prioridade: diarista com vaga livre → WAITLISTED (não bypassa prazo)",
+    d1.status === "WAITLISTED" && d1.dailyHeldForPriority === true,
+  );
   const d1Row = await tx.sessionRegistration.findUniqueOrThrow({
     where: { gameSessionId_memberId: { gameSessionId: sessionPriority.id, memberId: daily[0]!.id } },
-    select: { priorityTier: true, source: true, status: true },
+    select: { priorityTier: true, source: true, status: true, manualOverrideAt: true },
   });
-  check("diarista GENERAL + source ADMIN", d1Row.priorityTier === "GENERAL" && d1Row.source === "ADMIN");
+  check(
+    "diarista GENERAL + source ADMIN sem manualOverride",
+    d1Row.priorityTier === "GENERAL" && d1Row.source === "ADMIN" && d1Row.manualOverrideAt === null,
+  );
 
   const m2Priority = await sessions.adminConfirmOnBehalf(adminViewer, sessionPriority.id, {
     memberId: monthly[1]!.id,
     reason,
   });
   check(
-    "prioridade: 2º mensalista desloca diarista",
+    "prioridade: 2º mensalista preenche a 2ª vaga; diarista permanece WAITLISTED",
     m2Priority.status === "PARTICIPANT" &&
       (
         await tx.sessionRegistration.findUniqueOrThrow({
@@ -250,6 +256,102 @@ async function scenario(
     where: { gameSessionId: sessionPriority.id, memberId: daily[0]!.id, status: "WAITLISTED" },
   });
   check("já WAITLISTED: uma inscrição só", waitCount === 1);
+
+  // Self-CONFIRM do diarista espelha ADMIN confirm-on-behalf
+  const sessionSelfMirror = await createOpenSession(tx, group.id, season.id, {
+    maxPlayers: 20,
+    priorityOpen: true,
+  });
+  const selfDaily = await sessions.respondToSession(viewerOf(group, daily[1]!), sessionSelfMirror.id, "CONFIRM");
+  const adminDaily = await sessions.adminConfirmOnBehalf(adminViewer, sessionSelfMirror.id, {
+    memberId: daily[0]!.id,
+    reason,
+  });
+  check(
+    "admin normal = self: ambos WAITLISTED antes do prazo com vagas",
+    selfDaily.status === "WAITLISTED" &&
+      selfDaily.dailyHeldForPriority === true &&
+      adminDaily.status === "WAITLISTED" &&
+      adminDaily.dailyHeldForPriority === true,
+  );
+
+  // Inclusão excepcional: diarista vira PARTICIPANT com manualOverride antes do prazo
+  const sessionOverride = await createOpenSession(tx, group.id, season.id, {
+    maxPlayers: 2,
+    priorityOpen: true,
+  });
+  await sessions.adminIncludeMember(adminViewer, sessionOverride.id, {
+    memberId: daily[0]!.id,
+    reason: "Inclusão excepcional de teste",
+    replaceRegistrationId: null,
+  });
+  const overrideRow = await tx.sessionRegistration.findUniqueOrThrow({
+    where: { gameSessionId_memberId: { gameSessionId: sessionOverride.id, memberId: daily[0]!.id } },
+    select: { status: true, manualOverrideAt: true, priorityTier: true },
+  });
+  check(
+    "excepcional: DAILY → PARTICIPANT com manualOverride antes do prazo",
+    overrideRow.status === "PARTICIPANT" && overrideRow.manualOverrideAt !== null,
+  );
+  await sessions.adminConfirmOnBehalf(adminViewer, sessionOverride.id, {
+    memberId: monthly[0]!.id,
+    reason,
+  });
+  const overrideAfterMonthly = await tx.sessionRegistration.findUniqueOrThrow({
+    where: { gameSessionId_memberId: { gameSessionId: sessionOverride.id, memberId: daily[0]!.id } },
+    select: { status: true, manualOverrideAt: true },
+  });
+  check(
+    "excepcional: override não é deslocado por mensalista / rebalance",
+    overrideAfterMonthly.status === "PARTICIPANT" && overrideAfterMonthly.manualOverrideAt !== null,
+  );
+
+  // Passagem do prazo com vagas: promove WAITLISTED FIFO sem novo CONFIRM
+  const sessionDeadline = await createOpenSession(tx, group.id, season.id, {
+    maxPlayers: 2,
+    priorityOpen: true,
+  });
+  await sessions.adminConfirmOnBehalf(adminViewer, sessionDeadline.id, {
+    memberId: daily[0]!.id,
+    reason,
+  });
+  await sessions.adminConfirmOnBehalf(adminViewer, sessionDeadline.id, {
+    memberId: daily[1]!.id,
+    reason,
+  });
+  const beforeClose = await tx.sessionRegistration.findMany({
+    where: { gameSessionId: sessionDeadline.id },
+    select: { memberId: true, status: true, queuedAt: true },
+    orderBy: { queuedAt: "asc" },
+  });
+  check(
+    "prazo: ambos diaristas WAITLISTED com 2 vagas antes do close",
+    beforeClose.length === 2 && beforeClose.every((row) => row.status === "WAITLISTED"),
+  );
+  const deadlineNow = Date.now();
+  await tx.gameSession.update({
+    where: { id: sessionDeadline.id },
+    data: { priorityDeadlineAt: new Date(deadlineNow - 60_000) },
+  });
+  const { advanceLockedSession, lockSession } = await import("../src/server/modules/sessions/engine");
+  const lockedDeadline = await lockSession(tx, sessionDeadline.id);
+  if (!lockedDeadline) throw new SetupError("sessionDeadline sumiu");
+  await advanceLockedSession(tx, lockedDeadline, new Date(deadlineNow));
+  const afterClose = await tx.sessionRegistration.findMany({
+    where: { gameSessionId: sessionDeadline.id },
+    select: { memberId: true, status: true, promotedAt: true, queuedAt: true },
+    orderBy: { queuedAt: "asc" },
+  });
+  check(
+    "prazo: advance promove FIFO sem novo CONFIRM",
+    afterClose.length === 2 &&
+      afterClose[0]!.status === "PARTICIPANT" &&
+      afterClose[0]!.promotedAt !== null &&
+      afterClose[0]!.memberId === daily[0]!.id &&
+      afterClose[1]!.status === "PARTICIPANT" &&
+      afterClose[1]!.promotedAt !== null &&
+      afterClose[1]!.memberId === daily[1]!.id,
+  );
 
   // --- capacidade geral: diarista com vaga → PARTICIPANT ---
   const sessionGeneral = await createOpenSession(tx, group.id, season.id, {

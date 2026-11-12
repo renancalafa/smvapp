@@ -30,8 +30,9 @@ export function ConfirmOnBehalfForm({
     <form action={formAction} className={`flex flex-col gap-3 ${darkCardPad}`}>
       <h2 className={darkTitleMd}>Confirmar pelo jogador</h2>
       <p className={darkBody}>
-        Confirmação normal: respeita prioridade dos mensalistas, capacidade e ordem da lista de espera. O resultado
-        pode ser participante ou espera — igual ao jogador confirmando no app.
+        Confirmação normal: mesmas regras do jogador no app. Antes do prazo, diaristas entram na espera (mesmo com
+        vagas). Depois do prazo, podem virar participantes se a fila e a capacidade permitirem. Para furar a regra,
+        use “Incluir excepcionalmente”.
       </p>
       {note && <p className={darkAlertWarn}>{note}</p>}
       <input type="hidden" name="sessionId" value={sessionId} />

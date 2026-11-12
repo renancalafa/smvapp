@@ -214,10 +214,12 @@ export async function queuePromotionNotification(
 }
 
 /**
- * Materializa allocate(): preenche vagas livres (FIFO), e antes do prazo pode
- * deslocar diaristas promovidos (LIFO por promotedAt) para mensalistas que reassumem.
+ * Materializa allocate(): preenche vagas livres com elegíveis da fase (antes do prazo
+ * só MONTHLY_PRIORITY; depois, FIFO geral). Antes do prazo pode deslocar GENERAL sem
+ * manualOverride (LIFO por promotedAt) para mensalistas que reassumem.
  * `directIds`: confirmação direta (sem promotedAt nem notificação WAITLIST_PROMOTED).
  * Com a votação iniciada, nada muda sozinho: promoções só pelo ADMIN.
+ * Na passagem do prazo, `advanceLockedSession` chama isto para promover a espera.
  */
 export async function rebalanceLockedSession(
   tx: Tx,

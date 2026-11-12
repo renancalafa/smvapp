@@ -90,6 +90,11 @@ export type SelfResponseResult = {
    * deslocável (ex.: só participantes com manualOverride). Fica WAITLISTED; exige ADMIN.
    */
   needsAdminReclaim?: boolean;
+  /**
+   * Antes do prazo: diarista confirmou (self ou ADMIN em nome) e ficou WAITLISTED —
+   * vagas livres só abrem para diaristas depois do prazo (ou via inclusão excepcional).
+   */
+  dailyHeldForPriority?: boolean;
 };
 
 /** Flash quando o mensalista reassumiria, mas só há vagas protegidas por intervenção do ADMIN. */
@@ -100,8 +105,9 @@ type ConfirmMemberRow = { id: string; modality: "MONTHLY" | "DAILY" };
 
 /**
  * Confirmação normal (jogador ou ADMIN em nome do jogador): entra WAITLISTED e
- * `rebalanceLockedSession`/`allocate` decide PARTICIPANT vs espera (vaga livre ou
- * deslocamento LIFO de diarista promovido antes do prazo). Não bypassa a fila.
+ * `rebalanceLockedSession`/`allocate` decide PARTICIPANT vs espera. Antes do prazo,
+ * só mensalistas (MONTHLY_PRIORITY) ocupam vagas livres; diaristas ficam WAITLISTED
+ * até o prazo (ou inclusão excepcional). Não grava manualOverride. Não bypassa a fila.
  * Participantes com manualOverride nunca são deslocados automaticamente.
  */
 async function confirmMemberLocked(
@@ -164,6 +170,8 @@ async function confirmMemberLocked(
     });
     needsAdminReclaim = seated >= effectiveCapacity(session);
   }
+  const dailyHeldForPriority =
+    status === "WAITLISTED" && input.member.modality === "DAILY" && phase === "PRIORITY";
   await writeAuditLog(tx, {
     groupId: input.groupId,
     actorUserId: input.actorUserId,
@@ -182,22 +190,27 @@ async function confirmMemberLocked(
             actorUsername: input.actorUsername ?? null,
             resultingStatus: status,
             needsAdminReclaim,
+            dailyHeldForPriority,
           }
-        : needsAdminReclaim
-          ? { needsAdminReclaim: true }
+        : needsAdminReclaim || dailyHeldForPriority
+          ? { needsAdminReclaim, dailyHeldForPriority }
           : undefined,
   });
   await clearPriorityReminderForMember(tx, session.id, input.member.id);
-  return needsAdminReclaim ? { status, needsAdminReclaim: true } : { status };
+  return {
+    status,
+    ...(needsAdminReclaim ? { needsAdminReclaim: true } : {}),
+    ...(dailyHeldForPriority ? { dailyHeldForPriority: true } : {}),
+  };
 }
 
 /**
- * CONFIRM: entra na alocação com novo queuedAt (PARTICIPANT se houver vaga, senão espera).
+ * CONFIRM: entra na alocação com novo queuedAt (PARTICIPANT se elegível à vaga, senão espera).
  * Mensalista antes do prazo: MONTHLY_PRIORITY (pode deslocar GENERAL sem manualOverride se cheio);
- * se só houver vagas protegidas, fica WAITLISTED com needsAdminReclaim. Depois do prazo: GENERAL
- * no fim da espera, sem deslocar. Quem já está na fila permanece.
- * DECLINE: PARTICIPANT/WAITLISTED → WITHDRAWN + rebalance (FIFO, inclusive diarista antes do
- * prazo); sem inscrição → DECLINED.
+ * se só houver vagas protegidas, fica WAITLISTED com needsAdminReclaim. Diarista antes do prazo:
+ * sempre WAITLISTED na confirmação normal (self ou ADMIN), mesmo com vagas livres.
+ * Depois do prazo: GENERAL no fim da espera / vagas FIFO; mensalista tardio não desloca.
+ * DECLINE: PARTICIPANT/WAITLISTED → WITHDRAWN + rebalance (só promove elegíveis da fase).
  * Com a votação iniciada, o jogador não muda mais a lista (só o ADMIN), exceto o mensalista
  * que confirma durante um sorteio antecipado: até o prazo, entra na lista de espera. A verificação
  * roda depois do lock da sessão, o mesmo da geração do sorteio: ou a resposta vem antes
