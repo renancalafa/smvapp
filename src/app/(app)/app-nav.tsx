@@ -3,6 +3,11 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useCallback, useRef, useState, useSyncExternalStore } from "react";
+import {
+  ADMIN_SUBNAV,
+  isAdminSectionPath,
+  isAdminSubnavActive,
+} from "@/domain/nav/admin-subnav";
 import { isMaisNavActive, isNavHrefActive } from "@/domain/nav/mobile-active";
 import { MobileMoreSheet } from "./mobile-more-sheet";
 
@@ -123,31 +128,107 @@ export function BottomNav({
   );
 }
 
+function AdminSideNavGroup({
+  pathname,
+  sectionActive,
+}: {
+  pathname: string | null;
+  sectionActive: boolean;
+}) {
+  // Remount via key when entering/leaving admin routes so initial open tracks the section
+  // without setState-in-effect (stays expanded on admin child routes).
+  const [open, setOpen] = useState(sectionActive);
+
+  return (
+    <li>
+      <button
+        type="button"
+        aria-expanded={open}
+        onClick={() => setOpen((value) => !value)}
+        className={`flex min-h-11 w-full items-center gap-3 rounded-lg px-3 text-sm font-medium focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-smv-gold ${
+          sectionActive
+            ? "bg-smv-gold/10 text-smv-gold-bright"
+            : "text-white/65 hover:bg-white/8 hover:text-smv-cream"
+        }`}
+      >
+        <Icon name="admin" />
+        <span className="flex-1 text-left">Admin</span>
+        <span className={`text-xs transition ${open ? "rotate-90" : ""}`} aria-hidden="true">
+          ›
+        </span>
+      </button>
+      {open ? (
+        <ul className="mt-1 flex flex-col gap-0.5 border-l border-white/10 py-0.5 pl-2 ml-5">
+          {ADMIN_SUBNAV.map((item) => {
+            const active = pathname !== null && isAdminSubnavActive(pathname, item.href);
+            return (
+              <li key={item.href}>
+                <Link
+                  href={item.href}
+                  {...(active ? { "aria-current": "page" as const } : {})}
+                  className={`flex min-h-10 items-center rounded-lg px-3 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-smv-gold ${
+                    active
+                      ? "bg-smv-gold/15 font-medium text-smv-gold-bright ring-1 ring-smv-gold/35"
+                      : "font-normal text-white/55 hover:bg-white/8 hover:text-smv-cream"
+                  }`}
+                >
+                  {item.label}
+                </Link>
+              </li>
+            );
+          })}
+        </ul>
+      ) : null}
+    </li>
+  );
+}
+
+function SideNavLink({ item, pathname }: { item: NavItem; pathname: string | null }) {
+  const active = pathname !== null && isNavHrefActive(pathname, item.href);
+  return (
+    <li>
+      <Link
+        href={item.href}
+        {...(active ? { "aria-current": "page" as const } : {})}
+        className={`flex min-h-11 items-center gap-3 rounded-lg px-3 text-sm font-medium focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-smv-gold ${
+          active
+            ? "bg-smv-gold/15 text-smv-gold-bright ring-1 ring-smv-gold/35"
+            : "text-white/65 hover:bg-white/8 hover:text-smv-cream"
+        }`}
+      >
+        <Icon name={item.icon} />
+        {item.label}
+      </Link>
+    </li>
+  );
+}
+
 /** Lista lateral, só no desktop. */
-export function SideNav({ items }: { items: NavItem[] }) {
+export function SideNav({
+  items,
+  showAdmin = false,
+}: {
+  items: NavItem[];
+  /** Submenu Admin (só ADMIN), entre Estatísticas e Conta. */
+  showAdmin?: boolean;
+}) {
   const pathname = useHydratedPathname();
+  const account = items.find((item) => item.href === "/account");
+  const primary = items.filter((item) => item.href !== "/account");
   return (
     <nav aria-label="Navegação principal">
       <ul className="flex flex-col gap-1">
-        {items.map((item) => {
-          const active = pathname !== null && isNavHrefActive(pathname, item.href);
-          return (
-            <li key={item.href}>
-              <Link
-                href={item.href}
-                {...(active ? { "aria-current": "page" as const } : {})}
-                className={`flex min-h-11 items-center gap-3 rounded-lg px-3 text-sm font-medium focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-smv-gold ${
-                  active
-                    ? "bg-smv-gold/15 text-smv-gold-bright ring-1 ring-smv-gold/35"
-                    : "text-white/65 hover:bg-white/8 hover:text-smv-cream"
-                }`}
-              >
-                <Icon name={item.icon} />
-                {item.label}
-              </Link>
-            </li>
-          );
-        })}
+        {primary.map((item) => (
+          <SideNavLink key={item.href} item={item} pathname={pathname} />
+        ))}
+        {showAdmin ? (
+          <AdminSideNavGroup
+            key={pathname !== null && isAdminSectionPath(pathname) ? "admin-in" : "admin-out"}
+            pathname={pathname}
+            sectionActive={pathname !== null && isAdminSectionPath(pathname)}
+          />
+        ) : null}
+        {account ? <SideNavLink item={account} pathname={pathname} /> : null}
       </ul>
     </nav>
   );

@@ -84,6 +84,7 @@ export default async function AdminSessionPage({ params }: { params: Promise<{ s
       canChangeList={canChangeList}
       canMarkAttendance={canMarkAttendance}
       hasFreeSpot={hasFreeSpot}
+      compact
     />
   );
   const presentCount = board.participants.filter((registration) => registration.attendance === "PRESENT").length;
@@ -189,6 +190,7 @@ export default async function AdminSessionPage({ params }: { params: Promise<{ s
         registrations={board.waitlist}
         empty="Ninguém na lista de espera."
         extra={waitlistActions}
+        layout="compact"
       />
 
       {canChangeList && (!board.attendanceLocked || earlyDrawWaitlist) && (

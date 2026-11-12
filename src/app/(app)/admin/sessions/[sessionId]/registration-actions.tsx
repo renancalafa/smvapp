@@ -71,6 +71,33 @@ export function RegistrationActions({
         {attendanceState?.status === "error" && (
           <p className={`max-w-[12rem] text-right ${darkAlertError}`}>{attendanceState.error}</p>
         )}
+        {showPromote && (
+          <details className="text-sm">
+            <summary className="flex min-h-9 cursor-pointer list-none items-center justify-end rounded-lg px-2 text-xs font-medium text-smv-gold-bright ring-1 ring-smv-gold/30 hover:bg-smv-gold/10">
+              Promover
+            </summary>
+            <form action={promoteAction} className="mt-1 flex w-[min(16rem,70vw)] flex-col gap-2">
+              <input type="hidden" name="sessionId" value={sessionId} />
+              <input type="hidden" name="registrationId" value={registrationId} />
+              <input
+                name="reason"
+                required
+                maxLength={300}
+                placeholder="Motivo (obrigatório)"
+                className={darkControl}
+                aria-label="Motivo da promoção"
+              />
+              <button type="submit" disabled={promoting} className={`w-full ${darkBtnPrimary}`}>
+                {promoting ? "Promovendo…" : "Promover a participante"}
+              </button>
+              {promoteState && (
+                <p className={promoteState.status === "error" ? darkAlertError : darkAlertSuccess}>
+                  {promoteState.status === "error" ? promoteState.error : promoteState.message}
+                </p>
+              )}
+            </form>
+          </details>
+        )}
         {canChangeList && (
           <details className="text-sm">
             <summary

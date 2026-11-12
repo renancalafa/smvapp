@@ -6,7 +6,7 @@ import {
   MatchScoreboardFromView,
   type ScoreboardPlayer,
 } from "@/app/(app)/sessions/match/match-scoreboard";
-import { MatchTimer } from "@/app/(app)/sessions/match/match-timer";
+import { computeDisplayedRemainingMs, MatchTimer } from "@/app/(app)/sessions/match/match-timer";
 import { MATCH_EVENT_LABELS } from "@/domain/match/events";
 import {
   darkAlertError,
@@ -455,7 +455,11 @@ function CurrentMatchAdmin({ board, match: initial }: { board: LiveBoard; match:
           paused={match.pausedAt !== null}
           plannedDurationSec={match.plannedDurationSec}
         />
-        <TimerButtons sessionId={board.sessionId} match={match} onMatchUpdated={setMatch} />
+        <TimerButtons
+          sessionId={board.sessionId}
+          match={match}
+          onMatchUpdated={setMatch}
+        />
       </article>
 
       {goalSide && (
@@ -521,7 +525,8 @@ function SubstitutionForm({
   onClosed?: () => void;
 }) {
   const [wantOpen, setWantOpen] = useState(initiallyOpen);
-  const [baseline, setBaseline] = useState<MatchActionState>(undefined);
+  // Baseline fixed at mount; parent remounts via key when opening from a player tap.
+  const [baseline] = useState<MatchActionState>(undefined);
   const [outMemberId, setOutMemberId] = useState(initialOutMemberId);
   const [inMemberId, setInMemberId] = useState("");
   const [state, action, pending] = useActionState(substituteMatchPlayerAction, undefined);
@@ -556,21 +561,11 @@ function SubstitutionForm({
     onClosed?.();
   }
 
+  // Aberto só via toque no jogador (preset). Sem botão redundante abaixo do placar.
+  if (!open && !state) return null;
+
   return (
     <div className="flex flex-col gap-2">
-      <button
-        type="button"
-        disabled={pending || onField.length === 0}
-        onClick={() => {
-          setOutMemberId("");
-          setInMemberId("");
-          setBaseline(state);
-          setWantOpen(true);
-        }}
-        className={`w-full ${darkBtnSecondary}`}
-      >
-        Substituir jogador
-      </button>
       <Feedback state={state} />
       {open && (
         <div
@@ -715,6 +710,10 @@ function TimerButtons({
   match: MatchView;
   onMatchUpdated: (match: MatchView) => void;
 }) {
+  const [now, setNow] = useState(() => Date.now());
+  const paused = match.pausedAt !== null;
+  const left = computeDisplayedRemainingMs(match.remainingMs, match.serverNow, paused, now);
+  const expired = left <= 0;
   const [pauseState, pauseAction, pausing] = useActionState(pauseMatchAction, undefined);
   const [resumeState, resumeAction, resuming] = useActionState(resumeMatchAction, undefined);
   const pauseOp = useOperationId(pauseState);
@@ -722,10 +721,28 @@ function TimerButtons({
   useMatchFromAction(pauseState, onMatchUpdated);
   useMatchFromAction(resumeState, onMatchUpdated);
 
+  useEffect(() => {
+    if (paused || expired) return;
+    const id = window.setInterval(() => setNow(Date.now()), 250);
+    return () => window.clearInterval(id);
+  }, [paused, expired, match.remainingMs, match.serverNow]);
+
+  // Tempo esgotado: sem pausar/retomar — finalização e scouts continuam disponíveis abaixo.
+  if (expired) {
+    return (
+      <div className="flex flex-col gap-2">
+        <p className="text-center text-sm text-red-200/90">
+          Tempo esgotado — finalize a partida quando estiver pronto.
+        </p>
+        <Feedback state={pauseState ?? resumeState} />
+      </div>
+    );
+  }
+
   return (
     <div className="flex flex-col gap-2">
-      <div className="grid grid-cols-2 gap-2">
-        {match.pausedAt ? (
+      <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+        {paused ? (
           <form action={resumeAction}>
             <input type="hidden" name="sessionId" value={sessionId} />
             <input type="hidden" name="matchId" value={match.id} />

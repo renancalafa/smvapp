@@ -1,6 +1,11 @@
 // Regressão das regras de destaque da navegação mobile (5 itens + Mais).
 //
 //   npm run check:mobile-nav
+import {
+  ADMIN_SUBNAV,
+  isAdminSectionPath,
+  isAdminSubnavActive,
+} from "../src/domain/nav/admin-subnav";
 import { isMaisNavActive, isNavHrefActive } from "../src/domain/nav/mobile-active";
 
 const results: { name: string; ok: boolean }[] = [];
@@ -21,6 +26,14 @@ check(
     !isMaisNavActive("/stats") &&
     !isMaisNavActive("/historico") &&
     !isMaisNavActive("/rodada"),
+);
+check(
+  "submenu admin: seção e itens",
+  isAdminSectionPath("/admin/sessions") &&
+    isAdminSubnavActive("/admin/players", "/admin/players") &&
+    isAdminSubnavActive("/admin/sessions/abc", "/admin/sessions") &&
+    !isAdminSubnavActive("/admin/agenda", "/admin/players") &&
+    ADMIN_SUBNAV.length === 3,
 );
 
 const mobileSlots = ["/", "night", "/historico", "/stats", "mais"] as const;

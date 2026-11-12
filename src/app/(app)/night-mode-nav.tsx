@@ -85,10 +85,12 @@ export function NightAwareBottomNav({
 export function NightAwareSideNav({
   items,
   initialNight,
+  showAdmin = false,
 }: {
   items: NavItem[];
   initialNight: NightSlot;
+  showAdmin?: boolean;
 }) {
   const night = useLiveNightSlot(initialNight);
-  return <SideNav items={withNightSlot(items, night)} />;
+  return <SideNav items={withNightSlot(items, night)} showAdmin={showAdmin} />;
 }

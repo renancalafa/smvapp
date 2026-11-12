@@ -36,8 +36,9 @@ function formatElapsed(elapsedSec: number): string {
 
 function matchStatusLabel(match: MatchView): string {
   if (match.awaitingKickoff) return "Aguardando apito";
-  if (match.pausedAt) return "Pausada";
+  // Expirado tem prioridade sobre pausado (00:00 ≠ pausa comum).
   if (match.remainingMs <= 0) return "Tempo esgotado";
+  if (match.pausedAt) return "Pausada";
   return "Em andamento";
 }
 

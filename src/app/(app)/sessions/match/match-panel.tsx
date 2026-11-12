@@ -1,7 +1,7 @@
 import { darkCard, darkEmpty } from "@/lib/ui/dark-surfaces";
 import type { LiveBoard } from "@/server/modules/matches/queries";
 import { MatchScoreboard, MatchScoreboardFromView } from "./match-scoreboard";
-import { MatchTimer } from "./match-timer";
+import { computeDisplayedRemainingMs, MatchTimer } from "./match-timer";
 
 function teamName(board: LiveBoard, teamId: string): string {
   return board.teams.find((team) => team.id === teamId)?.name ?? "Time";
@@ -36,9 +36,18 @@ export function MatchPanel({ board }: { board: LiveBoard }) {
             <p className="text-xs font-semibold uppercase tracking-wide text-smv-gold">
               Partida {current.sequence}
             </p>
-            {current.pausedAt ? (
-              <span className="text-xs font-medium text-amber-200">Pausada</span>
-            ) : null}
+            {(() => {
+              const paused = current.pausedAt !== null;
+              const expired =
+                computeDisplayedRemainingMs(current.remainingMs, current.serverNow, paused) <= 0;
+              if (expired) {
+                return <span className="text-xs font-medium text-red-200">Tempo esgotado</span>;
+              }
+              if (paused) {
+                return <span className="text-xs font-medium text-amber-200">Pausada</span>;
+              }
+              return null;
+            })()}
           </div>
           <MatchScoreboardFromView match={current} />
           <MatchTimer

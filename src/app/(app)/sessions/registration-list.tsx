@@ -21,7 +21,7 @@ export function RegistrationList({
   extra?: (registration: Registration) => React.ReactNode;
   /** When false, `title` is shown as-is (useful if it already includes capacity). */
   showCount?: boolean;
-  /** Compact horizontal rows (admin Confirmados). Waitlist stays on default. */
+  /** Compact horizontal rows (admin Confirmados e Lista de espera). */
   layout?: "default" | "compact";
 }) {
   const heading = showCount ? `${title} (${registrations.length})` : title;
@@ -49,7 +49,7 @@ export function RegistrationList({
                   <p className="min-w-0 flex-1 truncate text-sm font-medium text-white sm:text-base">
                     {displayName(registration)}
                   </p>
-                  <ModalityBadge registration={registration} />
+                  <CompactStatusBadges registration={registration} />
                   {extra ? <div className="shrink-0">{extra(registration)}</div> : null}
                 </div>
               </li>
@@ -95,18 +95,15 @@ export function RegistrationList({
   );
 }
 
-function ModalityBadge({ registration }: { registration: Registration }) {
-  if (registration.modalitySnapshot === "MONTHLY") {
-    return (
-      <span className="inline-flex shrink-0 items-center gap-1">
-        <Tag gold>Mensalista</Tag>
-        {registration.manualOverrideAt && registration.status !== "REMOVED" ? <Tag>Admin</Tag> : null}
-      </span>
-    );
-  }
+/** Badges compactos: modalidade + flags de espera / override, sem empilhar linhas. */
+function CompactStatusBadges({ registration }: { registration: Registration }) {
   return (
-    <span className="inline-flex shrink-0 items-center gap-1">
-      <Tag>Diarista</Tag>
+    <span className="inline-flex max-w-[40%] shrink-0 flex-wrap items-center justify-end gap-1 sm:max-w-none">
+      {registration.modalitySnapshot === "MONTHLY" ? <Tag gold>Mensalista</Tag> : <Tag>Diarista</Tag>}
+      {registration.status === "WAITLISTED" && registration.priorityTier === "MONTHLY_PRIORITY" ? (
+        <Tag>Prioridade</Tag>
+      ) : null}
+      {registration.promotedAt ? <Tag>Promovido</Tag> : null}
       {registration.manualOverrideAt && registration.status !== "REMOVED" ? <Tag>Admin</Tag> : null}
     </span>
   );

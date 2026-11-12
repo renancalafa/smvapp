@@ -123,6 +123,7 @@ export function MatchScoreboard({
       <div className="grid grid-cols-2 gap-2 sm:gap-4">
         <PlayerColumn
           team={teamA}
+          align="left"
           players={teamAPlayers}
           clickable={playersClickable}
           selectedPlayerId={selectedPlayerId}
@@ -130,6 +131,7 @@ export function MatchScoreboard({
         />
         <PlayerColumn
           team={teamB}
+          align="right"
           players={teamBPlayers}
           clickable={playersClickable}
           selectedPlayerId={selectedPlayerId}
@@ -281,18 +283,28 @@ function ScoreDigit({
 
 function PlayerColumn({
   team,
+  align,
   players,
   clickable,
   selectedPlayerId,
   onPlayerClick,
 }: {
   team: ScoreboardTeam;
+  /** Lado do placar (A esquerda / B direita), não a cor do time. */
+  align: "left" | "right";
   players: ScoreboardPlayer[];
   clickable: boolean;
   selectedPlayerId: string | null;
   onPlayerClick?: (player: ScoreboardPlayer) => void;
 }) {
   const accent = teamAccent(team);
+  const isRight = align === "right";
+  const textAlign = isRight ? "text-right" : "text-left";
+  const rowAlign = isRight ? "justify-end" : "justify-start";
+  const accentBorder = isRight
+    ? { borderRight: `3px solid ${accent.hex}` }
+    : { borderLeft: `3px solid ${accent.hex}` };
+
   return (
     <ul className="flex flex-col gap-1.5">
       {players.length === 0 ? (
@@ -313,10 +325,10 @@ function PlayerColumn({
                   type="button"
                   onClick={() => onPlayerClick(player)}
                   aria-pressed={selected}
-                  className={`flex min-h-11 w-full items-center gap-2 rounded-xl px-2.5 py-2 text-left text-sm font-medium transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-smv-gold ${tileClass}`}
-                  style={{ borderLeft: `3px solid ${accent.hex}` }}
+                  className={`flex min-h-11 w-full items-center gap-2 rounded-xl px-2.5 py-2 text-sm font-medium transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-smv-gold ${rowAlign} ${textAlign} ${tileClass}`}
+                  style={accentBorder}
                 >
-                  <span className="min-w-0 flex-1 truncate">{label}</span>
+                  <span className="min-w-0 max-w-full truncate">{label}</span>
                 </button>
               </li>
             );
@@ -324,10 +336,10 @@ function PlayerColumn({
           return (
             <li
               key={player.memberId}
-              className="flex min-h-11 items-center rounded-xl bg-black/20 px-2.5 py-2 text-sm text-white/80 ring-1 ring-white/10"
-              style={{ borderLeft: `3px solid ${accent.hex}` }}
+              className={`flex min-h-11 items-center rounded-xl bg-black/20 px-2.5 py-2 text-sm text-white/80 ring-1 ring-white/10 ${rowAlign} ${textAlign}`}
+              style={accentBorder}
             >
-              <span className="truncate">{label}</span>
+              <span className="min-w-0 max-w-full truncate">{label}</span>
             </li>
           );
         })

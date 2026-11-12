@@ -1,11 +1,73 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useId, useRef, type RefObject } from "react";
+import { usePathname } from "next/navigation";
+import { useEffect, useId, useRef, useState, type RefObject } from "react";
 import { LogoutForm } from "@/components/logout-form";
+import {
+  ADMIN_SUBNAV,
+  isAdminSectionPath,
+  isAdminSubnavActive,
+} from "@/domain/nav/admin-subnav";
 
 const FOCUSABLE =
   'a[href], button:not([disabled]), textarea, input, select, [tabindex]:not([tabindex="-1"])';
+
+function AdminMoreGroup({
+  pathname,
+  sectionActive,
+  itemClass,
+  onNavigate,
+}: {
+  pathname: string;
+  sectionActive: boolean;
+  itemClass: string;
+  onNavigate: () => void;
+}) {
+  // Remount via key when entering/leaving admin routes so the group starts expanded on admin pages.
+  const [adminOpen, setAdminOpen] = useState(sectionActive);
+
+  return (
+    <li>
+      <button
+        type="button"
+        aria-expanded={adminOpen}
+        onClick={() => setAdminOpen((value) => !value)}
+        className={`${itemClass} justify-between ${
+          sectionActive ? "bg-smv-gold/10 text-smv-gold-bright" : ""
+        }`}
+      >
+        <span>Admin</span>
+        <span className={`text-xs transition ${adminOpen ? "rotate-90" : ""}`} aria-hidden="true">
+          ›
+        </span>
+      </button>
+      {adminOpen ? (
+        <ul className="mt-1 flex flex-col gap-0.5 border-l border-white/10 py-0.5 pl-2 ml-3">
+          {ADMIN_SUBNAV.map((item) => {
+            const active = isAdminSubnavActive(pathname, item.href);
+            return (
+              <li key={item.href}>
+                <Link
+                  href={item.href}
+                  onClick={onNavigate}
+                  {...(active ? { "aria-current": "page" as const } : {})}
+                  className={`flex min-h-11 w-full items-center rounded-xl px-3 text-sm transition-colors hover:bg-white/8 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-smv-gold ${
+                    active
+                      ? "bg-smv-gold/15 font-medium text-smv-gold-bright"
+                      : "font-normal text-white/70"
+                  }`}
+                >
+                  {item.label}
+                </Link>
+              </li>
+            );
+          })}
+        </ul>
+      ) : null}
+    </li>
+  );
+}
 
 export function MobileMoreSheet({
   open,
@@ -20,6 +82,8 @@ export function MobileMoreSheet({
 }) {
   const titleId = useId();
   const panelRef = useRef<HTMLDivElement>(null);
+  const pathname = usePathname();
+  const adminSectionActive = isAdminSectionPath(pathname);
 
   useEffect(() => {
     if (!open) return;
@@ -97,11 +161,13 @@ export function MobileMoreSheet({
         </div>
         <ul className="flex flex-col gap-1 p-2">
           {showAdmin ? (
-            <li>
-              <Link href="/admin" className={itemClass} onClick={onClose}>
-                Admin
-              </Link>
-            </li>
+            <AdminMoreGroup
+              key={adminSectionActive ? "admin-in" : "admin-out"}
+              pathname={pathname}
+              sectionActive={adminSectionActive}
+              itemClass={itemClass}
+              onNavigate={onClose}
+            />
           ) : null}
           <li>
             <Link href="/account" className={itemClass} onClick={onClose}>

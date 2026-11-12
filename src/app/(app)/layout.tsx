@@ -27,12 +27,12 @@ export default async function AppLayout({ children }: { children: React.ReactNod
     { href: "/historico", label: "Histórico", icon: "historico" },
     { href: "/stats", label: "Estatísticas", icon: "stats" },
   ];
+  // Admin vira submenu expansível na SideNav (não um item plano /admin).
   const desktopItems: NavItem[] = [
     { href: "/", label: "Início", icon: "home" },
     nightNav,
     { href: "/historico", label: "Histórico", icon: "historico" },
     { href: "/stats", label: "Estatísticas", icon: "stats" },
-    ...(isAdmin ? [{ href: "/admin", label: "Admin", icon: "admin" } as const] : []),
     { href: "/account", label: "Conta", icon: "account" },
   ];
 
@@ -58,6 +58,7 @@ export default async function AppLayout({ children }: { children: React.ReactNod
         </Link>
         <NightAwareSideNav
           items={desktopItems}
+          showAdmin={isAdmin}
           initialNight={{
             href: nightItem.href,
             label: nightItem.label,
