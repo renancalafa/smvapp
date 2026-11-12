@@ -33,6 +33,7 @@
     "check:login-throttle": "tsx scripts/check-login-throttle.ts",
     "check:dev-reset": "tsx scripts/check-dev-reset.ts",
     "check:member-role": "tsx scripts/check-member-role.ts",
+    "check:member-modality": "tsx scripts/check-member-modality.ts",
     "check:member-rating": "tsx scripts/check-member-rating.ts",
     "check:own-profile": "tsx scripts/check-own-profile.ts",
     "check:extraordinary": "tsx scripts/check-extraordinary.ts",

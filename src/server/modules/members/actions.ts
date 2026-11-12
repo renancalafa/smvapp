@@ -8,6 +8,7 @@ import {
   changeMemberRating,
   changeMemberRole,
   createPlayer,
+  promoteMemberToMonthly,
   resetPlayerPassword,
   setMemberStatus,
   updateOwnProfile,
@@ -156,6 +157,28 @@ export async function changeMemberRoleAction(
     };
   } catch (error) {
     return { status: "error", error: errorMessage("changeMemberRoleAction", error) };
+  }
+}
+
+export async function promoteMemberToMonthlyAction(
+  _previous: MemberActionState,
+  formData: FormData,
+): Promise<MemberActionState> {
+  const viewer = await requireAdminAction();
+  const memberId = formText(formData, "memberId");
+  if (!isUuid(memberId)) {
+    return { status: "error", error: "Requisição inválida." };
+  }
+  try {
+    await promoteMemberToMonthly(viewer, memberId);
+    refresh();
+    return {
+      status: "done",
+      message:
+        "Jogador promovido a mensalista. Inscrições já feitas nesta e em outras sessões não mudam; a prioridade de mensalista vale nas próximas confirmações.",
+    };
+  } catch (error) {
+    return { status: "error", error: errorMessage("promoteMemberToMonthlyAction", error) };
   }
 }
 

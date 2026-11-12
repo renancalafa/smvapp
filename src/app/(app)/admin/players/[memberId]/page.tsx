@@ -14,6 +14,7 @@ import { isUuid } from "@/server/modules/members/validation";
 import { MODALITY_LABEL, ROLE_LABEL, STATUS_LABEL } from "../../../labels";
 import { EditRatingForm } from "./edit-rating-form";
 import { PlayerActions } from "./player-actions";
+import { PromoteModality } from "./promote-modality";
 import { RolePermissions } from "./role-permissions";
 
 export const metadata: Metadata = { title: "Jogador" };
@@ -81,6 +82,13 @@ export default async function PlayerPage({ params }: { params: Promise<{ memberI
         memberId={member.id}
         username={member.user.username}
         baseRating={member.baseRating}
+      />
+
+      <PromoteModality
+        memberId={member.id}
+        username={member.user.username}
+        modality={member.modality}
+        status={member.status}
       />
 
       <RolePermissions memberId={member.id} username={member.user.username} role={member.role} />

@@ -1,5 +1,5 @@
 import "server-only";
-import type { MemberRole, MemberStatus } from "@/generated/prisma/client";
+import type { MemberRole, MemberStatus, PlayerModality } from "@/generated/prisma/client";
 import { Prisma } from "@/generated/prisma/client";
 import { writeAuditLog } from "@/server/audit";
 import type { Viewer } from "@/server/auth/dal";
@@ -227,6 +227,87 @@ export async function changeMemberRole(
       });
 
       return { previousRole: member.role, newRole };
+    },
+    { isolationLevel: "Serializable" },
+  );
+}
+
+/**
+ * Promove diarista ACTIVE → mensalista (DAILY → MONTHLY).
+ * Não altera papel, isenção, sessões existentes (snapshots/priorityTier/fila) nem financeiro.
+ * Confirmações futuras leem GroupMember.modality e aplicam prioridade de mensalista.
+ * Reusa getMonthlyJoinPolicy (bloqueio pós-implantação até existir LATE_JOIN).
+ */
+export async function promoteMemberToMonthly(
+  viewer: Viewer,
+  memberId: string,
+): Promise<{ previousModality: PlayerModality; newModality: PlayerModality }> {
+  if (viewer.member.role !== "ADMIN") {
+    throw new UserFacingError("Acesso restrito a administradores.");
+  }
+
+  return db.$transaction(
+    async (tx) => {
+      const locked = await tx.$queryRaw<{ id: string }[]>`
+        SELECT "id" FROM "GroupMember"
+        WHERE "id" = ${memberId}::uuid AND "groupId" = ${viewer.group.id}::uuid
+        FOR UPDATE`;
+      if (locked.length === 0) throw new UserFacingError("Jogador não encontrado.");
+
+      const member = await tx.groupMember.findUniqueOrThrow({
+        where: { id: memberId },
+        select: {
+          id: true,
+          modality: true,
+          status: true,
+          role: true,
+          feeExempt: true,
+          userId: true,
+          user: { select: { username: true, name: true } },
+        },
+      });
+
+      if (member.modality === "MONTHLY") {
+        throw new UserFacingError("Este jogador já é mensalista.");
+      }
+      if (member.status !== "ACTIVE") {
+        throw new UserFacingError("Só é possível promover diaristas ativos.");
+      }
+      if (member.modality !== "DAILY") {
+        throw new UserFacingError("Só diaristas podem ser promovidos a mensalista.");
+      }
+
+      const policy = await getMonthlyJoinPolicy(tx, viewer.group);
+      if (!policy.allowed) throw new UserFacingError(policy.reason);
+
+      const updated = await tx.groupMember.updateMany({
+        where: { id: member.id, modality: "DAILY", status: "ACTIVE" },
+        data: { modality: "MONTHLY" },
+      });
+      if (updated.count !== 1) {
+        throw new UserFacingError("O jogador foi alterado por outra pessoa. Recarregue a página.");
+      }
+
+      await writeAuditLog(tx, {
+        groupId: viewer.group.id,
+        actorUserId: viewer.user.id,
+        action: "MEMBER_MODALITY_CHANGED",
+        entityType: "GroupMember",
+        entityId: member.id,
+        before: { modality: "DAILY" },
+        after: { modality: "MONTHLY" },
+        metadata: {
+          targetUserId: member.userId,
+          targetUsername: member.user.username,
+          targetName: member.user.name,
+          actorUsername: viewer.user.username,
+          role: member.role,
+          status: member.status,
+          feeExempt: member.feeExempt,
+        },
+      });
+
+      return { previousModality: "DAILY", newModality: "MONTHLY" };
     },
     { isolationLevel: "Serializable" },
   );
