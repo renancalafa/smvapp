@@ -8,7 +8,7 @@ export function LoginForm() {
   const [state, formAction, pending] = useActionState(loginAction, undefined);
 
   return (
-    <form action={formAction} className="mt-6 flex flex-col gap-4">
+    <form action={formAction} className="flex flex-col gap-5">
       <TextField
         label="Usuário"
         name="username"
@@ -20,7 +20,9 @@ export function LoginForm() {
       />
       <TextField label="Senha" name="password" type="password" autoComplete="current-password" required />
       <FormError message={state?.error} />
-      <SubmitButton pending={pending} label="Entrar" pendingLabel="Entrando…" />
+      <div className="pt-1">
+        <SubmitButton pending={pending} label="Entrar" pendingLabel="Entrando…" />
+      </div>
     </form>
   );
 }
