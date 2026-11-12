@@ -21,11 +21,13 @@ import {
 } from "../src/domain/stats/aggregate";
 import {
   buildDashboardOverview,
+  buildGoalsPerMatchSeries,
   buildGoalsPerSessionSeries,
   buildPlayerEfficiency,
   buildPresenceRanking,
   buildStatsInsights,
   buildWinRateRanking,
+  compareMatchesNewestFirst,
   countValidGoals,
 } from "../src/domain/stats/dashboard";
 import { PrismaClient, type Prisma } from "../src/generated/prisma/client";
@@ -242,6 +244,126 @@ function domainChecks() {
   );
   check("série: média das barras", series.average != null && Math.abs(series.average - 3) < 0.01);
   check("série: limite 12 com menos sessões", buildGoalsPerSessionSeries([], 12).points.length === 0);
+
+  // Contagem por partida (espelha o loop do perfil): GOAL válido; ignora OWN_GOAL / anulado.
+  function goalsForMember(
+    events: readonly { type: string; memberId: string | null; voidedAt: Date | null }[],
+    memberId: string,
+  ): number {
+    let goals = 0;
+    for (const event of events) {
+      if (event.voidedAt) continue;
+      if (event.type === "GOAL" && event.memberId === memberId) goals += 1;
+    }
+    return goals;
+  }
+  const scorerId = "player-a";
+  check(
+    "partida: zero gols conta 0",
+    goalsForMember(
+      [
+        { type: "OWN_GOAL", memberId: scorerId, voidedAt: null },
+        { type: "GOAL", memberId: scorerId, voidedAt: new Date() },
+      ],
+      scorerId,
+    ) === 0,
+  );
+  check(
+    "partida: múltiplos GOAL somam",
+    goalsForMember(
+      [
+        { type: "GOAL", memberId: scorerId, voidedAt: null },
+        { type: "GOAL", memberId: scorerId, voidedAt: null },
+        { type: "GOAL", memberId: "other", voidedAt: null },
+      ],
+      scorerId,
+    ) === 2,
+  );
+  check(
+    "partida: OWN_GOAL e anulado não entram",
+    goalsForMember(
+      [
+        { type: "GOAL", memberId: scorerId, voidedAt: null },
+        { type: "OWN_GOAL", memberId: scorerId, voidedAt: null },
+        { type: "GOAL", memberId: scorerId, voidedAt: new Date() },
+      ],
+      scorerId,
+    ) === 1,
+  );
+
+  const matchRowsNewestFirst = [
+    { matchId: "m14", startedAt: "2026-11-14T20:00:00.000Z", sequence: 2, goals: 3 },
+    { matchId: "m13", startedAt: "2026-11-14T19:00:00.000Z", sequence: 1, goals: 0 },
+    { matchId: "m12", startedAt: "2026-11-07T20:00:00.000Z", sequence: 3, goals: 1 },
+    { matchId: "m11", startedAt: "2026-11-07T19:30:00.000Z", sequence: 2, goals: 2 },
+    { matchId: "m10", startedAt: "2026-11-07T19:00:00.000Z", sequence: 1, goals: 0 },
+    { matchId: "m09", startedAt: "2026-10-31T20:00:00.000Z", sequence: 1, goals: 1 },
+    { matchId: "m08", startedAt: "2026-10-24T20:00:00.000Z", sequence: 1, goals: 4 },
+    { matchId: "m07", startedAt: "2026-10-17T20:00:00.000Z", sequence: 1, goals: 0 },
+    { matchId: "m06", startedAt: "2026-10-10T20:00:00.000Z", sequence: 1, goals: 2 },
+    { matchId: "m05", startedAt: "2026-10-03T20:00:00.000Z", sequence: 1, goals: 1 },
+    { matchId: "m04", startedAt: "2026-09-26T20:00:00.000Z", sequence: 1, goals: 0 },
+    { matchId: "m03", startedAt: "2026-09-19T20:00:00.000Z", sequence: 1, goals: 2 },
+    { matchId: "m02", startedAt: "2026-09-12T20:00:00.000Z", sequence: 1, goals: 1 },
+    { matchId: "m01", startedAt: "2026-09-05T20:00:00.000Z", sequence: 1, goals: 0 },
+  ];
+  const sortedMatches = [...matchRowsNewestFirst].sort(compareMatchesNewestFirst);
+  check(
+    "partida: ordenação startedAt desc + sequence + id",
+    sortedMatches[0]!.matchId === "m14" && sortedMatches[1]!.matchId === "m13",
+  );
+
+  const matchSeries = buildGoalsPerMatchSeries(sortedMatches, 12);
+  check(
+    "gols/partida: últimas 12 e ordem cronológica",
+    matchSeries.points.length === 12 &&
+      matchSeries.points[0]!.matchId === "m03" &&
+      matchSeries.points[11]!.matchId === "m14" &&
+      matchSeries.points[11]!.isLatest === true,
+  );
+  check(
+    "gols/partida: inclui zeros e múltiplos gols",
+    matchSeries.points.some((row) => row.goals === 0) &&
+      matchSeries.points.some((row) => row.goals >= 3),
+  );
+  check(
+    "gols/partida: média exibida ≠ média do período (limit 12)",
+    matchSeries.displayedAverage != null &&
+      matchSeries.periodAverage != null &&
+      matchSeries.periodMatchCount === 14 &&
+      Math.abs(matchSeries.displayedAverage - matchSeries.periodAverage) > 0.001,
+  );
+  const displayedSum = matchSeries.points.reduce((sum, row) => sum + row.goals, 0);
+  check(
+    "gols/partida: média exibida = soma/12",
+    matchSeries.displayedAverage != null &&
+      Math.abs(matchSeries.displayedAverage - displayedSum / 12) < 0.0001,
+  );
+  const periodSum = sortedMatches.reduce((sum, row) => sum + row.goals, 0);
+  check(
+    "gols/partida: média período = soma/todas",
+    matchSeries.periodAverage != null &&
+      Math.abs(matchSeries.periodAverage - periodSum / 14) < 0.0001,
+  );
+  check(
+    "gols/partida: tendência com ≥6 pontos",
+    matchSeries.trend === "up" || matchSeries.trend === "down" || matchSeries.trend === "stable",
+  );
+  check(
+    "gols/partida: vazio sem divisão por zero",
+    buildGoalsPerMatchSeries([], 12).points.length === 0 &&
+      buildGoalsPerMatchSeries([], 12).displayedAverage === null &&
+      buildGoalsPerMatchSeries([], 12).periodAverage === null &&
+      buildGoalsPerMatchSeries([], 12).trend === null,
+  );
+  check(
+    "gols/partida: tendência ausente com poucas partidas",
+    buildGoalsPerMatchSeries(sortedMatches.slice(0, 4), 12).trend === null,
+  );
+  check(
+    "gols/partida: não muta entrada",
+    sortedMatches[0]!.matchId === "m14" && sortedMatches[sortedMatches.length - 1]!.matchId === "m01",
+  );
 
   const presence = buildPresenceRanking(
     [

@@ -17,16 +17,19 @@ import {
 } from "@/domain/stats/aggregate";
 import {
   buildDashboardOverview,
+  buildGoalsPerMatchSeries,
   buildGoalsPerSessionSeries,
   buildMetricRanking,
   buildPlayerEfficiency,
   buildPresenceRanking,
   buildStatsInsights,
   buildWinRateRanking,
+  compareMatchesNewestFirst,
   countValidGoals,
   type DashboardOverview,
   type DashboardRankingCategory,
   type DashboardRankingEntry,
+  type GoalsPerMatchSeries,
   type GoalsPerSessionSeries,
   type PlayerEfficiency,
   type StatsInsight,
@@ -577,6 +580,7 @@ export async function getPlayerDashboardStats(
   presences: number;
   efficiency: PlayerEfficiency;
   recentMatches: RecentMatchStat[];
+  goalsPerMatchSeries: GoalsPerMatchSeries;
 } | null> {
   const member = await db.groupMember.findFirst({
     where: { id: memberId, groupId },
@@ -614,6 +618,7 @@ export async function getPlayerDashboardStats(
     presences,
     efficiency: buildPlayerEfficiency(profile.totals),
     recentMatches: profile.recentMatches,
+    goalsPerMatchSeries: profile.goalsPerMatchSeries,
   };
 }
 
@@ -627,6 +632,7 @@ export async function getPlayerProfileStats(
   totals: PlayerStatTotals;
   winPercentage: number | null;
   recentMatches: RecentMatchStat[];
+  goalsPerMatchSeries: GoalsPerMatchSeries;
 } | null> {
   const member = await db.groupMember.findFirst({
     where: { id: memberId, groupId },
@@ -649,7 +655,7 @@ export async function getPlayerProfileStats(
   const matchWhere = await finishedMatchWhere(groupId, period, timeZone);
   const matches = await db.match.findMany({
     where: matchWhere,
-    orderBy: { startedAt: "desc" },
+    orderBy: [{ startedAt: "desc" }, { sequence: "desc" }, { id: "desc" }],
     select: {
       id: true,
       sequence: true,
@@ -679,6 +685,13 @@ export async function getPlayerProfileStats(
   const totals = aggregated.get(memberId) ?? emptyTotals();
 
   const recentMatches: RecentMatchStat[] = [];
+  const goalsMatchRows: {
+    matchId: string;
+    startedAt: string;
+    sequence: number;
+    goals: number;
+  }[] = [];
+
   for (const match of matches) {
     const appearance = match.players.find((row) => row.memberId === memberId);
     if (!appearance) continue;
@@ -716,27 +729,44 @@ export async function getPlayerProfileStats(
       }
     }
 
-    recentMatches.push({
+    const startedAt = match.startedAt.toISOString();
+    goalsMatchRows.push({
       matchId: match.id,
-      sessionId: match.gameSessionId,
+      startedAt,
       sequence: match.sequence,
-      startedAt: match.startedAt.toISOString(),
-      teamName: isA ? match.teamA.name : match.teamB.name,
-      opponentName: isA ? match.teamB.name : match.teamA.name,
-      scoreFor,
-      scoreAgainst,
-      role: appearance.role,
-      result,
       goals,
-      assists,
-      ownGoals,
-      bigMisses,
-      cards,
     });
-    if (recentMatches.length >= 20) break;
+
+    if (recentMatches.length < 20) {
+      recentMatches.push({
+        matchId: match.id,
+        sessionId: match.gameSessionId,
+        sequence: match.sequence,
+        startedAt,
+        teamName: isA ? match.teamA.name : match.teamB.name,
+        opponentName: isA ? match.teamB.name : match.teamA.name,
+        scoreFor,
+        scoreAgainst,
+        role: appearance.role,
+        result,
+        goals,
+        assists,
+        ownGoals,
+        bigMisses,
+        cards,
+      });
+    }
   }
 
-  return { player, totals, winPercentage: winPercentage(totals), recentMatches };
+  goalsMatchRows.sort(compareMatchesNewestFirst);
+
+  return {
+    player,
+    totals,
+    winPercentage: winPercentage(totals),
+    recentMatches,
+    goalsPerMatchSeries: buildGoalsPerMatchSeries(goalsMatchRows, 12),
+  };
 }
 
 /** Opções de filtro a partir de sessões com partida finalizada. */

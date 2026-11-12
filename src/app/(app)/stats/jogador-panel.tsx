@@ -10,13 +10,14 @@ import {
   darkSectionLabel,
   darkTitleMd,
 } from "@/lib/ui/dark-surfaces";
-import { formatAvg, formatWinPercentage } from "@/domain/stats/dashboard";
+import { formatAvg, formatWinPercentage, type GoalsPerMatchSeries } from "@/domain/stats/dashboard";
 import type {
   PlayerEfficiency,
   PlayerStatTotals,
   RecentMatchStat,
   StatsPlayerListItem,
 } from "@/server/modules/stats/queries";
+import { GoalsPerMatchChart } from "./goals-per-match-chart";
 import { StatCards } from "./stat-cards";
 import { formatSessionTitle } from "../sessions/format";
 
@@ -48,6 +49,7 @@ export function JogadorPanel({
     presences: number;
     efficiency: PlayerEfficiency;
     recentMatches: RecentMatchStat[];
+    goalsPerMatchSeries: GoalsPerMatchSeries;
   } | null;
   timeZone: string;
 }) {
@@ -112,7 +114,12 @@ export function JogadorPanel({
             </Link>
           </section>
 
-          <StatCards totals={profile.totals} />
+          <GoalsPerMatchChart series={profile.goalsPerMatchSeries} timeZone={timeZone} />
+
+          <section className="flex flex-col gap-3">
+            <h3 className={darkSectionLabel}>Totais no período</h3>
+            <StatCards totals={profile.totals} />
+          </section>
 
           <section className={`flex flex-col gap-2 ${darkCardPad}`}>
             <h3 className={darkSectionLabel}>Médias por partida (PJ)</h3>

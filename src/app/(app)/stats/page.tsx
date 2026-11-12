@@ -110,6 +110,7 @@ export default async function StatsPage({
                   presences: playerProfile.presences,
                   efficiency: playerProfile.efficiency,
                   recentMatches: playerProfile.recentMatches,
+                  goalsPerMatchSeries: playerProfile.goalsPerMatchSeries,
                 }
               : null
           }

@@ -114,6 +114,75 @@ export function buildGoalsPerSessionSeries(
   return { points, average };
 }
 
+export type GoalsMatchPoint = {
+  matchId: string;
+  startedAt: string;
+  sequence: number;
+  goals: number;
+  isLatest: boolean;
+};
+
+export type GoalsPerMatchTrend = "up" | "down" | "stable";
+
+export type GoalsPerMatchSeries = {
+  points: GoalsMatchPoint[];
+  /** Média só das partidas exibidas (até `limit`). */
+  displayedAverage: number | null;
+  /** Média de todas as partidas elegíveis do período (participação via MatchPlayer). */
+  periodAverage: number | null;
+  periodMatchCount: number;
+  /** Null quando não há janelas suficientes para comparar. */
+  trend: GoalsPerMatchTrend | null;
+};
+
+/**
+ * Série de gols por partida (não por pelada).
+ * `matches` deve vir mais recente primeiro (startedAt desc, tie-break estável).
+ * Inclui zeros; não muta o array de entrada.
+ */
+export function buildGoalsPerMatchSeries(
+  matches: readonly { matchId: string; startedAt: string; sequence: number; goals: number }[],
+  limit = 12,
+  trendWindow = 3,
+): GoalsPerMatchSeries {
+  const periodMatchCount = matches.length;
+  const periodGoals = matches.reduce((sum, row) => sum + row.goals, 0);
+  const periodAverage = periodMatchCount > 0 ? periodGoals / periodMatchCount : null;
+
+  const newestFirst = matches.slice(0, Math.max(0, limit));
+  const chronological = [...newestFirst].reverse();
+  const latestId = newestFirst[0]?.matchId ?? null;
+  const points = chronological.map((row) => ({
+    ...row,
+    isLatest: latestId != null && row.matchId === latestId,
+  }));
+  const displayedAverage =
+    points.length > 0 ? points.reduce((sum, row) => sum + row.goals, 0) / points.length : null;
+
+  let trend: GoalsPerMatchTrend | null = null;
+  if (points.length >= trendWindow * 2) {
+    const recent = points.slice(-trendWindow);
+    const prior = points.slice(-trendWindow * 2, -trendWindow);
+    const recentAvg = recent.reduce((sum, row) => sum + row.goals, 0) / trendWindow;
+    const priorAvg = prior.reduce((sum, row) => sum + row.goals, 0) / trendWindow;
+    const delta = recentAvg - priorAvg;
+    trend = delta > 0.05 ? "up" : delta < -0.05 ? "down" : "stable";
+  }
+
+  return { points, displayedAverage, periodAverage, periodMatchCount, trend };
+}
+
+/** Ordenação estável mais-recente-primeiro para a série de partidas. */
+export function compareMatchesNewestFirst(
+  a: { startedAt: string; sequence: number; matchId: string },
+  b: { startedAt: string; sequence: number; matchId: string },
+): number {
+  const byTime = new Date(b.startedAt).getTime() - new Date(a.startedAt).getTime();
+  if (byTime !== 0) return byTime;
+  if (b.sequence !== a.sequence) return b.sequence - a.sequence;
+  return b.matchId.localeCompare(a.matchId);
+}
+
 export type DashboardRankingEntry = {
   memberId: string;
   name: string;
