@@ -91,8 +91,20 @@ export function SpectatorBoard({
             <span className="text-xs font-medium text-amber-100">Aguardando próxima partida</span>
           </div>
           <MatchScoreboard
-            teamA={{ id: draft.teamAId, name: teamName(board, draft.teamAId) }}
-            teamB={{ id: draft.teamBId, name: teamName(board, draft.teamBId) }}
+            teamA={{
+              id: draft.teamAId,
+              name: teamName(board, draft.teamAId),
+              color: board.teams.find((team) => team.id === draft.teamAId)?.color ?? null,
+              position:
+                board.teams.find((team) => team.id === draft.teamAId)?.initialQueuePosition ?? null,
+            }}
+            teamB={{
+              id: draft.teamBId,
+              name: teamName(board, draft.teamBId),
+              color: board.teams.find((team) => team.id === draft.teamBId)?.color ?? null,
+              position:
+                board.teams.find((team) => team.id === draft.teamBId)?.initialQueuePosition ?? null,
+            }}
             scoreA={0}
             scoreB={0}
             players={[

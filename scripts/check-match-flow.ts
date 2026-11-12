@@ -512,6 +512,21 @@ async function dbScenario(
     select: { version: true },
   });
 
+  try {
+    await matches.setPenaltyWinner(adminViewer, session.id, {
+      matchId: resumed.id,
+      expectedVersion: versionAfterStale.version,
+      operationId: randomUUID(),
+      teamId: resumed.teamA.id,
+    });
+    check("pênaltis no meio do jogo rejeitados", false);
+  } catch (error) {
+    check(
+      "pênaltis no meio do jogo rejeitados",
+      error instanceof UserFacingError && error.message.toLowerCase().includes("finalizar"),
+    );
+  }
+
   const finished = await matches.finishMatch(adminViewer, session.id, {
     matchId: resumed.id,
     expectedVersion: versionAfterStale.version,
@@ -583,9 +598,32 @@ async function dbScenario(
     );
   }
 
+  // Empate 3 times: finalizar exige penaltyWinnerTeamId no mesmo comando.
+  // (Sessão deste harness usa 4 times — cobre rejeição de pênaltis sem necessidade.)
+  try {
+    await matches.finishMatch(adminViewer, session.id, {
+      matchId: next.id,
+      expectedVersion: next.version,
+      expectedScoreA: next.scoreA,
+      expectedScoreB: next.scoreB,
+      penaltyWinnerTeamId: next.teamA.id,
+      operationId: randomUUID(),
+    });
+    check("pênaltis rejeitados quando placar não exige", false);
+  } catch (error) {
+    check(
+      "pênaltis rejeitados quando placar não exige",
+      error instanceof UserFacingError && error.message.toLowerCase().includes("não precisa"),
+    );
+  }
+  const versionAfterPenaltyReject = await tx.match.findUniqueOrThrow({
+    where: { id: next.id },
+    select: { version: true },
+  });
+
   const finished2 = await matches.finishMatch(adminViewer, session.id, {
     matchId: next.id,
-    expectedVersion: next.version,
+    expectedVersion: versionAfterPenaltyReject.version,
     expectedScoreA: next.scoreA,
     expectedScoreB: next.scoreB,
     operationId: randomUUID(),

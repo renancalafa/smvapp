@@ -35,19 +35,22 @@ function playerLabel(player: { name: string; nickname: string | null }): string 
   return player.nickname ? `${player.name} (${player.nickname})` : player.name;
 }
 
-/** Menu de eventos individuais (cartões, pixotada, trave, desarme) — sem gol. */
+/** Menu de eventos individuais + atalho para substituição — sem gol. */
 export function PlayerEventPanel({
   sessionId,
   match,
   player,
   onClose,
   onMatchUpdated,
+  onRequestSubstitute,
 }: {
   sessionId: string;
   match: MatchView;
   player: { memberId: string; teamId: string; name: string; nickname: string | null };
   onClose: () => void;
   onMatchUpdated: (next: MatchView) => void;
+  /** Abre o fluxo de substituição com este jogador como “quem sai”. */
+  onRequestSubstitute?: () => void;
 }) {
   const [state, action, pending] = useActionState(recordMatchEventAction, undefined);
   const operationId = useOperationId(state);
@@ -104,7 +107,7 @@ export function PlayerEventPanel({
             <p id={`${formId}-title`} className={darkTitleMd}>
               {playerLabel(player)}
             </p>
-            <p className={darkMuted}>{teamName} · evento individual</p>
+            <p className={darkMuted}>{teamName} · ações do jogador</p>
           </div>
           <button
             type="button"
@@ -116,6 +119,20 @@ export function PlayerEventPanel({
           </button>
         </div>
 
+        {onRequestSubstitute && (
+          <button
+            type="button"
+            onClick={() => {
+              onRequestSubstitute();
+              onClose();
+            }}
+            className="min-h-12 rounded-xl border border-smv-gold/40 bg-smv-gold/10 px-3 text-left text-sm font-semibold text-smv-gold-bright hover:bg-smv-gold/20"
+          >
+            Substituir jogador
+          </button>
+        )}
+
+        <p className={darkMutedXs}>Eventos estatísticos</p>
         <ul className="flex flex-col gap-1">
           {PLAYER_EVENT_TYPES.map((type) => (
             <li key={type}>

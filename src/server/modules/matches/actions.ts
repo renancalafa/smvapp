@@ -18,6 +18,7 @@ import {
   setPenaltyWinner,
   startMatchClock,
   substituteMatchPlayer,
+  substituteSessionTeamPlayer,
   voidMatchEvent,
 } from "./service";
 import type { MatchView } from "./view";
@@ -26,6 +27,11 @@ export type MatchActionState =
   | { status: "error"; error: string }
   | { status: "conflict"; error: string; current: unknown }
   | { status: "done"; message: string; match?: MatchView }
+  | undefined;
+
+export type SessionRosterActionState =
+  | { status: "error"; error: string }
+  | { status: "done"; message: string }
   | undefined;
 
 const UNEXPECTED = "Não foi possível concluir agora. Tente novamente em instantes.";
@@ -254,12 +260,18 @@ export async function finishMatchAction(
   ) {
     return { status: "error", error: "Requisição inválida." };
   }
+  const penaltyRaw = formText(formData, "penaltyWinnerTeamId").trim();
+  const penaltyWinnerTeamId = penaltyRaw ? penaltyRaw : null;
+  if (penaltyWinnerTeamId && !isUuid(penaltyWinnerTeamId)) {
+    return { status: "error", error: "Vencedor dos pênaltis inválido." };
+  }
   try {
     const match = await finishMatch(viewer, sessionId, {
       matchId,
       expectedVersion,
       expectedScoreA,
       expectedScoreB,
+      penaltyWinnerTeamId,
       operationId: readOperationId(formData),
     });
     refresh();
@@ -300,6 +312,29 @@ export async function substituteMatchPlayerAction(
     return { status: "done", message: "Substituição registrada.", match };
   } catch (error) {
     return failure("substituteMatchPlayerAction", error);
+  }
+}
+
+/** Pré-apito: troca SessionTeamPlayer (escalação da noite). */
+export async function substituteSessionTeamPlayerAction(
+  _previous: SessionRosterActionState,
+  formData: FormData,
+): Promise<SessionRosterActionState> {
+  const viewer = await requireAdminAction();
+  const sessionId = formText(formData, "sessionId");
+  const outMemberId = formText(formData, "outMemberId");
+  const inMemberId = formText(formData, "inMemberId");
+  if (!isUuid(sessionId) || !isUuid(outMemberId) || !isUuid(inMemberId)) {
+    return { status: "error", error: "Requisição inválida." };
+  }
+  try {
+    await substituteSessionTeamPlayer(viewer, sessionId, { outMemberId, inMemberId });
+    refresh();
+    return { status: "done", message: "Escalação da noite atualizada." };
+  } catch (error) {
+    if (error instanceof UserFacingError) return { status: "error", error: error.message };
+    console.error("substituteSessionTeamPlayerAction", error);
+    return { status: "error", error: UNEXPECTED };
   }
 }
 

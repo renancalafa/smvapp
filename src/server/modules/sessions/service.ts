@@ -106,8 +106,8 @@ type ConfirmMemberRow = { id: string; modality: "MONTHLY" | "DAILY" };
 /**
  * Confirmação normal (jogador ou ADMIN em nome do jogador): entra WAITLISTED e
  * `rebalanceLockedSession`/`allocate` decide PARTICIPANT vs espera. Antes do prazo,
- * só mensalistas (MONTHLY_PRIORITY) ocupam vagas livres; diaristas ficam WAITLISTED
- * até o prazo (ou inclusão excepcional). Não grava manualOverride. Não bypassa a fila.
+ * mensalistas ocupam vagas livres; diaristas só entram na cota de “Não vou” de
+ * mensalistas (ou inclusão excepcional). Não grava manualOverride. Não bypassa a fila.
  * Participantes com manualOverride nunca são deslocados automaticamente.
  */
 async function confirmMemberLocked(
@@ -208,9 +208,10 @@ async function confirmMemberLocked(
  * CONFIRM: entra na alocação com novo queuedAt (PARTICIPANT se elegível à vaga, senão espera).
  * Mensalista antes do prazo: MONTHLY_PRIORITY (pode deslocar GENERAL sem manualOverride se cheio);
  * se só houver vagas protegidas, fica WAITLISTED com needsAdminReclaim. Diarista antes do prazo:
- * sempre WAITLISTED na confirmação normal (self ou ADMIN), mesmo com vagas livres.
+ * WAITLISTED salvo cota de ausência explícita de mensalista (FIFO da espera primeiro).
  * Depois do prazo: GENERAL no fim da espera / vagas FIFO; mensalista tardio não desloca.
- * DECLINE: PARTICIPANT/WAITLISTED → WITHDRAWN + rebalance (só promove elegíveis da fase).
+ * DECLINE: PARTICIPANT/WAITLISTED → WITHDRAWN + rebalance; sem inscrição → DECLINED + rebalance
+ * (mensalista “Não vou” libera cota para diaristas elegíveis).
  * Com a votação iniciada, o jogador não muda mais a lista (só o ADMIN), exceto o mensalista
  * que confirma durante um sorteio antecipado: até o prazo, entra na lista de espera. A verificação
  * roda depois do lock da sessão, o mesmo da geração do sorteio: ou a resposta vem antes
@@ -295,6 +296,8 @@ export async function respondToSession(
       gameSessionId: session.id,
       after: { status: "DECLINED" },
     });
+    // Mensalista “Não vou” aumenta a cota de vagas liberadas para diaristas antes do prazo.
+    await rebalanceLockedSession(tx, session, now);
     await clearPriorityReminderForMember(tx, session.id, member.id);
     return { status: "DECLINED" };
   });

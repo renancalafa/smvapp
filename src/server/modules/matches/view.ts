@@ -24,8 +24,8 @@ export type MatchView = {
   endedAt: string | null;
   plannedDurationSec: number;
   penaltyWinnerTeamId: string | null;
-  teamA: { id: string; name: string; color: string | null };
-  teamB: { id: string; name: string; color: string | null };
+  teamA: { id: string; name: string; color: string | null; position: number | null };
+  teamB: { id: string; name: string; color: string | null; position: number | null };
   scoreA: number;
   scoreB: number;
   elapsedMs: number;
@@ -145,7 +145,12 @@ export async function buildMatchView(tx: Tx, matchId: string, now = new Date()):
         kind: match.teamA.kind,
         position: match.teamA.initialQueuePosition,
       });
-      return { id: match.teamA.id, name: display.displayName, color: display.colorHex };
+      return {
+        id: match.teamA.id,
+        name: display.displayName,
+        color: display.colorHex,
+        position: match.teamA.initialQueuePosition,
+      };
     })(),
     teamB: (() => {
       const display = resolveTeamDisplay({
@@ -154,7 +159,12 @@ export async function buildMatchView(tx: Tx, matchId: string, now = new Date()):
         kind: match.teamB.kind,
         position: match.teamB.initialQueuePosition,
       });
-      return { id: match.teamB.id, name: display.displayName, color: display.colorHex };
+      return {
+        id: match.teamB.id,
+        name: display.displayName,
+        color: display.colorHex,
+        position: match.teamB.initialQueuePosition,
+      };
     })(),
     scoreA,
     scoreB,

@@ -798,62 +798,20 @@ export async function resumeMatch(
   );
 }
 
+/**
+ * Pênaltis não são gravados “no meio do jogo”. Use `finishMatch` com
+ * `penaltyWinnerTeamId` ao finalizar um empate no Rei da Mesa (3 times).
+ */
 export async function setPenaltyWinner(
   viewer: Viewer,
   sessionId: string,
   input: { matchId: string; expectedVersion: number; operationId: string; teamId: string },
 ): Promise<MatchView> {
-  return withMatchCommand(
-    { viewer, sessionId, operationId: input.operationId, commandType: "MATCH_PENALTY_SET", request: input },
-    input.matchId,
-    input.expectedVersion,
-    async (tx) => {
-      const match = await tx.match.findFirst({
-        where: { id: input.matchId, gameSessionId: sessionId },
-        select: {
-          id: true,
-          status: true,
-          teamAId: true,
-          teamBId: true,
-          penaltyWinnerTeamId: true,
-          startedAt: true,
-          pausedAt: true,
-          pausedTotalMs: true,
-          events: { select: { type: true, teamId: true, voidedAt: true } },
-        },
-      });
-      if (!match) throw new UserFacingError("Partida não encontrada.");
-      if (match.status !== "IN_PROGRESS") {
-        throw new UserFacingError("Só dá para registrar pênaltis em uma partida em andamento.");
-      }
-      if (isAwaitingKickoff(match)) {
-        throw new UserFacingError("Ligue o cronômetro antes de registrar pênaltis.");
-      }
-      if (input.teamId !== match.teamAId && input.teamId !== match.teamBId) {
-        throw new UserFacingError("O vencedor nos pênaltis deve ser um dos times da partida.");
-      }
-      const teams = await loadRegularTeams(tx, sessionId);
-      if (teams.length !== 3) {
-        throw new UserFacingError("Pênaltis só se aplicam ao Rei da Mesa com 3 times.");
-      }
-      const { scoreA, scoreB } = scoreFromEvents(match.events, match.teamAId, match.teamBId);
-      if (scoreA !== scoreB) {
-        throw new UserFacingError("Só há pênaltis quando o placar está empatado.");
-      }
-      await tx.match.update({ where: { id: match.id }, data: { penaltyWinnerTeamId: input.teamId } });
-      await writeAuditLog(tx, {
-        groupId: viewer.group.id,
-        actorUserId: viewer.user.id,
-        action: "MATCH_PENALTY_SET",
-        entityType: "Match",
-        entityId: match.id,
-        gameSessionId: sessionId,
-        before: { penaltyWinnerTeamId: match.penaltyWinnerTeamId },
-        after: { penaltyWinnerTeamId: input.teamId },
-        metadata: { operationId: input.operationId },
-      });
-      return buildMatchView(tx, match.id);
-    },
+  void viewer;
+  void sessionId;
+  void input;
+  throw new UserFacingError(
+    "Registre o vencedor nos pênaltis ao finalizar a partida — não durante o cronômetro.",
   );
 }
 
@@ -867,6 +825,11 @@ export async function finishMatch(
     /** Placar confirmado na UI; rejeita se o placar real divergir. */
     expectedScoreA: number;
     expectedScoreB: number;
+    /**
+     * Obrigatório ao finalizar empate com 3 times (Rei da Mesa).
+     * Ignorado / rejeitado quando o placar não exige pênaltis.
+     */
+    penaltyWinnerTeamId?: string | null;
   },
 ): Promise<MatchView> {
   return withMatchCommand(
@@ -902,6 +865,24 @@ export async function finishMatch(
         const view = await buildMatchView(tx, match.id, now);
         throw new ConflictError({ ...view, version: input.expectedVersion });
       }
+
+      const needsPenalty = teamCount === 3 && scoreA === scoreB;
+      let penaltyWinnerTeamId = match.penaltyWinnerTeamId;
+      if (needsPenalty) {
+        const chosen = input.penaltyWinnerTeamId ?? match.penaltyWinnerTeamId;
+        if (!chosen) {
+          throw new UserFacingError(
+            "Empate com 3 times: escolha o vencedor nos pênaltis para finalizar a partida.",
+          );
+        }
+        if (chosen !== match.teamAId && chosen !== match.teamBId) {
+          throw new UserFacingError("O vencedor nos pênaltis deve ser um dos times da partida.");
+        }
+        penaltyWinnerTeamId = chosen;
+      } else if (input.penaltyWinnerTeamId) {
+        throw new UserFacingError("Esta partida não precisa de pênaltis.");
+      }
+
       try {
         outcomeFromScore({
           teamCount: teamCount === 3 ? 3 : 4,
@@ -909,7 +890,7 @@ export async function finishMatch(
           teamBId: match.teamBId,
           scoreA,
           scoreB,
-          penaltyWinnerTeamId: match.penaltyWinnerTeamId,
+          penaltyWinnerTeamId,
         });
       } catch (error) {
         if (error instanceof MatchQueueError) throw new UserFacingError(error.message);
@@ -922,8 +903,27 @@ export async function finishMatch(
       }
       await tx.match.update({
         where: { id: match.id },
-        data: { status: "FINISHED", endedAt: now, pausedAt: null, pausedTotalMs },
+        data: {
+          status: "FINISHED",
+          endedAt: now,
+          pausedAt: null,
+          pausedTotalMs,
+          penaltyWinnerTeamId,
+        },
       });
+      if (needsPenalty && penaltyWinnerTeamId !== match.penaltyWinnerTeamId) {
+        await writeAuditLog(tx, {
+          groupId: viewer.group.id,
+          actorUserId: viewer.user.id,
+          action: "MATCH_PENALTY_SET",
+          entityType: "Match",
+          entityId: match.id,
+          gameSessionId: sessionId,
+          before: { penaltyWinnerTeamId: match.penaltyWinnerTeamId },
+          after: { penaltyWinnerTeamId },
+          metadata: { operationId: input.operationId, atFinish: true },
+        });
+      }
       await writeAuditLog(tx, {
         groupId: viewer.group.id,
         actorUserId: viewer.user.id,
@@ -934,7 +934,7 @@ export async function finishMatch(
         after: {
           scoreA,
           scoreB,
-          penaltyWinnerTeamId: match.penaltyWinnerTeamId,
+          penaltyWinnerTeamId,
           endedAt: now.toISOString(),
         },
         metadata: { operationId: input.operationId },
@@ -1075,6 +1075,87 @@ export async function substituteMatchPlayer(
       return buildMatchView(tx, match.id, now);
     },
   );
+}
+
+/**
+ * Substituição pré-apito: altera SessionTeamPlayer (escalação da noite).
+ * O Draw não é reescrito; MatchPlayer só nasce no kickoff a partir deste roster.
+ * Bloqueado depois que qualquer partida apitou (lista congelada).
+ */
+export async function substituteSessionTeamPlayer(
+  viewer: Viewer,
+  sessionId: string,
+  input: { outMemberId: string; inMemberId: string },
+): Promise<void> {
+  if (viewer.member.role !== "ADMIN") {
+    throw new UserFacingError("Só administradores substituem a escalação da noite.");
+  }
+  if (input.outMemberId === input.inMemberId) {
+    throw new UserFacingError("Escolha um substituto diferente de quem sai.");
+  }
+
+  const { participantsFrozen } = await import("@/server/modules/sessions/engine");
+
+  await withLockedSession(viewer.group.id, sessionId, async (tx, session, now) => {
+    if (session.status === "CANCELLED" || session.status === "FINISHED") {
+      throw new UserFacingError("Esta sessão não aceita mudanças de escalação.");
+    }
+    if (await participantsFrozen(tx, session.id)) {
+      throw new UserFacingError(
+        "As partidas já começaram: a escalação da noite está congelada. Use a substituição da partida em andamento.",
+      );
+    }
+
+    const outRow = await tx.sessionTeamPlayer.findFirst({
+      where: { gameSessionId: session.id, memberId: input.outMemberId },
+      select: { id: true, sessionTeamId: true },
+    });
+    if (!outRow) {
+      throw new UserFacingError("Quem sai precisa estar na escalação de um time nesta sessão.");
+    }
+
+    await assertAvailableParticipant(tx, session.id, input.inMemberId, now);
+
+    const inRow = await tx.sessionTeamPlayer.findFirst({
+      where: { gameSessionId: session.id, memberId: input.inMemberId },
+      select: { id: true, sessionTeamId: true },
+    });
+    if (inRow && inRow.sessionTeamId === outRow.sessionTeamId) {
+      throw new UserFacingError("O substituto já está neste time.");
+    }
+
+    // Troca 1:1 — tamanho do time preservado; se o entrante vinha de outro time, ele muda de lado.
+    await tx.sessionTeamPlayer.delete({ where: { id: outRow.id } });
+    if (inRow) {
+      await tx.sessionTeamPlayer.update({
+        where: { id: inRow.id },
+        data: { sessionTeamId: outRow.sessionTeamId },
+      });
+    } else {
+      await tx.sessionTeamPlayer.create({
+        data: {
+          gameSessionId: session.id,
+          sessionTeamId: outRow.sessionTeamId,
+          memberId: input.inMemberId,
+        },
+      });
+    }
+
+    await writeAuditLog(tx, {
+      groupId: viewer.group.id,
+      actorUserId: viewer.user.id,
+      action: "SESSION_TEAM_PLAYER_SUBSTITUTED",
+      entityType: "GameSession",
+      entityId: session.id,
+      gameSessionId: session.id,
+      after: {
+        outMemberId: input.outMemberId,
+        inMemberId: input.inMemberId,
+        teamId: outRow.sessionTeamId,
+        movedFromTeamId: inRow?.sessionTeamId ?? null,
+      },
+    });
+  });
 }
 
 export async function recordMatchEvent(

@@ -111,10 +111,37 @@ export default async function AdminSessionPage({ params }: { params: Promise<{ s
         )}
         {canChangeList && board.attendanceLocked && (
           <p className={`mt-2 ${darkAlertWarn}`}>
-            Votação iniciada: os jogadores não alteram mais a lista e a fila não promove automaticamente. Use “Promover…”
-            na lista de espera para preencher uma vaga.
+            Votação/sorteio ativo: os jogadores não alteram mais a lista e a fila{" "}
+            <strong className="font-semibold text-amber-50">não promove automaticamente</strong>
+            {board.participants.length < board.capacity && board.waitlist.length > 0
+              ? ` — há ${board.capacity - board.participants.length} vaga(s) livre(s) com ${board.waitlist.length} na espera: use “Promover…”`
+              : ". Use “Promover…” na lista de espera para preencher uma vaga"}
+            .
           </p>
         )}
+        {canChangeList &&
+          !board.attendanceLocked &&
+          board.phase === "PRIORITY" &&
+          board.participants.length < board.capacity &&
+          board.waitlist.some((row) => (row.priorityTier ?? "GENERAL") === "GENERAL") &&
+          (() => {
+            const monthlyAbsences = [...board.declined, ...board.withdrawn].filter(
+              (row) => row.modalitySnapshot === "MONTHLY",
+            ).length;
+            const dailySeated = board.participants.filter(
+              (row) => (row.priorityTier ?? "GENERAL") === "GENERAL" && !row.manualOverrideAt,
+            ).length;
+            const releasedLeft = Math.max(0, monthlyAbsences - dailySeated);
+            if (releasedLeft > 0) return null;
+            return (
+              <p className={`mt-2 ${darkAlertWarn}`}>
+                Há {board.capacity - board.participants.length} vaga(s) livre(s), mas antes do prazo dos mensalistas
+                diaristas na espera{" "}
+                <strong className="font-semibold text-amber-50">só sobem se um mensalista liberar com “Não vou”</strong>
+                {". Sem essa liberação, a vaga fica reservada até o prazo (depois sobe em FIFO) ou via “Incluir excepcionalmente” / “Promover…”."}
+              </p>
+            );
+          })()}
         {canMarkAttendance && (
           <p className={`mt-1 ${shellSubtext}`}>
             Presença real: {presentCount} de {board.participants.length} marcados como presentes. Confirmar presença não é

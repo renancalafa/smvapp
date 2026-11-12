@@ -208,7 +208,18 @@ async function confirmPlayers(prisma: Prisma, groupId: string, memberIds: string
       promotedAt: registration.promotedAt,
       manualOverride: registration.manualOverrideAt !== null,
     }));
-    const { promote, demote } = allocate(entries, capacity, phase);
+    let priorityGeneralCap = 0;
+    if (phase === "PRIORITY") {
+      const absences = await tx.sessionRegistration.count({
+        where: {
+          gameSessionId: session.id,
+          modalitySnapshot: "MONTHLY",
+          status: { in: ["DECLINED", "WITHDRAWN"] },
+        },
+      });
+      priorityGeneralCap = absences;
+    }
+    const { promote, demote } = allocate(entries, capacity, phase, { priorityGeneralCap });
     if (promote.length > 0) {
       await tx.sessionRegistration.updateMany({ where: { id: { in: promote } }, data: { status: "PARTICIPANT" } });
     }

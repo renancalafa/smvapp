@@ -49,7 +49,7 @@ const RESPONSE_MESSAGES = {
   PARTICIPANT: "Presença confirmada. Você está na lista!",
   WAITLISTED: "Você entrou na lista de espera. Se abrir vaga, entra automaticamente.",
   WAITLISTED_DAILY_PRIORITY:
-    "Você entrou na lista de espera. Diaristas só entram na lista principal depois do prazo dos mensalistas (ou se um administrador incluir excepcionalmente).",
+    "Você entrou na lista de espera. Antes do prazo, diaristas só entram se um mensalista liberar a vaga com “Não vou” (fila FIFO) — ou se um administrador incluir excepcionalmente. Depois do prazo, as vagas livres seguem a ordem da espera.",
   DECLINED: "Recusa registrada.",
   WITHDRAWN: "Você saiu da lista. Sua vaga foi liberada.",
   REMOVED: "Você foi removido desta sessão.",
@@ -204,11 +204,7 @@ export async function endSessionAction(
 ): Promise<SessionActionState> {
   const viewer = await requireAdminAction();
   const sessionId = formText(formData, "sessionId");
-  const confirmation = formText(formData, "confirmation").trim().toUpperCase();
   if (!isUuid(sessionId)) return { status: "error", error: "Requisição inválida." };
-  if (confirmation !== "ENCERRAR") {
-    return { status: "error", error: 'Digite ENCERRAR para confirmar (maiúsculas).' };
-  }
   try {
     const result = await endGameSession(viewer, sessionId);
     refresh();
@@ -216,7 +212,7 @@ export async function endSessionAction(
       status: "done",
       message: result.alreadyFinished
         ? "Esta sessão já estava encerrada."
-        : "Sessão encerrada. O placar e o histórico ficam disponíveis em Ao Vivo.",
+        : "Sessão encerrada. Resultados disponíveis no Histórico e em Ao Vivo.",
     };
   } catch (error) {
     return failure("endSessionAction", error);

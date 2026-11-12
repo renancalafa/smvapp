@@ -1,5 +1,10 @@
 import "server-only";
-import { compareQueue, orderWaitlist, type QueueEntry } from "@/domain/presence/allocate";
+import {
+  compareQueue,
+  countMonthlyExplicitAbsences,
+  orderWaitlist,
+  type QueueEntry,
+} from "@/domain/presence/allocate";
 import type { Prisma } from "@/generated/prisma/client";
 import { db } from "@/server/db";
 import { allocationPhase, effectiveCapacity } from "./engine";
@@ -90,6 +95,10 @@ async function buildBoard(session: SessionRow, now: Date): Promise<SessionBoard>
     .map(toQueueEntry);
   const phase = allocationPhase(session, now);
   const byRespondedAt = (a: RegistrationRow, b: RegistrationRow) => a.respondedAt.getTime() - b.respondedAt.getTime();
+  const declined = registrations.filter((registration) => registration.status === "DECLINED").sort(byRespondedAt);
+  const withdrawn = registrations.filter((registration) => registration.status === "WITHDRAWN").sort(byRespondedAt);
+  const priorityGeneralCap =
+    phase === "PRIORITY" ? countMonthlyExplicitAbsences([...declined, ...withdrawn]) : 0;
   return {
     session,
     phase: sessionPhase(session, now),
@@ -99,9 +108,9 @@ async function buildBoard(session: SessionRow, now: Date): Promise<SessionBoard>
       .filter((entry) => entry.status === "PARTICIPANT")
       .sort(compareQueue)
       .map((entry) => entry.row),
-    waitlist: orderWaitlist(queued, phase).map((entry) => entry.row),
-    declined: registrations.filter((registration) => registration.status === "DECLINED").sort(byRespondedAt),
-    withdrawn: registrations.filter((registration) => registration.status === "WITHDRAWN").sort(byRespondedAt),
+    waitlist: orderWaitlist(queued, phase, { priorityGeneralCap }).map((entry) => entry.row),
+    declined,
+    withdrawn,
     removed: registrations.filter((registration) => registration.status === "REMOVED").sort(byRespondedAt),
   };
 }

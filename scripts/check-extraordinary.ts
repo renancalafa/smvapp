@@ -297,11 +297,14 @@ async function scenario(
     next?.session.id === created.sessionId || (next !== null && next.session.startsAt <= startA),
   );
 
-  // Prioridade: mensalista e diarista ocupam vagas livres (FIFO); diarista não fica bloqueado sem vaga.
+  // Prioridade: mensalista ocupa vaga; diarista fica WAITLISTED mesmo com vaga livre até o prazo.
   const monthlyResult = await mods.sessions.respondToSession(monthlyViewer, created.sessionId, "CONFIRM");
   check("mensalista confirma com prioridade (PARTICIPANT)", monthlyResult.status === "PARTICIPANT");
   const dailyResult = await mods.sessions.respondToSession(dailyViewer, created.sessionId, "CONFIRM");
-  check("diarista ocupa vaga livre na fase PRIORITY (PARTICIPANT)", dailyResult.status === "PARTICIPANT");
+  check(
+    "diarista permanece WAITLISTED na fase PRIORITY (vaga livre não promove)",
+    dailyResult.status === "WAITLISTED",
+  );
 
   await expectRejected(
     "overlap com sessão existente é rejeitado",

@@ -255,7 +255,7 @@ async function scenario(tx: Tx, sessions: typeof import("../src/server/modules/s
   check("WAITLISTED → DECLINE vira WITHDRAWN", leftQueue.status === "WITHDRAWN");
   check("sair da espera não mexe no participante promovido", (await statusOf(d1)) === "PARTICIPANT");
 
-  // --- PRIORITY phase: diaristas ficam WAITLISTED mesmo com vagas; promoção só após o prazo ---
+  // --- PRIORITY: vagas vazias sem “Não vou” ≠ cota; ausência explícita libera FIFO ---
   const { id: prioritySessionId } = await tx.gameSession.create({
     data: {
       groupId: group.id,
@@ -328,18 +328,19 @@ async function scenario(tx: Tx, sessions: typeof import("../src/server/modules/s
   const d1Queue = (await statusP(d1))!;
   const d2Queue = (await statusP(d2))!;
 
-  // Não vou não promove diarista antes do prazo
+  // Não vou de mensalista libera 1 cota e promove o 1º diarista FIFO antes do prazo
   await respondP(m1, "DECLINE");
   check(
-    "PRIORITY: Não vou NÃO promove diarista antes do prazo",
-    (await statusP(d1))?.status === "WAITLISTED" &&
+    "PRIORITY: Não vou promove d1 FIFO (cota de ausência)",
+    (await statusP(d1))?.status === "PARTICIPANT" &&
+      (await statusP(d1))?.promotedAt !== null &&
       (await statusP(d2))?.status === "WAITLISTED" &&
-      (await participantCountP()) === 1,
+      (await participantCountP()) === 2,
   );
-  // Mensalista reassumindo / novo ocupa a vaga antes de qualquer diarista
+  // Mensalista reassumindo recupera a vaga (desloca o diarista promovido pela cota)
   await respondP(m1, "CONFIRM");
   check(
-    "PRIORITY: mensalista reassumindo recupera vaga; diaristas não furam fila",
+    "PRIORITY: mensalista reassumindo recupera vaga; diarista volta à espera",
     (await statusP(m1))?.status === "PARTICIPANT" &&
       (await statusP(d1))?.status === "WAITLISTED" &&
       (await statusP(d2))?.status === "WAITLISTED" &&
@@ -390,6 +391,63 @@ async function scenario(tx: Tx, sessions: typeof import("../src/server/modules/s
     m3Late.status === "WAITLISTED" &&
       (await statusP(d1))?.status === "PARTICIPANT" &&
       (await statusP(d2))?.status === "PARTICIPANT",
+  );
+
+  // Cota por DECLINED (sem confirmação prévia) + FIFO da espera + Não vou repetido
+  const allowanceSession = await tx.gameSession.create({
+    data: {
+      groupId: group.id,
+      seasonId: season.id,
+      status: "OPEN",
+      type: "NORMAL",
+      origin: "EXTRAORDINARY",
+      scheduledFor: new Date(now + 30 * hour),
+      startsAt: new Date(now + 30 * hour),
+      endsAt: new Date(now + 32 * hour),
+      maxExtraMinutes: 10,
+      registrationOpensAt: new Date(now - 2 * hour),
+      openedAt: new Date(now - 2 * hour),
+      priorityDeadlineAt: new Date(now + 4 * hour),
+      priorityClosedAt: null,
+      maxPlayers: 3,
+      teamSize: 3,
+      matchDurationSec: 420,
+      drawOptionsCount: 2,
+      drawMinOptionDifference: 2,
+      dailyFeeCents: 1000,
+      venueName: "Teste cota ausência mensalista (rollback)",
+    },
+    select: { id: true },
+  });
+  const respondA = (member: MemberRow, response: "CONFIRM" | "DECLINE") =>
+    sessions.respondToSession(viewerOf(group, member), allowanceSession.id, response);
+  const statusA = async (member: MemberRow) =>
+    (
+      await tx.sessionRegistration.findUnique({
+        where: { gameSessionId_memberId: { gameSessionId: allowanceSession.id, memberId: member.id } },
+        select: { status: true, promotedAt: true },
+      })
+    )?.status;
+  await respondA(m1, "CONFIRM");
+  await respondA(d1, "CONFIRM");
+  await respondA(d2, "CONFIRM");
+  check("cota: diaristas WAITLISTED com vagas vazias (sem ausência)", (await statusA(d1)) === "WAITLISTED");
+  await respondA(m2, "DECLINE");
+  check(
+    "cota: DECLINED mensalista promove d1 FIFO; d2 permanece",
+    (await statusA(d1)) === "PARTICIPANT" && (await statusA(d2)) === "WAITLISTED",
+  );
+  await respondA(m2, "DECLINE");
+  check("cota: Não vou repetido não promove d2", (await statusA(d2)) === "WAITLISTED");
+  await respondA(m3, "DECLINE");
+  check("cota: 2ª ausência promove d2", (await statusA(d2)) === "PARTICIPANT");
+  // Capacidade 3: m1 + d1 + d2. Novo CONFIRM de diarista inexistente na sessão — reusa fluxo via
+  // m2 reassumindo e saindo de novo não duplica; cota já consumida pelos dois diaristas.
+  await respondA(m2, "CONFIRM");
+  check(
+    "cota: mensalista reassumindo reconcilia e desloca diarista LIFO",
+    (await statusA(m2)) === "PARTICIPANT" &&
+      ((await statusA(d1)) === "WAITLISTED" || (await statusA(d2)) === "WAITLISTED"),
   );
 
   // manualOverride: diarista incluído/promovido pelo ADMIN não é deslocado; mensalista fica na espera.

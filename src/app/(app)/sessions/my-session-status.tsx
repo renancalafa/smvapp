@@ -52,7 +52,11 @@ export function MySessionStatus({
             ? " A lista está cheia: se não houver diarista deslocável, um administrador precisa liberar a vaga."
             : " Com prioridade, você entra na próxima vaga livre antes dos diaristas.";
       } else if (board.phase === "PRIORITY" && mine.priorityTier === "GENERAL") {
-        text += " Vagas livres seguem a ordem da fila; um mensalista com prioridade pode reassumir se a lista encher.";
+        text +=
+          " Antes do prazo, diaristas só sobem se um mensalista liberar a vaga com “Não vou” (na ordem da fila). Vagas vazias sem essa liberação ficam reservadas aos mensalistas até o prazo — depois disso, a espera sobe em FIFO.";
+      } else if (board.phase === "GENERAL" && board.attendanceLocked) {
+        text +=
+          " Com o sorteio/votação ativos, vagas livres não preenchem sozinhas: um administrador precisa promover alguém da espera.";
       }
       break;
     case "DECLINED":

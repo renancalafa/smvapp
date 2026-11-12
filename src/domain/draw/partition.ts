@@ -15,16 +15,12 @@ function permutations(n: number): number[][] {
   return result;
 }
 
-/**
- * Menor número de jogadores que precisam mudar de time para transformar `a` em `b`,
- * no melhor pareamento entre os times: N − max_σ Σ |a_i ∩ b_σ(i)|. Força bruta sobre
- * as permutações (até 4 times = 24).
- */
-export function partitionDistance(a: Partition, b: Partition): number {
+/** Matriz M[i][j] = |a_i ∩ b_j|; cores/ordem dos times não importam. */
+export function teamOverlapMatrix(a: Partition, b: Partition): number[][] {
   if (a.length !== b.length) throw new Error("As opções precisam ter a mesma quantidade de times.");
   const teamOf = new Map<string, number>();
   b.forEach((team, index) => team.forEach((id) => teamOf.set(id, index)));
-  const overlap = a.map((team) => {
+  return a.map((team) => {
     const row = new Array<number>(b.length).fill(0);
     for (const id of team) {
       const index = teamOf.get(id);
@@ -33,6 +29,15 @@ export function partitionDistance(a: Partition, b: Partition): number {
     }
     return row;
   });
+}
+
+/**
+ * Menor número de jogadores que precisam mudar de time para transformar `a` em `b`,
+ * no melhor pareamento entre os times: N − max_σ Σ |a_i ∩ b_σ(i)|. Força bruta sobre
+ * as permutações (até 4 times = 24).
+ */
+export function partitionDistance(a: Partition, b: Partition): number {
+  const overlap = teamOverlapMatrix(a, b);
   const total = a.reduce((sum, team) => sum + team.length, 0);
   let best = 0;
   for (const sigma of permutations(a.length)) {
@@ -40,6 +45,32 @@ export function partitionDistance(a: Partition, b: Partition): number {
     if (matched > best) best = matched;
   }
   return total - best;
+}
+
+/**
+ * Maior interseção entre qualquer time de `a` e qualquer time de `b` (independente de
+ * cor/posição). Com times de 5, o limite de 40% é 2.
+ */
+export function maxTeamOverlap(a: Partition, b: Partition): number {
+  const overlap = teamOverlapMatrix(a, b);
+  let max = 0;
+  for (const row of overlap) {
+    for (const value of row) {
+      if (value > max) max = value;
+    }
+  }
+  return max;
+}
+
+/**
+ * Teto de sobreposição cruzada entre opções para times regulares (≥5): floor(40% ×
+ * teamSize) → 2 com times de 5. Em formatos menores (fixtures de teste), retorna
+ * `null` e só vale a `partitionDistance` mínima.
+ */
+export function maxAllowedTeamOverlap(teamSize: number): number | null {
+  if (teamSize < 1) throw new Error("teamSize inválido.");
+  if (teamSize < 5) return null;
+  return Math.floor(teamSize * 0.4);
 }
 
 /** Forma canônica para deduplicar candidatos: ids ordenados por time, times ordenados. */

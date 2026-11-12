@@ -236,6 +236,37 @@ async function dbScenario(
   const outPlayer = players[0]!;
   const teammate = players[1]!;
   const loanPlayer = players[4]!; // Time 3 — empréstimo
+  const preKickIncoming = players[6]!; // Time 4 — entra na escalação da noite
+
+  // Pré-apito: troca SessionTeamPlayer (1:1); Draw não muda.
+  await matches.substituteSessionTeamPlayer(adminViewer, session.id, {
+    outMemberId: outPlayer.id,
+    inMemberId: preKickIncoming.id,
+  });
+  const nightAfterPre = await tx.sessionTeamPlayer.findMany({
+    where: { gameSessionId: session.id },
+    select: { memberId: true, sessionTeamId: true },
+  });
+  check(
+    "pré-apito: titular sai da escalação da noite",
+    !nightAfterPre.some((row) => row.memberId === outPlayer.id),
+  );
+  check(
+    "pré-apito: entrante assume o time do titular",
+    nightAfterPre.some((row) => row.memberId === preKickIncoming.id && row.sessionTeamId === team1.id),
+  );
+  // Restaura escalação original para o restante do fluxo de partida.
+  await matches.substituteSessionTeamPlayer(adminViewer, session.id, {
+    outMemberId: preKickIncoming.id,
+    inMemberId: outPlayer.id,
+  });
+  check(
+    "pré-apito: restauração 1:1 da escalação",
+    (await tx.sessionTeamPlayer.findFirst({
+      where: { gameSessionId: session.id, memberId: outPlayer.id },
+      select: { sessionTeamId: true },
+    }))?.sessionTeamId === team1.id,
+  );
 
   let match = await matches.kickoffMatchWithTeams(adminViewer, session.id, {
     operationId: randomUUID(),
@@ -303,6 +334,17 @@ async function dbScenario(
   });
   check("substituição não cria PlayerUnavailability", unavailCount === 0);
 
+  const scoutsAfterSub = match.events.filter((event) => !event.voidedAt);
+  check(
+    "scouts do titular preservados após saída (gol+assist)",
+    scoutsAfterSub.some(
+      (event) =>
+        event.type === "GOAL" &&
+        event.memberId === outPlayer.id &&
+        event.assistMemberId === teammate.id,
+    ),
+  );
+
   match = await matches.recordMatchEvent(adminViewer, session.id, {
     matchId: match.id,
     expectedVersion: match.version,
@@ -311,6 +353,11 @@ async function dbScenario(
     memberId: loanPlayer.id,
   });
   check("substituto pode marcar", match.scoreA === 2 && match.scoreB === 0);
+  check(
+    "gol do titular permanece atribuído após gol do substituto",
+    match.events.filter((event) => !event.voidedAt && event.type === "GOAL" && event.memberId === outPlayer.id)
+      .length === 1,
+  );
 
   async function syncMatchVersion() {
     // Harness: comando rejeitado após bump não dá rollback no tx compartilhado.

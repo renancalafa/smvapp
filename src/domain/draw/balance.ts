@@ -1,9 +1,14 @@
 // Geração das opções de sorteio (PROJECT.md, seções 14 e 15; docs/architecture.md,
 // "Diversidade entre opções de sorteio"). Função pura e determinística dado o rng.
-import { canonicalKey, partitionDistance } from "./partition";
+import {
+  canonicalKey,
+  maxAllowedTeamOverlap,
+  maxTeamOverlap,
+  partitionDistance,
+} from "./partition";
 import { shuffle, type Rng } from "./random";
 
-export const DRAW_ALGORITHM_VERSION = "balance-v1";
+export const DRAW_ALGORITHM_VERSION = "balance-v2";
 
 export type DrawPlayer = { id: string; strength: number };
 
@@ -17,12 +22,18 @@ export type GeneratedDraw = {
   options: BalancedOption[];
   /** Menor distância entre pares de opções; nula com uma única opção. */
   optionDistance: number | null;
+  /**
+   * Maior |A_i ∩ B_j| entre qualquer par de times de opções distintas; nula com uma
+   * única opção. Com times de 5, deve ser ≤ 2.
+   */
+  maxTeamOverlap: number | null;
 };
 
 export class DrawGenerationError extends Error {}
 
 const TOP_STRENGTH = 4;
-const CANDIDATE_RESTARTS = 400;
+/** Reinícios ampliados para achar pares com distância mínima e sobreposição ≤ 40%. */
+const CANDIDATE_RESTARTS = 1200;
 
 /** Custo lexicográfico: diferença de força total, distribuição dos craques, variância. */
 type Cost = [number, number, number];
@@ -75,10 +86,23 @@ function improve(teams: DrawPlayer[][]): Cost {
 
 const ids = (teams: DrawPlayer[][]) => teams.map((team) => team.map((player) => player.id));
 
+function optionsCompatible(
+  left: DrawPlayer[][],
+  right: DrawPlayer[][],
+  minDifference: number,
+  maxOverlap: number | null,
+): boolean {
+  const a = ids(left);
+  const b = ids(right);
+  if (partitionDistance(a, b) < minDifference) return false;
+  if (maxOverlap !== null && maxTeamOverlap(a, b) > maxOverlap) return false;
+  return true;
+}
+
 /**
  * Gera `optionsCount` opções equilibradas com `teamCount` times de `teamSize`, todas a
- * pelo menos `minDifference` umas das outras. Sem opção válida, falha explicitamente
- * (a regra de diversidade nunca é relaxada).
+ * pelo menos `minDifference` umas das outras e com sobreposição de time cruzada ≤ 40%
+ * (`maxAllowedTeamOverlap`). Sem opção válida, falha explicitamente (nunca relaxa).
  */
 export function generateDrawOptions(input: {
   players: DrawPlayer[];
@@ -94,6 +118,7 @@ export function generateDrawOptions(input: {
   }
   if (optionsCount < 1) throw new DrawGenerationError("A sessão precisa de pelo menos uma opção de sorteio.");
 
+  const maxOverlap = maxAllowedTeamOverlap(teamSize);
   const candidates = new Map<string, { teams: DrawPlayer[][]; cost: Cost }>();
   for (let restart = 0; restart < CANDIDATE_RESTARTS; restart++) {
     const order = shuffle(players, rng);
@@ -105,29 +130,55 @@ export function generateDrawOptions(input: {
 
   // Embaralhar antes da ordenação estável sorteia entre candidatos de mesmo custo.
   const ranked = shuffle([...candidates.values()], rng).sort((a, b) => compareCost(a.cost, b.cost));
-  const chosen = [ranked[0]];
-  for (const candidate of ranked.slice(1)) {
-    if (chosen.length === optionsCount) break;
-    if (chosen.every((option) => partitionDistance(ids(option.teams), ids(candidate.teams)) >= minDifference)) {
-      chosen.push(candidate);
+  if (ranked.length === 0) {
+    throw new DrawGenerationError("Não foi possível gerar nenhuma opção de sorteio equilibrada.");
+  }
+
+  let chosen: { teams: DrawPlayer[][]; cost: Cost }[] | null = null;
+  if (optionsCount === 1) {
+    chosen = [ranked[0]];
+  } else {
+    // Tenta cada âncora (melhor força primeiro) até montar um conjunto completo compatível.
+    for (const anchor of ranked) {
+      const set = [anchor];
+      for (const candidate of ranked) {
+        if (set.length === optionsCount) break;
+        if (candidate === anchor) continue;
+        if (set.every((option) => optionsCompatible(option.teams, candidate.teams, minDifference, maxOverlap))) {
+          set.push(candidate);
+        }
+      }
+      if (set.length === optionsCount) {
+        chosen = set;
+        break;
+      }
     }
   }
-  if (chosen.length < optionsCount) {
+
+  if (!chosen || chosen.length < optionsCount) {
+    const overlapClause =
+      maxOverlap === null ? "" : ` e sobreposição máxima de ${maxOverlap} por time`;
     throw new DrawGenerationError(
-      `Não foi possível gerar ${optionsCount} opções equilibradas com diferença mínima de ${minDifference} jogadores.`,
+      `Não foi possível gerar ${optionsCount} opções equilibradas com diferença mínima de ${minDifference} jogadores${overlapClause}.`,
     );
   }
 
   let optionDistance: number | null = null;
+  let maxOverlapFound: number | null = null;
   for (let i = 0; i < chosen.length; i++) {
     for (let j = i + 1; j < chosen.length; j++) {
-      const distance = partitionDistance(ids(chosen[i].teams), ids(chosen[j].teams));
+      const left = ids(chosen[i].teams);
+      const right = ids(chosen[j].teams);
+      const distance = partitionDistance(left, right);
+      const overlap = maxTeamOverlap(left, right);
       optionDistance = optionDistance === null ? distance : Math.min(optionDistance, distance);
+      maxOverlapFound = maxOverlapFound === null ? overlap : Math.max(maxOverlapFound, overlap);
     }
   }
   return {
     options: chosen.map((option) => ({ teams: option.teams, balanceScore: option.cost[0] })),
     optionDistance,
+    maxTeamOverlap: maxOverlapFound,
   };
 }
 

@@ -18,6 +18,15 @@ export type QueueEntry = {
 /** Antes do prazo: mensalistas podem deslocar diaristas promovidos. Depois: só preenche vagas. */
 export type AllocationPhase = "PRIORITY" | "GENERAL";
 
+/**
+ * Capacidade automática de GENERAL na fase PRIORITY = ausências explícitas de mensalistas
+ * (DECLINED/WITHDRAWN com modalitySnapshot MONTHLY). Derivado do estado persistido; cada
+ * ausência conta no máximo 1. `manualOverride` não consome essa cota.
+ */
+export type AllocateOptions = {
+  priorityGeneralCap?: number;
+};
+
 const TIER_ORDER: Record<QueueTier, number> = { MONTHLY_PRIORITY: 0, GENERAL: 1 };
 
 /** Ordem da fila: prioridade, depois posição efetiva, depois id (desempate estável). */
@@ -47,16 +56,35 @@ export function comparePromotedLifo(a: QueueEntry, b: QueueEntry): number {
 }
 
 /**
- * Elegibilidade para ocupar vaga livre (promoção automática / confirmação normal):
- * - PRIORITY (antes do prazo): só MONTHLY_PRIORITY. Diaristas (GENERAL) permanecem
- *   WAITLISTED mesmo com vagas — inclusive confirmação pelo ADMIN em nome do jogador.
- * - GENERAL (depois do prazo): mensalistas e diaristas, FIFO via compareQueue.
- * Deslocamento LIFO de GENERAL sem manualOverride na fase PRIORITY continua em allocate
- * (legado / casos sem override). Inclusão excepcional do ADMIN usa outro caminho.
+ * Conta ausências explícitas de mensalistas que liberam vagas para diaristas antes do prazo.
+ * Não conta quem não respondeu, REMOVED nem PARTICIPANT/WAITLISTED.
  */
-export function isEligible(entry: QueueEntry, phase: AllocationPhase): boolean {
-  if (phase === "PRIORITY") return entry.priorityTier === "MONTHLY_PRIORITY";
-  return true;
+export function countMonthlyExplicitAbsences(
+  rows: ReadonlyArray<{ status: string; modalitySnapshot: string }>,
+): number {
+  let count = 0;
+  for (const row of rows) {
+    if (row.modalitySnapshot !== "MONTHLY") continue;
+    if (row.status === "DECLINED" || row.status === "WITHDRAWN") count += 1;
+  }
+  return count;
+}
+
+/**
+ * Elegibilidade para ocupar vaga livre (promoção automática / confirmação normal):
+ * - PRIORITY: MONTHLY_PRIORITY sempre; GENERAL só quando há cota de ausência
+ *   (`priorityGeneralCap` > 0 — vagas liberadas por “Não vou” de mensalista).
+ * - GENERAL (depois do prazo): mensalistas e diaristas, FIFO via compareQueue.
+ * Deslocamento LIFO de GENERAL sem manualOverride na fase PRIORITY continua em allocate.
+ */
+export function isEligible(
+  entry: QueueEntry,
+  phase: AllocationPhase,
+  options: AllocateOptions = {},
+): boolean {
+  if (phase === "GENERAL") return true;
+  if (entry.priorityTier === "MONTHLY_PRIORITY") return true;
+  return (options.priorityGeneralCap ?? 0) > 0;
 }
 
 export type Allocation = { promote: string[]; demote: string[] };
@@ -77,20 +105,46 @@ function pickExcessDemotions(participants: QueueEntry[], excess: number): string
   return demote;
 }
 
+function seatedGeneralCount(
+  seated: QueueEntry[],
+  demoteSet: ReadonlySet<string>,
+  promoteEntries: QueueEntry[],
+): number {
+  let count = 0;
+  for (const entry of seated) {
+    if (demoteSet.has(entry.id)) continue;
+    if (entry.manualOverride) continue;
+    if (entry.priorityTier === "GENERAL") count += 1;
+  }
+  for (const entry of promoteEntries) {
+    if (entry.manualOverride) continue;
+    if (entry.priorityTier === "GENERAL") count += 1;
+  }
+  return count;
+}
+
 /**
  * 1) Excess over capacity → demote (GENERAL by LIFO promotedAt, then MONTHLY reverse FIFO).
- * 2) Free seats → promote waitlist FIFO only for isEligible entries (PRIORITY: mensalistas;
- *    GENERAL: ambos).
- * 3) PRIORITY only: MONTHLY_PRIORITY still waiting displace GENERAL participants
+ * 2) Free seats → promote waitlist FIFO: MONTHLY always; GENERAL only while under
+ *    `priorityGeneralCap` in PRIORITY (after deadline: everyone).
+ * 3) PRIORITY: if seated GENERAL (sem override) still exceeds `priorityGeneralCap`,
+ *    demote LIFO (reconcilia cota quando mensalista reassumiu).
+ * 4) PRIORITY: MONTHLY_PRIORITY still waiting displace GENERAL participants
  *    (LIFO via comparePromotedLifo). Se só houver GENERAL com manualOverride (ou só
  *    mensalistas), o mensalista permanece WAITLISTED — sem override automático.
  * Never promotes beyond capacity. manualOverride participants are never auto-demoted.
  */
-export function allocate(entries: QueueEntry[], capacity: number, phase: AllocationPhase): Allocation {
+export function allocate(
+  entries: QueueEntry[],
+  capacity: number,
+  phase: AllocationPhase,
+  options: AllocateOptions = {},
+): Allocation {
   const demote: string[] = [];
   const promote: string[] = [];
   const demoteSet = new Set<string>();
   const promoteSet = new Set<string>();
+  const priorityGeneralCap = Math.max(0, options.priorityGeneralCap ?? 0);
 
   const participants = entries.filter((entry) => entry.status === "PARTICIPANT");
   const waitlisted = entries.filter((entry) => entry.status === "WAITLISTED");
@@ -103,19 +157,55 @@ export function allocate(entries: QueueEntry[], capacity: number, phase: Allocat
     }
   }
 
-  const seated = participants.filter((entry) => !demoteSet.has(entry.id));
-  let free = capacity - seated.length;
-
+  let seated = participants.filter((entry) => !demoteSet.has(entry.id));
+  const promoteEntries: QueueEntry[] = [];
   const waitingQueue = [...waitlisted].sort(compareQueue);
-  for (const entry of waitingQueue) {
-    if (free <= 0) break;
-    if (!isEligible(entry, phase)) continue;
-    promote.push(entry.id);
-    promoteSet.add(entry.id);
-    free -= 1;
+
+  function currentFree(): number {
+    return capacity - (participants.filter((entry) => !demoteSet.has(entry.id)).length + promoteSet.size);
   }
 
+  function promoteFromWaitlist(): void {
+    seated = participants.filter((entry) => !demoteSet.has(entry.id));
+    for (const entry of waitingQueue) {
+      if (promoteSet.has(entry.id)) continue;
+      if (currentFree() <= 0) break;
+      if (entry.priorityTier === "MONTHLY_PRIORITY" || phase === "GENERAL") {
+        promote.push(entry.id);
+        promoteSet.add(entry.id);
+        promoteEntries.push(entry);
+        continue;
+      }
+      // PRIORITY + GENERAL: só com cota de ausência de mensalista.
+      const used = seatedGeneralCount(seated, demoteSet, promoteEntries);
+      if (used >= priorityGeneralCap) continue;
+      promote.push(entry.id);
+      promoteSet.add(entry.id);
+      promoteEntries.push(entry);
+    }
+  }
+
+  promoteFromWaitlist();
+
   if (phase === "PRIORITY") {
+    // Reconcilia cota (ex.: mensalista reassumiu e a ausência deixou de contar).
+    seated = participants.filter((entry) => !demoteSet.has(entry.id));
+    let used = seatedGeneralCount(seated, demoteSet, promoteEntries);
+    if (used > priorityGeneralCap) {
+      const generalSeated = seated
+        .filter((entry) => entry.priorityTier === "GENERAL" && !entry.manualOverride)
+        .sort(comparePromotedLifo);
+      for (const victim of generalSeated) {
+        if (used <= priorityGeneralCap) break;
+        demote.push(victim.id);
+        demoteSet.add(victim.id);
+        used -= 1;
+      }
+      // Vagas liberadas pela reconciliação (mensalista reassumindo entra sem deslocar de novo).
+      promoteFromWaitlist();
+    }
+
+    seated = participants.filter((entry) => !demoteSet.has(entry.id));
     const monthlyStillWaiting = waitingQueue.filter(
       (entry) => !promoteSet.has(entry.id) && entry.priorityTier === "MONTHLY_PRIORITY",
     );
@@ -130,6 +220,7 @@ export function allocate(entries: QueueEntry[], capacity: number, phase: Allocat
       demoteSet.add(victim.id);
       promote.push(monthly.id);
       promoteSet.add(monthly.id);
+      promoteEntries.push(monthly);
     }
   }
 
@@ -137,8 +228,16 @@ export function allocate(entries: QueueEntry[], capacity: number, phase: Allocat
 }
 
 /** Fila de espera na ordem de promoção (FIFO / prioridade via compareQueue). */
-export function orderWaitlist<T extends QueueEntry>(entries: T[], phase: AllocationPhase): T[] {
+export function orderWaitlist<T extends QueueEntry>(
+  entries: T[],
+  phase: AllocationPhase,
+  options: AllocateOptions = {},
+): T[] {
   return entries
     .filter((entry) => entry.status === "WAITLISTED")
-    .sort((a, b) => Number(!isEligible(a, phase)) - Number(!isEligible(b, phase)) || compareQueue(a, b));
+    .sort(
+      (a, b) =>
+        Number(!isEligible(a, phase, options)) - Number(!isEligible(b, phase, options)) ||
+        compareQueue(a, b),
+    );
 }

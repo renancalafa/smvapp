@@ -1,6 +1,11 @@
 import "server-only";
 import { matchClockHasStarted } from "@/domain/match/kickoff";
-import { allocate, type AllocationPhase, type QueueEntry } from "@/domain/presence/allocate";
+import {
+  allocate,
+  countMonthlyExplicitAbsences,
+  type AllocationPhase,
+  type QueueEntry,
+} from "@/domain/presence/allocate";
 import type { Prisma } from "@/generated/prisma/client";
 import { writeAuditLog } from "@/server/audit";
 import { UserFacingError } from "@/server/errors";
@@ -214,9 +219,10 @@ export async function queuePromotionNotification(
 }
 
 /**
- * Materializa allocate(): preenche vagas livres com elegíveis da fase (antes do prazo
- * só MONTHLY_PRIORITY; depois, FIFO geral). Antes do prazo pode deslocar GENERAL sem
- * manualOverride (LIFO por promotedAt) para mensalistas que reassumem.
+ * Materializa allocate(): preenche vagas livres com elegíveis da fase. Antes do prazo,
+ * mensalistas ocupam vagas livres; diaristas só entram na cota de ausências explícitas
+ * de mensalistas (DECLINED/WITHDRAWN). Depois do prazo, FIFO geral. Antes do prazo pode
+ * deslocar GENERAL sem manualOverride (LIFO por promotedAt) para mensalistas que reassumem.
  * `directIds`: confirmação direta (sem promotedAt nem notificação WAITLIST_PROMOTED).
  * Com a votação iniciada, nada muda sozinho: promoções só pelo ADMIN.
  * Na passagem do prazo, `advanceLockedSession` chama isto para promover a espera.
@@ -252,7 +258,22 @@ export async function rebalanceLockedSession(
     promotedAt: registration.promotedAt,
     manualOverride: registration.manualOverrideAt !== null,
   }));
-  const { promote, demote } = allocate(entries, effectiveCapacity(session), allocationPhase(session, now));
+  const phase = allocationPhase(session, now);
+  let priorityGeneralCap = 0;
+  if (phase === "PRIORITY") {
+    const absenceRows = await tx.sessionRegistration.findMany({
+      where: {
+        gameSessionId: session.id,
+        modalitySnapshot: "MONTHLY",
+        status: { in: ["DECLINED", "WITHDRAWN"] },
+      },
+      select: { status: true, modalitySnapshot: true },
+    });
+    priorityGeneralCap = countMonthlyExplicitAbsences(absenceRows);
+  }
+  const { promote, demote } = allocate(entries, effectiveCapacity(session), phase, {
+    priorityGeneralCap,
+  });
   const byId = new Map(registrations.map((registration) => [registration.id, registration]));
 
   for (const id of demote) {

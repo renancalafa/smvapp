@@ -1,13 +1,16 @@
 "use client";
 
-import { useActionState } from "react";
+import { useActionState, useEffect, useState } from "react";
+import { useRouter } from "next/navigation";
 import {
   darkAlertError,
   darkAlertSuccess,
   darkBody,
   darkBtnDanger,
+  darkBtnSecondary,
+  darkCard,
   darkCardPad,
-  darkControl,
+  darkMuted,
   darkTitleMd,
 } from "@/lib/ui/dark-surfaces";
 import { endSessionAction, type SessionActionState } from "@/server/modules/sessions/actions";
@@ -22,29 +25,77 @@ function Feedback({ state }: { state: SessionActionState }) {
 
 /** Formulário ADMIN para encerrar a sessão (não aparece em /live). */
 export function EndSessionForm({ sessionId }: { sessionId: string }) {
+  const router = useRouter();
+  const [open, setOpen] = useState(false);
   const [state, action, pending] = useActionState(endSessionAction, undefined);
+  const dialogOpen = open && state?.status !== "done";
+
+  useEffect(() => {
+    if (state?.status !== "done") return;
+    router.push("/admin/sessions");
+    router.refresh();
+  }, [state, router]);
 
   return (
-    <details className={darkCardPad}>
-      <summary className={`cursor-pointer ${darkTitleMd}`}>Encerrar sessão</summary>
-      <form action={action} className="mt-3 flex flex-col gap-2">
-        <input type="hidden" name="sessionId" value={sessionId} />
-        <p className={darkBody}>
-          Encerra a noite de jogos. Partidas finalizadas ficam no histórico; o placar em Ao Vivo passa a
-          mostrar “Sessão encerrada”. Digite ENCERRAR para confirmar.
-        </p>
-        <input
-          name="confirmation"
-          required
-          autoComplete="off"
-          placeholder="ENCERRAR"
-          className={darkControl}
-        />
-        <button type="submit" disabled={pending} className={`w-full ${darkBtnDanger}`}>
-          {pending ? "Encerrando…" : "Confirmar encerramento"}
-        </button>
-        <Feedback state={state} />
-      </form>
-    </details>
+    <div className={darkCardPad}>
+      <h2 className={darkTitleMd}>Encerrar sessão</h2>
+      <p className={`mt-2 ${darkBody}`}>
+        Encerra a noite de jogos. Partidas finalizadas ficam no Histórico; o placar em Ao Vivo passa a mostrar “Sessão
+        encerrada”.
+      </p>
+      <button
+        type="button"
+        disabled={pending}
+        onClick={() => setOpen(true)}
+        className={`mt-3 w-full ${darkBtnDanger}`}
+      >
+        Encerrar sessão
+      </button>
+      <Feedback state={state} />
+
+      {dialogOpen && (
+        <div
+          className="fixed inset-0 z-50 flex items-end justify-center bg-black/60 p-3 sm:items-center"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="end-session-title"
+          onClick={(event) => {
+            if (pending) return;
+            if (event.target === event.currentTarget) setOpen(false);
+          }}
+        >
+          <form
+            action={action}
+            className={`flex w-full max-w-md flex-col gap-4 p-4 shadow-lg ${darkCard}`}
+            onClick={(event) => event.stopPropagation()}
+          >
+            <input type="hidden" name="sessionId" value={sessionId} />
+            <div>
+              <p id="end-session-title" className={darkTitleMd}>
+                Encerrar sessão?
+              </p>
+              <p className={`mt-2 ${darkMuted}`}>
+                Tem certeza de que deseja encerrar esta pelada? A sessão será finalizada e os resultados ficarão
+                disponíveis no Histórico.
+              </p>
+            </div>
+            <div className="grid grid-cols-2 gap-2">
+              <button
+                type="button"
+                disabled={pending}
+                onClick={() => setOpen(false)}
+                className={darkBtnSecondary}
+              >
+                Cancelar
+              </button>
+              <button type="submit" disabled={pending} className={darkBtnDanger}>
+                {pending ? "Encerrando…" : "Encerrar sessão"}
+              </button>
+            </div>
+            <Feedback state={state} />
+          </form>
+        </div>
+      )}
+    </div>
   );
 }

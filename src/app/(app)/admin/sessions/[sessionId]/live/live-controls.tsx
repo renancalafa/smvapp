@@ -26,14 +26,13 @@ import {
   darkSectionLabel,
   darkTitleMd,
 } from "@/lib/ui/dark-surfaces";
-import { shellSubtext } from "@/lib/ui/shell-text";
 import {
   finishMatchAction,
   kickoffMatchWithTeamsAction,
   pauseMatchAction,
   resumeMatchAction,
-  setPenaltyWinnerAction,
   substituteMatchPlayerAction,
+  substituteSessionTeamPlayerAction,
   voidMatchEventAction,
   type MatchActionState,
 } from "@/server/modules/matches/actions";
@@ -41,6 +40,7 @@ import type { LiveBoard, MatchView, SessionParticipantOption } from "@/server/mo
 import { activeMatchPlayers } from "@/domain/match/lineup";
 import { GoalRegistrationPanel } from "./goal-registration-panel";
 import { PlayerEventPanel } from "./player-event-panel";
+import { useRouter } from "next/navigation";
 
 function newOperationId(): string {
   return crypto.randomUUID();
@@ -103,10 +103,13 @@ export function LiveControls({ board }: { board: LiveBoard }) {
 
 /** Placar único antes do apito: sugestão editável; só o apito persiste e inicia. */
 function PreKickoffAdmin({ board }: { board: LiveBoard }) {
+  const router = useRouter();
   const seed = defaultPair(board);
   const [teamAId, setTeamAId] = useState(seed?.teamAId ?? "");
   const [teamBId, setTeamBId] = useState(seed?.teamBId ?? "");
   const [picking, setPicking] = useState<"A" | "B" | null>(null);
+  const [selectedPlayer, setSelectedPlayer] = useState<ScoreboardPlayer | null>(null);
+  const [subOutMemberId, setSubOutMemberId] = useState<string | null>(null);
   const [state, action, pending] = useActionState(kickoffMatchWithTeamsAction, undefined);
   const operationId = useOperationId(state);
 
@@ -116,8 +119,20 @@ function PreKickoffAdmin({ board }: { board: LiveBoard }) {
     );
   }
 
-  const teamA = { id: teamAId, name: teamName(board, teamAId) };
-  const teamB = { id: teamBId, name: teamName(board, teamBId) };
+  const teamAMeta = board.teams.find((team) => team.id === teamAId);
+  const teamBMeta = board.teams.find((team) => team.id === teamBId);
+  const teamA = {
+    id: teamAId,
+    name: teamName(board, teamAId),
+    color: teamAMeta?.color ?? null,
+    position: teamAMeta?.initialQueuePosition ?? null,
+  };
+  const teamB = {
+    id: teamBId,
+    name: teamName(board, teamBId),
+    color: teamBMeta?.color ?? null,
+    position: teamBMeta?.initialQueuePosition ?? null,
+  };
   const players: ScoreboardPlayer[] = [
     ...(board.rostersByTeamId[teamAId] ?? []),
     ...(board.rostersByTeamId[teamBId] ?? []),
@@ -143,7 +158,13 @@ function PreKickoffAdmin({ board }: { board: LiveBoard }) {
           players={players}
           awaitingKickoff
           teamsEditable
+          selectedTeamSide={picking}
+          selectedPlayerId={selectedPlayer?.memberId ?? subOutMemberId}
           onTeamClick={(side) => setPicking(side)}
+          onPlayerClick={(player) => {
+            setPicking(null);
+            setSelectedPlayer(player);
+          }}
         />
         <MatchTimer
           remainingMs={board.matchDurationSec * 1000}
@@ -186,6 +207,158 @@ function PreKickoffAdmin({ board }: { board: LiveBoard }) {
           onClose={() => setPicking(null)}
         />
       )}
+      {selectedPlayer && (
+        <PreKickoffPlayerSheet
+          player={selectedPlayer}
+          onClose={() => setSelectedPlayer(null)}
+          onSubstitute={() => {
+            setSubOutMemberId(selectedPlayer.memberId);
+            setSelectedPlayer(null);
+          }}
+        />
+      )}
+      {subOutMemberId && (
+        <SessionTeamSubstitutionForm
+          sessionId={board.sessionId}
+          outMemberId={subOutMemberId}
+          rosterPlayers={players}
+          participants={board.participants}
+          onClose={() => setSubOutMemberId(null)}
+          onDone={() => {
+            setSubOutMemberId(null);
+            router.refresh();
+          }}
+        />
+      )}
+    </div>
+  );
+}
+
+function PreKickoffPlayerSheet({
+  player,
+  onClose,
+  onSubstitute,
+}: {
+  player: ScoreboardPlayer;
+  onClose: () => void;
+  onSubstitute: () => void;
+}) {
+  const label = player.nickname ? `${player.name} (${player.nickname})` : player.name;
+  return (
+    <div
+      className="fixed inset-0 z-50 flex items-end justify-center bg-black/60 p-3 sm:items-center"
+      role="dialog"
+      aria-modal="true"
+      onClick={(event) => {
+        if (event.target === event.currentTarget) onClose();
+      }}
+    >
+      <div className={`flex w-full max-w-md flex-col gap-3 p-4 shadow-lg ${darkCard}`}>
+        <div className="flex items-start justify-between gap-2">
+          <div>
+            <p className={darkTitleMd}>{label}</p>
+            <p className={darkMuted}>Antes do apito</p>
+          </div>
+          <button type="button" onClick={onClose} className="min-h-10 min-w-10 text-white/55" aria-label="Fechar">
+            ✕
+          </button>
+        </div>
+        <button
+          type="button"
+          onClick={onSubstitute}
+          className="min-h-12 rounded-xl border border-smv-gold/40 bg-smv-gold/10 px-3 text-left text-sm font-semibold text-smv-gold-bright hover:bg-smv-gold/20"
+        >
+          Substituir jogador
+        </button>
+        <button type="button" onClick={onClose} className={darkBtnSecondary}>
+          Cancelar
+        </button>
+      </div>
+    </div>
+  );
+}
+
+function SessionTeamSubstitutionForm({
+  sessionId,
+  outMemberId,
+  rosterPlayers,
+  participants,
+  onClose,
+  onDone,
+}: {
+  sessionId: string;
+  outMemberId: string;
+  rosterPlayers: ScoreboardPlayer[];
+  participants: SessionParticipantOption[];
+  onClose: () => void;
+  onDone: () => void;
+}) {
+  const [inMemberId, setInMemberId] = useState("");
+  const [state, action, pending] = useActionState(substituteSessionTeamPlayerAction, undefined);
+  const outgoing = rosterPlayers.find((player) => player.memberId === outMemberId) ?? null;
+  const onFieldIds = new Set(rosterPlayers.map((player) => player.memberId));
+  const incomingCandidates = participants.filter((player) => !onFieldIds.has(player.memberId));
+
+  useEffect(() => {
+    if (state?.status === "done") onDone();
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- intentionally [state]
+  }, [state]);
+
+  return (
+    <div
+      className="fixed inset-0 z-50 flex items-end justify-center bg-black/60 p-3 sm:items-center"
+      role="dialog"
+      aria-modal="true"
+      onClick={(event) => {
+        if (pending) return;
+        if (event.target === event.currentTarget) onClose();
+      }}
+    >
+      <form
+        action={action}
+        className={`flex w-full max-w-md flex-col gap-4 p-4 shadow-lg ${darkCard}`}
+        onClick={(event) => event.stopPropagation()}
+      >
+        <input type="hidden" name="sessionId" value={sessionId} />
+        <input type="hidden" name="outMemberId" value={outMemberId} />
+        <input type="hidden" name="inMemberId" value={inMemberId} />
+        <div>
+          <p className={darkTitleMd}>Substituir na escalação</p>
+          <p className={darkMuted}>
+            Sai {outgoing ? playerOptionLabel(outgoing) : "—"}. Altera o time da noite (pré-apito).
+          </p>
+        </div>
+        <label className={darkLabel}>
+          Quem entra
+          <select
+            value={inMemberId}
+            onChange={(event) => setInMemberId(event.target.value)}
+            disabled={pending}
+            className={darkControl}
+          >
+            <option value="">Selecione…</option>
+            {incomingCandidates.map((player) => (
+              <option key={player.memberId} value={player.memberId}>
+                {playerOptionLabel(player)}
+                {player.homeTeamName ? ` · ${player.homeTeamName}` : " · sem time"}
+              </option>
+            ))}
+          </select>
+        </label>
+        <p className={darkMutedXs}>
+          Troca 1:1 na escalação oficial da noite. Scouts de partidas já finalizadas não mudam.
+        </p>
+        {state?.status === "error" && <p className={darkAlertError}>{state.error}</p>}
+        {state?.status === "done" && <p className={darkAlertSuccess}>{state.message}</p>}
+        <div className="grid grid-cols-2 gap-2">
+          <button type="button" onClick={onClose} disabled={pending} className={darkBtnSecondary}>
+            Cancelar
+          </button>
+          <button type="submit" disabled={pending || !inMemberId} className={darkBtnPrimary}>
+            {pending ? "Substituindo…" : "Confirmar"}
+          </button>
+        </div>
+      </form>
     </div>
   );
 }
@@ -244,6 +417,7 @@ function CurrentMatchAdmin({ board, match: initial }: { board: LiveBoard; match:
   const [match, setMatch] = useState(initial);
   const [goalSide, setGoalSide] = useState<"A" | "B" | null>(null);
   const [eventPlayer, setEventPlayer] = useState<ScoreboardPlayer | null>(null);
+  const [subOutMemberId, setSubOutMemberId] = useState<string | null>(null);
   const [baseline, setBaseline] = useState(initial);
   if (initial.id !== baseline.id || initial.version !== baseline.version) {
     setBaseline(initial);
@@ -252,7 +426,7 @@ function CurrentMatchAdmin({ board, match: initial }: { board: LiveBoard; match:
     }
   }
 
-  const needsPenalty =
+  const needsPenaltyOnFinish =
     board.teamCount === 3 && match.scoreA === match.scoreB && !match.penaltyWinnerTeamId;
 
   return (
@@ -265,6 +439,7 @@ function CurrentMatchAdmin({ board, match: initial }: { board: LiveBoard; match:
         <MatchScoreboardFromView
           match={match}
           interactive
+          selectedPlayerId={eventPlayer?.memberId ?? subOutMemberId}
           onScoreClick={(side) => {
             setEventPlayer(null);
             setGoalSide(side);
@@ -299,27 +474,24 @@ function CurrentMatchAdmin({ board, match: initial }: { board: LiveBoard; match:
           player={eventPlayer}
           onClose={() => setEventPlayer(null)}
           onMatchUpdated={setMatch}
+          onRequestSubstitute={() => setSubOutMemberId(eventPlayer.memberId)}
         />
       )}
 
-      {needsPenalty && (
-        <PenaltyForm sessionId={board.sessionId} match={match} onMatchUpdated={setMatch} />
-      )}
-      {match.penaltyWinnerTeamId && (
-        <p className={shellSubtext}>
-          Pênaltis: {teamName(board, match.penaltyWinnerTeamId)} venceu.
-        </p>
-      )}
       <SubstitutionForm
+        key={subOutMemberId ? `sub-preset-${subOutMemberId}` : "sub-manual"}
         sessionId={board.sessionId}
         match={match}
         participants={board.participants}
+        initialOutMemberId={subOutMemberId ?? ""}
+        initiallyOpen={Boolean(subOutMemberId)}
+        onClosed={() => setSubOutMemberId(null)}
         onMatchUpdated={setMatch}
       />
       <FinishForm
         sessionId={board.sessionId}
         match={match}
-        needsPenalty={needsPenalty}
+        needsPenalty={needsPenaltyOnFinish}
         onMatchUpdated={setMatch}
       />
       <EventList sessionId={board.sessionId} match={match} onMatchUpdated={setMatch} />
@@ -336,15 +508,21 @@ function SubstitutionForm({
   match,
   participants,
   onMatchUpdated,
+  initialOutMemberId = "",
+  initiallyOpen = false,
+  onClosed,
 }: {
   sessionId: string;
   match: MatchView;
   participants: SessionParticipantOption[];
   onMatchUpdated: (match: MatchView) => void;
+  initialOutMemberId?: string;
+  initiallyOpen?: boolean;
+  onClosed?: () => void;
 }) {
-  const [wantOpen, setWantOpen] = useState(false);
+  const [wantOpen, setWantOpen] = useState(initiallyOpen);
   const [baseline, setBaseline] = useState<MatchActionState>(undefined);
-  const [outMemberId, setOutMemberId] = useState("");
+  const [outMemberId, setOutMemberId] = useState(initialOutMemberId);
   const [inMemberId, setInMemberId] = useState("");
   const [state, action, pending] = useActionState(substituteMatchPlayerAction, undefined);
   const operationId = useOperationId(state);
@@ -375,6 +553,7 @@ function SubstitutionForm({
     setWantOpen(false);
     setOutMemberId("");
     setInMemberId("");
+    onClosed?.();
   }
 
   return (
@@ -573,51 +752,6 @@ function TimerButtons({
   );
 }
 
-function PenaltyForm({
-  sessionId,
-  match,
-  onMatchUpdated,
-}: {
-  sessionId: string;
-  match: MatchView;
-  onMatchUpdated: (match: MatchView) => void;
-}) {
-  const [state, action, pending] = useActionState(setPenaltyWinnerAction, undefined);
-  const operationId = useOperationId(state);
-  useMatchFromAction(state, onMatchUpdated);
-
-  return (
-    <form action={action} className={`flex flex-col gap-3 p-4 ${darkAlertWarn}`}>
-      <input type="hidden" name="sessionId" value={sessionId} />
-      <input type="hidden" name="matchId" value={match.id} />
-      <input type="hidden" name="expectedVersion" value={match.version} />
-      <input type="hidden" name="operationId" value={operationId} />
-      <p className="text-sm font-medium text-amber-50">Empate com 3 times: quem venceu nos pênaltis?</p>
-      <div className="grid grid-cols-2 gap-2">
-        <button
-          type="submit"
-          name="teamId"
-          value={match.teamA.id}
-          disabled={pending}
-          className={`min-h-11 rounded-lg border border-white/20 bg-black/25 text-sm font-medium text-white disabled:opacity-60`}
-        >
-          {match.teamA.name}
-        </button>
-        <button
-          type="submit"
-          name="teamId"
-          value={match.teamB.id}
-          disabled={pending}
-          className={`min-h-11 rounded-lg border border-white/20 bg-black/25 text-sm font-medium text-white disabled:opacity-60`}
-        >
-          {match.teamB.name}
-        </button>
-      </div>
-      <Feedback state={state} />
-    </form>
-  );
-}
-
 function FinishForm({
   sessionId,
   match,
@@ -631,24 +765,27 @@ function FinishForm({
 }) {
   const [wantConfirm, setWantConfirm] = useState(false);
   const [confirmBaseline, setConfirmBaseline] = useState<MatchActionState>(undefined);
+  const [penaltyWinnerTeamId, setPenaltyWinnerTeamId] = useState("");
   const [state, action, pending] = useActionState(finishMatchAction, undefined);
   const operationId = useOperationId(state);
   useMatchFromAction(state, onMatchUpdated);
   // Fecha o diálogo quando a action responde (state muda em relação ao baseline).
   const confirmOpen = wantConfirm && state === confirmBaseline;
+  const canConfirm = !needsPenalty || Boolean(penaltyWinnerTeamId);
 
   return (
     <div className="flex flex-col gap-2">
       <button
         type="button"
-        disabled={pending || needsPenalty}
+        disabled={pending}
         onClick={() => {
+          setPenaltyWinnerTeamId(match.penaltyWinnerTeamId ?? "");
           setConfirmBaseline(state);
           setWantConfirm(true);
         }}
         className={`w-full ${darkBtnDanger}`}
       >
-        {needsPenalty ? "Registre os pênaltis antes" : "Finalizar partida"}
+        Finalizar partida
       </button>
       <Feedback state={state} />
       {confirmOpen && (
@@ -673,6 +810,9 @@ function FinishForm({
             <input type="hidden" name="expectedScoreA" value={match.scoreA} />
             <input type="hidden" name="expectedScoreB" value={match.scoreB} />
             <input type="hidden" name="operationId" value={operationId} />
+            {needsPenalty && (
+              <input type="hidden" name="penaltyWinnerTeamId" value={penaltyWinnerTeamId} />
+            )}
 
             <div className="flex items-start justify-between gap-2">
               <div>
@@ -704,6 +844,35 @@ function FinishForm({
               </div>
             </div>
 
+            {needsPenalty && (
+              <div className={`flex flex-col gap-2 p-3 ${darkAlertWarn}`}>
+                <p className="text-sm font-medium text-amber-50">
+                  Empate com 3 times: quem venceu nos pênaltis?
+                </p>
+                <div className="grid grid-cols-2 gap-2">
+                  {[match.teamA, match.teamB].map((team) => (
+                    <button
+                      key={team.id}
+                      type="button"
+                      disabled={pending}
+                      onClick={() => setPenaltyWinnerTeamId(team.id)}
+                      aria-pressed={penaltyWinnerTeamId === team.id}
+                      className={`min-h-11 rounded-lg border text-sm font-medium ${
+                        penaltyWinnerTeamId === team.id
+                          ? "border-smv-gold bg-smv-gold/20 text-smv-gold-bright"
+                          : "border-white/20 bg-black/25 text-white"
+                      }`}
+                    >
+                      {team.name}
+                    </button>
+                  ))}
+                </div>
+                <p className={darkMutedXs}>
+                  Os gols de pênaltis não entram nas estatísticas de artilharia — só definem o vencedor.
+                </p>
+              </div>
+            )}
+
             <p className={darkMutedXs}>
               O placar e o status serão gravados agora. Se outro admin alterar a partida, a confirmação será
               recusada.
@@ -718,7 +887,7 @@ function FinishForm({
               >
                 Cancelar
               </button>
-              <button type="submit" disabled={pending} className={darkBtnDanger}>
+              <button type="submit" disabled={pending || !canConfirm} className={darkBtnDanger}>
                 {pending ? "Finalizando…" : "Confirmar finalização"}
               </button>
             </div>
