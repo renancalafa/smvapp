@@ -60,19 +60,16 @@ function session(partial: {
     {
       id: "old-start-new-finish",
       status: "FINISHED",
-      startsAtMs: Date.parse("2026-01-01T20:00:00.000Z"),
       finishedAtMs: Date.parse("2026-11-01T02:00:00.000Z"),
     },
     {
       id: "new-start-old-finish",
       status: "FINISHED",
-      startsAtMs: Date.parse("2026-10-01T20:00:00.000Z"),
       finishedAtMs: Date.parse("2026-10-02T02:00:00.000Z"),
     },
     {
       id: "unfinished",
       status: "IN_PROGRESS",
-      startsAtMs: Date.parse("2026-11-10T20:00:00.000Z"),
       finishedAtMs: null,
     },
   ]);

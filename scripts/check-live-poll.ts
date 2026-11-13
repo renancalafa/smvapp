@@ -366,6 +366,41 @@ async function dbScenario(
     between.pollPhase === "waiting" && pollIntervalMs(between.pollPhase) === 10_000,
   );
 
+  const liveBetween = await spectator.getSpectatorLiveState(group.id);
+  check(
+    "ativa + aguardando próxima → visível no Ao Vivo",
+    liveBetween.kind === "live" && liveBetween.session.id === session.id,
+  );
+
+  // Janela expirada sem partida com cronômetro ligado: não pode permanecer Ao Vivo.
+  // Mantém endsAt > startsAt (CHECK GameSession_times_check).
+  const expiredStarts = new Date(Date.now() - 4 * hour);
+  const expiredEnds = new Date(Date.now() - 2 * hour);
+  await tx.gameSession.update({
+    where: { id: session.id },
+    data: {
+      startsAt: expiredStarts,
+      endsAt: expiredEnds,
+      maxExtraMinutes: 0,
+    },
+  });
+  const expiredFocus = await spectator.getSpectatorLiveState(group.id);
+  check(
+    "após janela sem partida ativa → NÃO live nesta sessão",
+    !(expiredFocus.kind === "live" && expiredFocus.session.id === session.id),
+  );
+
+  // Restaura janela para encerrar normalmente (encerrar não depende de endsAt).
+  const restoredStarts = new Date();
+  await tx.gameSession.update({
+    where: { id: session.id },
+    data: {
+      startsAt: restoredStarts,
+      endsAt: new Date(restoredStarts.getTime() + 2 * hour),
+      maxExtraMinutes: 10,
+    },
+  });
+
   const { endGameSession } = await import("../src/server/modules/sessions/service");
   await endGameSession(adminViewer, session.id);
   focusSession = await loadFocusSession(tx, session.id);
@@ -389,6 +424,20 @@ async function dbScenario(
   check(
     "estado finished preserva histórico",
     !!board && board.current === null && board.history.length === 1,
+  );
+  check(
+    "FINISHED não sugere próxima partida",
+    !!board && board.suggested === null && board.softHint === null,
+  );
+
+  const afterEnd = await spectator.getSpectatorLiveState(group.id);
+  check(
+    "FINISHED extraordinária → NÃO live nesta sessão",
+    !(afterEnd.kind === "live" && afterEnd.session.id === session.id),
+  );
+  check(
+    "status persistido FINISHED",
+    focusSession.status === "FINISHED",
   );
 }
 

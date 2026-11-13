@@ -42,7 +42,8 @@ export type SpectatorFocusSelection =
 
 /**
  * Algoritmo puro legado de foco por janela de tempo (regressão check:spectator-focus).
- * O Ao Vivo público usa resolveNightNavMode / getNightNavMode (Draw DECIDED), não este seletor.
+ * O Ao Vivo público usa resolveNightNavMode / getNightNavMode (Draw DECIDED + janela de jogo).
+ * Este seletor legado permanece para regressão e como fonte de decideInProgressSpectatorFocus.
  */
 export function selectSpectatorFocus(
   sessions: ReadonlyArray<SpectatorFocusSessionInput>,

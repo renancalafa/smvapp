@@ -652,22 +652,14 @@ async function dbScenario(
   );
 
   const focus = await getSpectatorLiveState(group.id);
-  if (focus.kind === "ended" && focus.session.id === session.id) {
-    check(
-      "Ao Vivo pós-encerramento: Sessão encerrada + histórico",
-      focus.session.status === "FINISHED" && focus.board.history.length === 2,
-    );
-  } else if (focus.kind === "live" && focus.session.id === session.id) {
-    check("Ao Vivo pós-encerramento: Sessão encerrada + histórico", false, "ainda live");
-  } else {
-    // Outra sessão do grupo pode estar em foco no banco local; o board da sessão
-    // encerrada já foi validado acima.
-    check(
-      "Ao Vivo pós-encerramento: Sessão encerrada + histórico",
-      boardAfter?.history.length === 2,
-      focus.kind === "idle" ? "foco idle (ok se outra sessão interferir)" : `foco=${focus.kind}`,
-    );
-  }
+  check(
+    "Ao Vivo pós-encerramento: sessão FINISHED não permanece live",
+    !(focus.kind === "live" && focus.session.id === session.id),
+  );
+  check(
+    "Ao Vivo pós-encerramento: histórico da sessão preservado no board",
+    !!boardAfter && boardAfter.history.length === 2 && boardAfter.current === null,
+  );
 
   const between = await getLiveBoard(group.id, session.id);
   check(

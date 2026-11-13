@@ -18,13 +18,19 @@ function check(name: string, ok: boolean, detail?: string) {
 const t0 = Date.parse("2026-11-01T21:00:00.000Z");
 const t1 = Date.parse("2026-11-08T21:00:00.000Z");
 const t2 = Date.parse("2026-11-15T21:00:00.000Z");
+/** “Agora” dos testes: alinhado às sessões live em t2. */
+const nowMs = t2;
 
 function session(
   partial: Partial<NightModeSession> & Pick<NightModeSession, "id" | "status">,
 ): NightModeSession {
+  const startsAtMs = partial.startsAtMs ?? t1;
   return {
-    startsAtMs: t1,
+    startsAtMs,
+    endsAtMs: startsAtMs + 90 * 60_000,
+    maxExtraMinutes: 30,
     finishedAtMs: null,
+    hasActiveMatch: false,
     ...partial,
   };
 }
@@ -40,7 +46,7 @@ function draw(
 }
 
 {
-  const mode = resolveNightNavMode([], []);
+  const mode = resolveNightNavMode([], [], nowMs);
   check("sem sessões → rodada vazia", mode.kind === "rodada" && mode.finishedSessionId === null);
   check("nav item padrão Rodada", nightNavItem(mode).href === "/rodada" && nightNavItem(mode).label === "Rodada");
 }
@@ -58,7 +64,7 @@ function draw(
     startsAtMs: t1,
     finishedAtMs: t1 + 3_600_000,
   });
-  const mode = resolveNightNavMode([older, newer], []);
+  const mode = resolveNightNavMode([older, newer], [], nowMs);
   check(
     "FINISHED mais recente por finishedAt",
     mode.kind === "rodada" && mode.finishedSessionId === "fin-new",
@@ -75,6 +81,7 @@ function draw(
     const mode = resolveNightNavMode(
       [open],
       [draw({ gameSessionId: "open-1", status, winningOptionId: null })],
+      nowMs,
     );
     check(`${status} não abre Ao Vivo`, mode.kind === "rodada");
   }
@@ -83,6 +90,7 @@ function draw(
     resolveNightNavMode(
       [open],
       [draw({ gameSessionId: "open-1", status: "DECIDED", winningOptionId: null })],
+      nowMs,
     ).kind === "rodada",
   );
 }
@@ -92,6 +100,7 @@ function draw(
   const mode = resolveNightNavMode(
     [open],
     [draw({ gameSessionId: "open-2", status: "DECIDED", winningOptionId: "opt-a" })],
+    nowMs,
   );
   check("DECIDED com winningOptionId → Ao Vivo", mode.kind === "ao_vivo" && mode.liveSessionId === "open-2");
   check("nav item Ao Vivo", nightNavItem(mode).href === "/live");
@@ -108,6 +117,7 @@ function draw(
         winningOptionId: "opt-single",
       }),
     ],
+    nowMs,
   );
   check("auto-DECIDED (opção única) → Ao Vivo", mode.kind === "ao_vivo" && mode.liveSessionId === "auto");
 }
@@ -130,6 +140,7 @@ function draw(
         invalidatedAtMs: t2 + 60_000,
       }),
     ],
+    nowMs,
   );
   check(
     "invalidação de DECIDED volta à Rodada do FINISHED",
@@ -158,6 +169,7 @@ function draw(
   const mode = resolveNightNavMode(
     [finished],
     [draw({ gameSessionId: "done", status: "DECIDED", winningOptionId: "opt-a" })],
+    nowMs,
   );
   check("FINISHED com DECIDED → Rodada (não Ao Vivo)", mode.kind === "rodada" && mode.finishedSessionId === "done");
 }
@@ -167,17 +179,69 @@ function draw(
   const mode = resolveNightNavMode(
     [cancelled],
     [draw({ gameSessionId: "can", status: "DECIDED", winningOptionId: "opt-a" })],
+    nowMs,
   );
   check("CANCELLED nunca é Ao Vivo", mode.kind === "rodada" && mode.finishedSessionId === null);
 }
 
 {
-  const stuck = session({ id: "stuck", status: "IN_PROGRESS", startsAtMs: t0 });
+  const stuck = session({
+    id: "stuck",
+    status: "IN_PROGRESS",
+    startsAtMs: t0,
+    endsAtMs: t0 + 90 * 60_000,
+    maxExtraMinutes: 30,
+    hasActiveMatch: false,
+  });
   const mode = resolveNightNavMode(
     [stuck],
     [draw({ gameSessionId: "stuck", status: "DECIDED", winningOptionId: "opt-a" })],
+    nowMs,
   );
-  check("IN_PROGRESS preso com DECIDED permanece Ao Vivo", mode.kind === "ao_vivo" && mode.liveSessionId === "stuck");
+  check(
+    "IN_PROGRESS após janela sem partida ativa → Rodada (não Ao Vivo)",
+    mode.kind === "rodada" && mode.finishedSessionId === null,
+  );
+}
+
+{
+  const overtime = session({
+    id: "overtime",
+    status: "IN_PROGRESS",
+    startsAtMs: t0,
+    endsAtMs: t0 + 90 * 60_000,
+    maxExtraMinutes: 30,
+    hasActiveMatch: true,
+  });
+  const mode = resolveNightNavMode(
+    [overtime],
+    [draw({ gameSessionId: "overtime", status: "DECIDED", winningOptionId: "opt-a" })],
+    nowMs,
+  );
+  check(
+    "IN_PROGRESS após janela com partida ativa → Ao Vivo",
+    mode.kind === "ao_vivo" && mode.liveSessionId === "overtime",
+  );
+}
+
+{
+  const finishedExtra = session({
+    id: "extra-done",
+    status: "FINISHED",
+    startsAtMs: t1,
+    endsAtMs: t1 + 90 * 60_000,
+    finishedAtMs: t1 + 2 * 3_600_000,
+    hasActiveMatch: true,
+  });
+  const mode = resolveNightNavMode(
+    [finishedExtra],
+    [draw({ gameSessionId: "extra-done", status: "DECIDED", winningOptionId: "opt-a" })],
+    nowMs,
+  );
+  check(
+    "FINISHED extraordinária com DECIDED → Rodada",
+    mode.kind === "rodada" && mode.finishedSessionId === "extra-done",
+  );
 }
 
 {
@@ -189,6 +253,7 @@ function draw(
       draw({ gameSessionId: "live-old", status: "DECIDED", winningOptionId: "a" }),
       draw({ gameSessionId: "live-new", status: "DECIDED", winningOptionId: "b" }),
     ],
+    nowMs,
   );
   check(
     "sobreposição: Ao Vivo = startsAt mais recente",
@@ -207,6 +272,7 @@ function draw(
   const mode = resolveNightNavMode(
     [voting, finished],
     [draw({ gameSessionId: "vote", status: "VOTING" })],
+    nowMs,
   );
   check(
     "votação em curso: Rodada do último FINISHED",
@@ -216,10 +282,11 @@ function draw(
 
 {
   // Deep-link / nav consistency: nightNavItem is the single source for href/label.
-  const rodada = resolveNightNavMode([], []);
+  const rodada = resolveNightNavMode([], [], nowMs);
   const aoVivo = resolveNightNavMode(
     [session({ id: "x", status: "OPEN", startsAtMs: t2 })],
     [draw({ gameSessionId: "x", status: "DECIDED", winningOptionId: "o" })],
+    nowMs,
   );
   check("deep-link Rodada → /rodada", nightNavItem(rodada).href === "/rodada");
   check("deep-link Ao Vivo → /live", nightNavItem(aoVivo).href === "/live");

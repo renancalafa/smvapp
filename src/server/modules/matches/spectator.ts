@@ -76,8 +76,7 @@ function toSummary(session: SessionCandidate): SpectatorSessionSummary {
  * (Draw ativo DECIDED em sessão não FINISHED/CANCELLED). Recap pós-sessão → /rodada.
  */
 export async function findSpectatorFocus(groupId: string, now = new Date()): Promise<Focus> {
-  void now;
-  const mode = await getNightNavMode(groupId);
+  const mode = await getNightNavMode(groupId, now);
   if (mode.kind !== "ao_vivo") return { kind: "idle" };
 
   const session = await db.gameSession.findFirst({

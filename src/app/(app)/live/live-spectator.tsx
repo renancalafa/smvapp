@@ -156,10 +156,10 @@ export function LiveSpectator({
 
       {state.kind === "idle" && (
         <div className={darkEmpty}>
-          <p className="text-base font-medium text-smv-cream">Nenhuma pelada ao vivo.</p>
+          <p className="text-base font-medium text-smv-cream">Nenhuma partida ao vivo no momento.</p>
           <p className="mt-1 text-sm text-white/55">
-            O Ao Vivo aparece quando o sorteio final for decidido. O recap da última sessão
-            encerrada fica em Rodada.
+            O Ao Vivo aparece quando o sorteio final for decidido e a sessão ainda estiver
+            ativa. O recap da última sessão encerrada fica em Rodada.
           </p>
         </div>
       )}

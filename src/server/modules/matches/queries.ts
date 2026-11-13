@@ -80,6 +80,7 @@ export async function getLiveBoard(groupId: string, sessionId: string, now = new
     where: { id: sessionId, groupId },
     select: {
       id: true,
+      status: true,
       matchDurationSec: true,
       teams: {
         orderBy: { initialQueuePosition: "asc" },
@@ -91,6 +92,9 @@ export async function getLiveBoard(groupId: string, sessionId: string, now = new
     },
   });
   if (!session) return null;
+
+  // Sessão encerrada/cancelada: histórico permanece; nenhum placar "atual" ou sugestão de próxima.
+  const sessionClosed = session.status === "FINISHED" || session.status === "CANCELLED";
 
   const displayById = new Map(
     session.teams.map((team) => {
@@ -134,7 +138,9 @@ export async function getLiveBoard(groupId: string, sessionId: string, now = new
     },
   });
 
-  const currentRow = matches.find((match) => match.status === "IN_PROGRESS") ?? null;
+  const currentRow = sessionClosed
+    ? null
+    : (matches.find((match) => match.status === "IN_PROGRESS") ?? null);
   const current = currentRow ? await buildMatchView(db, currentRow.id, now) : null;
 
   const finished = matches
@@ -159,7 +165,7 @@ export async function getLiveBoard(groupId: string, sessionId: string, now = new
   const teamCount = regular.length === 3 || regular.length === 4 ? regular.length : null;
   let suggested: LiveBoard["suggested"] = null;
   let softHint: LiveBoard["softHint"] = null;
-  if (teamCount && !currentRow) {
+  if (!sessionClosed && teamCount && !currentRow) {
     try {
       const matchup = suggestMatchupAfterHistory({
         regularTeams: regular,
