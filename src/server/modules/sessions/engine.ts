@@ -276,6 +276,7 @@ export async function rebalanceLockedSession(
   });
   const byId = new Map(registrations.map((registration) => [registration.id, registration]));
 
+  const demotedUserIds: string[] = [];
   for (const id of demote) {
     const previous = byId.get(id);
     // Preserva queuedAt/queueSortAt; limpa promotedAt ao voltar à espera (posição FIFO original).
@@ -283,6 +284,7 @@ export async function rebalanceLockedSession(
       where: { id },
       data: { status: "WAITLISTED", promotedAt: null },
     });
+    if (previous?.member.userId) demotedUserIds.push(previous.member.userId);
     await writeAuditLog(tx, {
       groupId: session.groupId,
       actorUserId: null,
@@ -297,6 +299,17 @@ export async function rebalanceLockedSession(
       },
       after: { status: "WAITLISTED", promotedAt: null },
       metadata: { capacity: effectiveCapacity(session) },
+    });
+  }
+  if (demotedUserIds.length > 0) {
+    const { revokeActiveSessionScoutsForUsers } = await import("@/server/modules/scouts/service");
+    await revokeActiveSessionScoutsForUsers(tx, {
+      groupId: session.groupId,
+      gameSessionId: session.id,
+      userIds: demotedUserIds,
+      reason: "Participante voltou à lista de espera (rebalanceamento)",
+      actorUserId: null,
+      now,
     });
   }
 

@@ -253,6 +253,7 @@ export async function respondToSession(
     }
 
     if (existing && QUEUED.includes(existing.status)) {
+      const wasParticipant = existing.status === "PARTICIPANT";
       await tx.sessionRegistration.update({
         where: { id: existing.id },
         data: { status: "WITHDRAWN", withdrawnAt: now, respondedAt: now, source: "SELF" },
@@ -267,6 +268,17 @@ export async function respondToSession(
         before: snapshot(existing),
         after: { status: "WITHDRAWN", withdrawnAt: now.toISOString() },
       });
+      if (wasParticipant) {
+        const { revokeActiveSessionScoutsForUsers } = await import("@/server/modules/scouts/service");
+        await revokeActiveSessionScoutsForUsers(tx, {
+          groupId: viewer.group.id,
+          gameSessionId: session.id,
+          userIds: [viewer.user.id],
+          reason: "Participante saiu da lista (Não vou)",
+          actorUserId: null,
+          now,
+        });
+      }
       await rebalanceLockedSession(tx, session, now);
       await clearPriorityReminderForMember(tx, session.id, member.id);
       return { status: "WITHDRAWN" };
@@ -373,12 +385,20 @@ async function removeLocked(
 ) {
   const registration = await tx.sessionRegistration.findFirst({
     where: { id: input.registrationId, gameSessionId: session.id },
-    select: { id: true, status: true, priorityTier: true, queuedAt: true, queueSortAt: true },
+    select: {
+      id: true,
+      status: true,
+      priorityTier: true,
+      queuedAt: true,
+      queueSortAt: true,
+      member: { select: { userId: true } },
+    },
   });
   if (!registration) throw new UserFacingError("Inscrição não encontrada.");
   if (!QUEUED.includes(registration.status)) {
     throw new UserFacingError("Só participantes ou jogadores na lista de espera podem ser removidos.");
   }
+  const wasParticipant = registration.status === "PARTICIPANT";
   await tx.sessionRegistration.update({
     where: { id: registration.id },
     data: {
@@ -400,6 +420,17 @@ async function removeLocked(
     after: { status: "REMOVED" },
     reason: input.reason,
   });
+  if (wasParticipant) {
+    const { revokeActiveSessionScoutsForUsers } = await import("@/server/modules/scouts/service");
+    await revokeActiveSessionScoutsForUsers(tx, {
+      groupId: session.groupId,
+      gameSessionId: session.id,
+      userIds: [registration.member.userId],
+      reason: "Participante removido da sessão",
+      actorUserId: null,
+      now,
+    });
+  }
 }
 
 export async function adminRemoveRegistration(

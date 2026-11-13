@@ -11,6 +11,7 @@ import {
   darkTitle,
 } from "@/lib/ui/dark-surfaces";
 import { shellSubtext } from "@/lib/ui/shell-text";
+import { LiveControls } from "@/app/(app)/admin/sessions/[sessionId]/live/live-controls";
 import { extraordinaryLabel, formatSessionTitle, formatTime } from "../sessions/format";
 import { SpectatorBoard } from "./spectator-board";
 
@@ -151,7 +152,11 @@ export function LiveSpectator({
     <section className="flex flex-col gap-4 text-smv-cream">
       <div>
         <h1 className={darkTitle}>Ao Vivo</h1>
-        <p className={shellSubtext}>Placar e partidas da pelada — somente leitura</p>
+        <p className={shellSubtext}>
+          {snapshot.canOperate
+            ? "Placar, cronômetro e registro de eventos"
+            : "Placar e partidas da pelada — somente leitura"}
+        </p>
       </div>
 
       {state.kind === "idle" && (
@@ -177,7 +182,11 @@ export function LiveSpectator({
               {sessionKind ? ` · ${sessionKind}` : ""}
             </p>
           </div>
-          <SpectatorBoard board={state.board} sessionEnded={state.kind === "ended"} />
+          {snapshot.canOperate && state.kind === "live" ? (
+            <LiveControls key={state.board.sessionId} board={state.board} />
+          ) : (
+            <SpectatorBoard board={state.board} sessionEnded={state.kind === "ended"} />
+          )}
         </>
       )}
     </section>

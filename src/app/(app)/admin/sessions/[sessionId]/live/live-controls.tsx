@@ -37,6 +37,7 @@ import {
   type MatchActionState,
 } from "@/server/modules/matches/actions";
 import type { LiveBoard, MatchView, SessionParticipantOption } from "@/server/modules/matches/queries";
+import { isOperatorBridgeStale, resolveOperatorLiveMatch } from "@/domain/live/operator-match";
 import { activeMatchPlayers } from "@/domain/match/lineup";
 import { GoalRegistrationPanel } from "./goal-registration-panel";
 import { PlayerEventPanel } from "./player-event-panel";
@@ -84,7 +85,30 @@ function defaultPair(board: LiveBoard): { teamAId: string; teamBId: string } | n
 }
 
 export function LiveControls({ board }: { board: LiveBoard }) {
-  const current = board.current;
+  // Bridge pós-apito até o poll trazer board.current; nunca sobrevive a FINISHED/histórico.
+  const [bridgeMatch, setBridgeMatch] = useState<MatchView | null>(null);
+  const historyIds = board.history.map((row) => row.id);
+  const boardCurrent =
+    board.current && !board.current.awaitingKickoff ? board.current : null;
+
+  if (
+    bridgeMatch &&
+    isOperatorBridgeStale({
+      boardCurrent,
+      bridge: bridgeMatch,
+      historyIds,
+      nextSequence: board.nextSequence,
+    })
+  ) {
+    setBridgeMatch(null);
+  }
+
+  const current = resolveOperatorLiveMatch({
+    boardCurrent,
+    bridge: bridgeMatch,
+    historyIds,
+    nextSequence: board.nextSequence,
+  });
 
   if (!board.teamCount) {
     return (
@@ -92,17 +116,39 @@ export function LiveControls({ board }: { board: LiveBoard }) {
     );
   }
 
-  if (current && !current.awaitingKickoff) {
-    return <CurrentMatchAdmin board={board} match={current} />;
+  if (current) {
+    return (
+      <CurrentMatchAdmin
+        board={board}
+        match={current}
+        onMatchEnded={() => setBridgeMatch(null)}
+      />
+    );
   }
 
   // key remonta o rascunho quando muda a sequência / partida aguardando.
   const seedKey = `${board.nextSequence}:${board.current?.id ?? "draft"}:${board.current?.awaitingKickoff ? "await" : ""}`;
-  return <PreKickoffAdmin key={seedKey} board={board} />;
+  return (
+    <PreKickoffAdmin
+      key={seedKey}
+      board={board}
+      onKickoff={(match) => {
+        if (match.status === "IN_PROGRESS" && !match.awaitingKickoff) {
+          setBridgeMatch(match);
+        }
+      }}
+    />
+  );
 }
 
 /** Placar único antes do apito: sugestão editável; só o apito persiste e inicia. */
-function PreKickoffAdmin({ board }: { board: LiveBoard }) {
+function PreKickoffAdmin({
+  board,
+  onKickoff,
+}: {
+  board: LiveBoard;
+  onKickoff: (match: MatchView) => void;
+}) {
   const router = useRouter();
   const seed = defaultPair(board);
   const [teamAId, setTeamAId] = useState(seed?.teamAId ?? "");
@@ -112,6 +158,11 @@ function PreKickoffAdmin({ board }: { board: LiveBoard }) {
   const [subOutMemberId, setSubOutMemberId] = useState<string | null>(null);
   const [state, action, pending] = useActionState(kickoffMatchWithTeamsAction, undefined);
   const operationId = useOperationId(state);
+
+  useEffect(() => {
+    if (state?.status === "done" && state.match) onKickoff(state.match);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- intentionally [state]
+  }, [state]);
 
   if (!teamAId || !teamBId) {
     return (
@@ -413,7 +464,15 @@ function TeamPickerSheet({
   );
 }
 
-function CurrentMatchAdmin({ board, match: initial }: { board: LiveBoard; match: MatchView }) {
+function CurrentMatchAdmin({
+  board,
+  match: initial,
+  onMatchEnded,
+}: {
+  board: LiveBoard;
+  match: MatchView;
+  onMatchEnded: () => void;
+}) {
   const [match, setMatch] = useState(initial);
   const [goalSide, setGoalSide] = useState<"A" | "B" | null>(null);
   const [eventPlayer, setEventPlayer] = useState<ScoreboardPlayer | null>(null);
@@ -426,8 +485,24 @@ function CurrentMatchAdmin({ board, match: initial }: { board: LiveBoard; match:
     }
   }
 
+  const applyMatchUpdate = (next: MatchView) => {
+    if (next.status !== "IN_PROGRESS" || next.awaitingKickoff) {
+      onMatchEnded();
+      return;
+    }
+    setMatch(next);
+  };
+
+  // Action/poll reconciliou fim da partida: sai do placar ao vivo (sem setState no render).
+  useEffect(() => {
+    if (match.status !== "IN_PROGRESS" || match.awaitingKickoff) onMatchEnded();
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- intentionally status/awaiting
+  }, [match.status, match.awaitingKickoff]);
+
   const needsPenaltyOnFinish =
     board.teamCount === 3 && match.scoreA === match.scoreB && !match.penaltyWinnerTeamId;
+  const timerPaused = match.pausedAt !== null;
+  const live = match.status === "IN_PROGRESS" && !match.awaitingKickoff;
 
   return (
     <div className="flex flex-col gap-4">
@@ -438,67 +513,81 @@ function CurrentMatchAdmin({ board, match: initial }: { board: LiveBoard; match:
         </div>
         <MatchScoreboardFromView
           match={match}
-          interactive
-          selectedPlayerId={eventPlayer?.memberId ?? subOutMemberId}
-          onScoreClick={(side) => {
-            setEventPlayer(null);
-            setGoalSide(side);
-          }}
-          onPlayerClick={(player) => {
-            setGoalSide(null);
-            setEventPlayer(player);
-          }}
+          interactive={live}
+          selectedPlayerId={live ? (eventPlayer?.memberId ?? subOutMemberId) : null}
+          onScoreClick={
+            live
+              ? (side) => {
+                  setEventPlayer(null);
+                  setGoalSide(side);
+                }
+              : undefined
+          }
+          onPlayerClick={
+            live
+              ? (player) => {
+                  setGoalSide(null);
+                  setEventPlayer(player);
+                }
+              : undefined
+          }
         />
         <MatchTimer
           remainingMs={match.remainingMs}
           serverNow={match.serverNow}
-          paused={match.pausedAt !== null}
+          paused={timerPaused || !live}
           plannedDurationSec={match.plannedDurationSec}
         />
-        <TimerButtons
-          sessionId={board.sessionId}
-          match={match}
-          onMatchUpdated={setMatch}
-        />
+        {live && (
+          <TimerButtons
+            sessionId={board.sessionId}
+            match={match}
+            onMatchUpdated={applyMatchUpdate}
+          />
+        )}
       </article>
 
-      {goalSide && (
+      {live && goalSide && (
         <GoalRegistrationPanel
           sessionId={board.sessionId}
           match={match}
           side={goalSide}
           onClose={() => setGoalSide(null)}
-          onMatchUpdated={setMatch}
+          onMatchUpdated={applyMatchUpdate}
         />
       )}
-      {eventPlayer && (
+      {live && eventPlayer && (
         <PlayerEventPanel
           sessionId={board.sessionId}
           match={match}
           player={eventPlayer}
           onClose={() => setEventPlayer(null)}
-          onMatchUpdated={setMatch}
+          onMatchUpdated={applyMatchUpdate}
           onRequestSubstitute={() => setSubOutMemberId(eventPlayer.memberId)}
         />
       )}
 
-      <SubstitutionForm
-        key={subOutMemberId ? `sub-preset-${subOutMemberId}` : "sub-manual"}
-        sessionId={board.sessionId}
-        match={match}
-        participants={board.participants}
-        initialOutMemberId={subOutMemberId ?? ""}
-        initiallyOpen={Boolean(subOutMemberId)}
-        onClosed={() => setSubOutMemberId(null)}
-        onMatchUpdated={setMatch}
-      />
-      <FinishForm
-        sessionId={board.sessionId}
-        match={match}
-        needsPenalty={needsPenaltyOnFinish}
-        onMatchUpdated={setMatch}
-      />
-      <EventList sessionId={board.sessionId} match={match} onMatchUpdated={setMatch} />
+      {live && (
+        <>
+          <SubstitutionForm
+            key={subOutMemberId ? `sub-preset-${subOutMemberId}` : "sub-manual"}
+            sessionId={board.sessionId}
+            match={match}
+            participants={board.participants}
+            initialOutMemberId={subOutMemberId ?? ""}
+            initiallyOpen={Boolean(subOutMemberId)}
+            onClosed={() => setSubOutMemberId(null)}
+            onMatchUpdated={applyMatchUpdate}
+          />
+          <FinishForm
+            sessionId={board.sessionId}
+            match={match}
+            needsPenalty={needsPenaltyOnFinish}
+            onMatchUpdated={applyMatchUpdate}
+          />
+          <EventList sessionId={board.sessionId} match={match} onMatchUpdated={applyMatchUpdate} />
+        </>
+      )}
     </div>
   );
 }
@@ -726,6 +815,10 @@ function TimerButtons({
     const id = window.setInterval(() => setNow(Date.now()), 250);
     return () => window.clearInterval(id);
   }, [paused, expired, match.remainingMs, match.serverNow]);
+
+  if (match.status !== "IN_PROGRESS" || match.awaitingKickoff) {
+    return <Feedback state={pauseState ?? resumeState} />;
+  }
 
   // Tempo esgotado: sem pausar/retomar — finalização e scouts continuam disponíveis abaixo.
   if (expired) {

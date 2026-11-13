@@ -43,7 +43,7 @@ export async function GET(request: Request) {
         },
       });
     }
-    const snapshot = await getSpectatorLiveSnapshot(viewer.group.id, now, focus);
+    const snapshot = await getSpectatorLiveSnapshot(viewer.group.id, now, focus, viewer);
     return Response.json(snapshot, {
       status: 200,
       headers: {
@@ -55,7 +55,7 @@ export async function GET(request: Request) {
     });
   }
 
-  const snapshot = await getSpectatorLiveSnapshot(viewer.group.id, now);
+  const snapshot = await getSpectatorLiveSnapshot(viewer.group.id, now, undefined, viewer);
   return Response.json(snapshot, {
     status: 200,
     headers: {

@@ -16,6 +16,7 @@ import {
   revisionsMatch,
   shouldPollWhileVisible,
 } from "../src/domain/live/polling";
+import { isOperatorBridgeStale, resolveOperatorLiveMatch } from "../src/domain/live/operator-match";
 import { PrismaClient, type Prisma } from "../src/generated/prisma/client";
 import type { Viewer } from "../src/server/auth/dal";
 
@@ -81,6 +82,72 @@ function domainChecks() {
   check("geração obsoleta ignora", !applyIfCurrent(1, 2, () => {
     value = 99;
   }) && value === 1);
+
+  const running = { id: "m1", sequence: 1, status: "IN_PROGRESS" as const };
+  const finished = { id: "m1", sequence: 1, status: "FINISHED" as const };
+  check(
+    "bridge pós-apito até o poll",
+    resolveOperatorLiveMatch({
+      boardCurrent: null,
+      bridge: running,
+      historyIds: [],
+      nextSequence: 1,
+    })?.id === "m1",
+  );
+  check(
+    "board.current vence o bridge",
+    resolveOperatorLiveMatch({
+      boardCurrent: { id: "m1", sequence: 1, status: "IN_PROGRESS" },
+      bridge: running,
+      historyIds: [],
+      nextSequence: 1,
+    })?.id === "m1",
+  );
+  check(
+    "bridge FINISHED não vira placar ao vivo",
+    resolveOperatorLiveMatch({
+      boardCurrent: null,
+      bridge: finished,
+      historyIds: [],
+      nextSequence: 1,
+    }) === null,
+  );
+  check(
+    "histórico no poll descarta bridge",
+    resolveOperatorLiveMatch({
+      boardCurrent: null,
+      bridge: running,
+      historyIds: ["m1"],
+      nextSequence: 2,
+    }) === null,
+  );
+  check(
+    "nextSequence avançou descarta bridge",
+    resolveOperatorLiveMatch({
+      boardCurrent: null,
+      bridge: running,
+      historyIds: [],
+      nextSequence: 2,
+    }) === null,
+  );
+  check(
+    "bridge stale quando board pegou a mesma partida",
+    isOperatorBridgeStale({
+      boardCurrent: running,
+      bridge: running,
+      historyIds: [],
+      nextSequence: 1,
+    }),
+  );
+  check(
+    "bridge stale após finalização remota (histórico)",
+    isOperatorBridgeStale({
+      boardCurrent: null,
+      bridge: running,
+      historyIds: ["m1"],
+      nextSequence: 2,
+    }),
+  );
 }
 
 async function main() {

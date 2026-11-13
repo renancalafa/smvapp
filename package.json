@@ -23,6 +23,8 @@
     "check:match-flow": "tsx scripts/check-match-flow.ts",
     "check:substitution": "tsx scripts/check-substitution.ts",
     "check:stats": "tsx scripts/check-stats.ts",
+    "check:session-scouts": "tsx scripts/check-session-scouts.ts",
+    "check:audit-logs": "tsx scripts/check-audit-logs.ts",
     "check:live-poll": "tsx scripts/check-live-poll.ts",
     "check:spectator-focus": "tsx scripts/check-spectator-focus.ts",
     "check:night-mode": "tsx scripts/check-night-mode.ts",

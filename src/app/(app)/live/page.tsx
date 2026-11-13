@@ -15,7 +15,7 @@ export default async function LivePage() {
   const mode = await getNightNavMode(viewer.group.id);
   if (mode.kind === "rodada") redirect("/rodada");
 
-  const snapshot = await getSpectatorLiveSnapshot(viewer.group.id);
+  const snapshot = await getSpectatorLiveSnapshot(viewer.group.id, undefined, undefined, viewer);
 
   return <LiveSpectator initial={snapshot} timeZone={viewer.group.timezone} />;
 }

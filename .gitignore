@@ -24,12 +24,12 @@
 *.pem
 .eslintcache
 
-# debug / logs
+# debug / logs (só pasta raiz /logs — não ignora src/.../admin/logs)
 npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
 .pnpm-debug.log*
-logs/
+/logs/
 *.log
 
 # env files: cobre .env, .env.local, .env.*.local etc.; só o exemplo é versionado

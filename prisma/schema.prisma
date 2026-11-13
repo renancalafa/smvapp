@@ -313,6 +313,9 @@ model User {
   paymentsConfirmed       Payment[]              @relation("PaymentConfirmedBy")
   paymentsReversed        Payment[]              @relation("PaymentReversedBy")
   cashTransactions        CashTransaction[]
+  sessionScouts           SessionScout[]         @relation("SessionScoutUser")
+  sessionScoutsAssigned   SessionScout[]         @relation("SessionScoutAssignedBy")
+  sessionScoutsRevoked    SessionScout[]         @relation("SessionScoutRevokedBy")
 }
 
 /// Sessão de login própria, referenciada por cookie HttpOnly (Secure em produção).
@@ -556,6 +559,7 @@ model GameSession {
   draws            Draw[]
   teams            SessionTeam[]
   matches          Match[]
+  sessionScouts    SessionScout[]
   charges          Charge[]
   cashTransactions CashTransaction[]
   auditLogs        AuditLog[]
@@ -566,6 +570,29 @@ model GameSession {
   @@index([groupId, startsAt])
   @@index([groupId, priorityReminderAt])
   @@index([status])
+}
+
+/// Scout temporário da sessão (não é papel global). Histórico de revoke preservado.
+/// PARCIAL: no máximo uma atribuição ativa (revokedAt IS NULL) por (sessão, usuário).
+model SessionScout {
+  id               String    @id @default(uuid(7)) @db.Uuid
+  gameSessionId    String    @db.Uuid
+  userId           String    @db.Uuid
+  assignedByUserId String    @db.Uuid
+  assignedAt       DateTime  @default(now()) @db.Timestamptz(3)
+  revokedByUserId  String?   @db.Uuid
+  revokedAt        DateTime? @db.Timestamptz(3)
+  createdAt        DateTime  @default(now()) @db.Timestamptz(3)
+  updatedAt        DateTime  @updatedAt @db.Timestamptz(3)
+
+  gameSession GameSession @relation(fields: [gameSessionId], references: [id], onDelete: Cascade)
+  user        User        @relation("SessionScoutUser", fields: [userId], references: [id], onDelete: Restrict)
+  assignedBy  User        @relation("SessionScoutAssignedBy", fields: [assignedByUserId], references: [id], onDelete: Restrict)
+  revokedBy   User?       @relation("SessionScoutRevokedBy", fields: [revokedByUserId], references: [id], onDelete: Restrict)
+
+  @@unique([gameSessionId, userId], map: "SessionScout_active_per_session_user_key", where: { revokedAt: null })
+  @@index([userId, revokedAt])
+  @@index([gameSessionId, revokedAt])
 }
 
 // ============================================================================
@@ -1467,6 +1494,7 @@ model NotificationDelivery {
 
 /// Append-only. action e entityType são strings tipadas no código (AuditAction, AuditEntityType).
 /// Invariante (service): gameSession, quando presente, é do mesmo Group.
+/// outcome/severity/correlationId/durationMs: null = registros legados (tratar outcome como SUCCESS na UI).
 model AuditLog {
   id            String    @id @default(uuid(7)) @db.Uuid
   groupId       String    @db.Uuid
@@ -1481,6 +1509,13 @@ model AuditLog {
   gameSessionId String?   @db.Uuid
   /// Só rastreabilidade do comando que originou o registro.
   operationId   String?   @db.Uuid
+  /// SUCCESS | FAILURE | DENIED — null = legado.
+  outcome       String?
+  /// INFO | WARN | ERROR — null = legado.
+  severity      String?
+  /// Correlação de request/comando (pode coincidir com operationId).
+  correlationId String?
+  durationMs    Int?
   /// Ex.: { expectedVersion, newVersion }.
   metadata      Json?
   createdAt     DateTime  @default(now()) @db.Timestamptz(3)
@@ -1492,4 +1527,8 @@ model AuditLog {
   @@index([groupId, createdAt])
   @@index([entityType, entityId])
   @@index([gameSessionId])
+  @@index([groupId, action, createdAt])
+  @@index([groupId, actorUserId, createdAt])
+  @@index([groupId, outcome, createdAt])
+  @@index([correlationId])
 }

@@ -1,4 +1,9 @@
 import type { Prisma } from "@/generated/prisma/client";
+import {
+  redactAuditJson,
+  type AuditOutcome,
+  type AuditSeverity,
+} from "@/domain/audit/catalog";
 
 /** Ações registradas no AuditLog (AuditLog.action). */
 export type AuditAction =
@@ -19,6 +24,8 @@ export type AuditAction =
   | "SESSION_PRIORITY_CLOSED"
   | "SESSION_CANCELLED"
   | "SESSION_FINISHED"
+  | "SESSION_SCOUT_ASSIGNED"
+  | "SESSION_SCOUT_REVOKED"
   | "REGISTRATION_CONFIRMED"
   | "REGISTRATION_ADMIN_CONFIRMED_ON_BEHALF"
   | "REGISTRATION_DECLINED"
@@ -50,6 +57,8 @@ export type AuditAction =
   | "MATCH_PLAYER_SUBSTITUTED"
   | "SESSION_TEAM_PLAYER_SUBSTITUTED"
   | "MATCH_COMMAND_CONFLICT"
+  | "AUTHZ_DENIED"
+  | "OPERATION_FAILED"
   | "DEV_RESET_MATCHES"
   | "DEV_RESET_DRAW_AND_MATCHES"
   | "PUSH_TEST_SENT";
@@ -60,6 +69,7 @@ export type AuditEntityType =
   | "GroupSettings"
   | "GroupMember"
   | "GameSession"
+  | "SessionScout"
   | "SessionRegistration"
   | "Draw"
   | "DrawVote"
@@ -68,34 +78,86 @@ export type AuditEntityType =
   | "MatchEvent"
   | "PushSubscription";
 
+export type AuditLogEntry = {
+  groupId: string;
+  actorUserId: string | null;
+  action: AuditAction | string;
+  entityType: AuditEntityType | string;
+  entityId: string;
+  gameSessionId?: string;
+  before?: Prisma.InputJsonValue;
+  after?: Prisma.InputJsonValue;
+  reason?: string;
+  metadata?: Prisma.InputJsonValue;
+  operationId?: string | null;
+  outcome?: AuditOutcome;
+  severity?: AuditSeverity;
+  correlationId?: string | null;
+  durationMs?: number | null;
+};
+
+function toCreateData(entry: AuditLogEntry) {
+  const outcome = entry.outcome ?? "SUCCESS";
+  const severity =
+    entry.severity ??
+    (outcome === "DENIED" ? "WARN" : outcome === "FAILURE" ? "ERROR" : "INFO");
+  return {
+    groupId: entry.groupId,
+    actorType: entry.actorUserId ? ("USER" as const) : ("SYSTEM" as const),
+    actorUserId: entry.actorUserId,
+    action: entry.action,
+    entityType: entry.entityType,
+    entityId: entry.entityId,
+    gameSessionId: entry.gameSessionId,
+    before: entry.before === undefined ? undefined : (redactAuditJson(entry.before) as Prisma.InputJsonValue),
+    after: entry.after === undefined ? undefined : (redactAuditJson(entry.after) as Prisma.InputJsonValue),
+    reason: entry.reason,
+    metadata:
+      entry.metadata === undefined
+        ? undefined
+        : (redactAuditJson(entry.metadata) as Prisma.InputJsonValue),
+    operationId: entry.operationId ?? undefined,
+    outcome,
+    severity,
+    correlationId: entry.correlationId ?? entry.operationId ?? undefined,
+    durationMs: entry.durationMs ?? undefined,
+  };
+}
+
+/** Grava na transação de negócio (sucesso / SYSTEM na mesma TX). */
 export async function writeAuditLog(
   tx: Prisma.TransactionClient,
-  entry: {
-    groupId: string;
-    actorUserId: string | null;
-    action: AuditAction;
-    entityType: AuditEntityType;
-    entityId: string;
-    gameSessionId?: string;
-    before?: Prisma.InputJsonValue;
-    after?: Prisma.InputJsonValue;
-    reason?: string;
-    metadata?: Prisma.InputJsonValue;
-  },
+  entry: AuditLogEntry,
 ): Promise<void> {
-  await tx.auditLog.create({
-    data: {
-      groupId: entry.groupId,
-      actorType: entry.actorUserId ? "USER" : "SYSTEM",
-      actorUserId: entry.actorUserId,
-      action: entry.action,
-      entityType: entry.entityType,
-      entityId: entry.entityId,
-      gameSessionId: entry.gameSessionId,
-      before: entry.before,
-      after: entry.after,
-      reason: entry.reason,
-      metadata: entry.metadata,
-    },
-  });
+  await tx.auditLog.create({ data: toCreateData(entry) });
+}
+
+/**
+ * Persistência independente de rollback da TX de negócio.
+ * Falhas de logging são engolidas — nunca derrubam a operação principal.
+ */
+export async function writeAuditLogCommitted(entry: AuditLogEntry): Promise<void> {
+  try {
+    const { db } = await import("@/server/db");
+    await db.$transaction(async (tx) => {
+      await writeAuditLog(tx, entry);
+    });
+  } catch (error) {
+    console.error("writeAuditLogCommitted", error);
+  }
+}
+
+/** Classifica erro de usuário como DENIED vs FAILURE. */
+export function outcomeFromUserFacingMessage(message: string): AuditOutcome {
+  const lower = message.toLowerCase();
+  if (
+    lower.includes("permissão") ||
+    lower.includes("não tem permissão") ||
+    lower.includes("só administradores") ||
+    lower.includes("unauthorized") ||
+    lower.includes("forbidden")
+  ) {
+    return "DENIED";
+  }
+  return "FAILURE";
 }

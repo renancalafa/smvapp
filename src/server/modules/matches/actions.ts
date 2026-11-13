@@ -3,7 +3,7 @@
 import { randomUUID } from "node:crypto";
 import { refresh } from "next/cache";
 import { isMatchEventType, MATCH_EVENT_LABELS } from "@/domain/match/events";
-import { requireAdminAction } from "@/server/auth/dal";
+import { requireMatchOperatorAction } from "@/server/auth/dal";
 import { formText } from "@/server/auth/validation";
 import { ConflictError, UserFacingError } from "@/server/errors";
 import { isUuid } from "@/server/modules/members/validation";
@@ -60,7 +60,6 @@ export async function confirmMatchTeamsAction(
   _previous: MatchActionState,
   formData: FormData,
 ): Promise<MatchActionState> {
-  const viewer = await requireAdminAction();
   const sessionId = formText(formData, "sessionId");
   const teamAId = formText(formData, "teamAId");
   const teamBId = formText(formData, "teamBId");
@@ -74,6 +73,7 @@ export async function confirmMatchTeamsAction(
   ) {
     return { status: "error", error: "Escolha os dois times da partida." };
   }
+  const viewer = await requireMatchOperatorAction(sessionId);
   try {
     const match = await confirmMatchTeams(viewer, sessionId, {
       operationId: readOperationId(formData),
@@ -96,13 +96,13 @@ export async function startMatchClockAction(
   _previous: MatchActionState,
   formData: FormData,
 ): Promise<MatchActionState> {
-  const viewer = await requireAdminAction();
   const sessionId = formText(formData, "sessionId");
   const matchId = formText(formData, "matchId");
   const expectedVersion = readVersion(formData);
   if (!isUuid(sessionId) || !isUuid(matchId) || expectedVersion === null) {
     return { status: "error", error: "Requisição inválida." };
   }
+  const viewer = await requireMatchOperatorAction(sessionId);
   try {
     const match = await startMatchClock(viewer, sessionId, {
       matchId,
@@ -128,7 +128,6 @@ export async function kickoffMatchWithTeamsAction(
   _previous: MatchActionState,
   formData: FormData,
 ): Promise<MatchActionState> {
-  const viewer = await requireAdminAction();
   const sessionId = formText(formData, "sessionId");
   const teamAId = formText(formData, "teamAId");
   const teamBId = formText(formData, "teamBId");
@@ -142,6 +141,7 @@ export async function kickoffMatchWithTeamsAction(
   ) {
     return { status: "error", error: "Escolha os dois times da partida." };
   }
+  const viewer = await requireMatchOperatorAction(sessionId);
   try {
     const match = await kickoffMatchWithTeams(viewer, sessionId, {
       operationId: readOperationId(formData),
@@ -149,7 +149,7 @@ export async function kickoffMatchWithTeamsAction(
       teamAId,
       teamBId,
     });
-    refresh();
+    // Sem refresh(): /live já faz poll e o cliente sobe o MatchView do retorno (evita remount).
     return {
       status: "done",
       message:
@@ -167,13 +167,13 @@ export async function cancelAwaitingMatchAction(
   _previous: MatchActionState,
   formData: FormData,
 ): Promise<MatchActionState> {
-  const viewer = await requireAdminAction();
   const sessionId = formText(formData, "sessionId");
   const matchId = formText(formData, "matchId");
   const expectedVersion = readVersion(formData);
   if (!isUuid(sessionId) || !isUuid(matchId) || expectedVersion === null) {
     return { status: "error", error: "Requisição inválida." };
   }
+  const viewer = await requireMatchOperatorAction(sessionId);
   try {
     await cancelAwaitingMatch(viewer, sessionId, {
       matchId,
@@ -191,13 +191,13 @@ export async function pauseMatchAction(
   _previous: MatchActionState,
   formData: FormData,
 ): Promise<MatchActionState> {
-  const viewer = await requireAdminAction();
   const sessionId = formText(formData, "sessionId");
   const matchId = formText(formData, "matchId");
   const expectedVersion = readVersion(formData);
   if (!isUuid(sessionId) || !isUuid(matchId) || expectedVersion === null) {
     return { status: "error", error: "Requisição inválida." };
   }
+  const viewer = await requireMatchOperatorAction(sessionId);
   try {
     const match = await pauseMatch(viewer, sessionId, {
       matchId,
@@ -215,13 +215,13 @@ export async function resumeMatchAction(
   _previous: MatchActionState,
   formData: FormData,
 ): Promise<MatchActionState> {
-  const viewer = await requireAdminAction();
   const sessionId = formText(formData, "sessionId");
   const matchId = formText(formData, "matchId");
   const expectedVersion = readVersion(formData);
   if (!isUuid(sessionId) || !isUuid(matchId) || expectedVersion === null) {
     return { status: "error", error: "Requisição inválida." };
   }
+  const viewer = await requireMatchOperatorAction(sessionId);
   try {
     const match = await resumeMatch(viewer, sessionId, {
       matchId,
@@ -245,7 +245,6 @@ export async function finishMatchAction(
   _previous: MatchActionState,
   formData: FormData,
 ): Promise<MatchActionState> {
-  const viewer = await requireAdminAction();
   const sessionId = formText(formData, "sessionId");
   const matchId = formText(formData, "matchId");
   const expectedVersion = readVersion(formData);
@@ -265,6 +264,7 @@ export async function finishMatchAction(
   if (penaltyWinnerTeamId && !isUuid(penaltyWinnerTeamId)) {
     return { status: "error", error: "Vencedor dos pênaltis inválido." };
   }
+  const viewer = await requireMatchOperatorAction(sessionId);
   try {
     const match = await finishMatch(viewer, sessionId, {
       matchId,
@@ -285,7 +285,6 @@ export async function substituteMatchPlayerAction(
   _previous: MatchActionState,
   formData: FormData,
 ): Promise<MatchActionState> {
-  const viewer = await requireAdminAction();
   const sessionId = formText(formData, "sessionId");
   const matchId = formText(formData, "matchId");
   const outMemberId = formText(formData, "outMemberId");
@@ -300,6 +299,7 @@ export async function substituteMatchPlayerAction(
   ) {
     return { status: "error", error: "Requisição inválida." };
   }
+  const viewer = await requireMatchOperatorAction(sessionId);
   try {
     const match = await substituteMatchPlayer(viewer, sessionId, {
       matchId,
@@ -320,13 +320,13 @@ export async function substituteSessionTeamPlayerAction(
   _previous: SessionRosterActionState,
   formData: FormData,
 ): Promise<SessionRosterActionState> {
-  const viewer = await requireAdminAction();
   const sessionId = formText(formData, "sessionId");
   const outMemberId = formText(formData, "outMemberId");
   const inMemberId = formText(formData, "inMemberId");
   if (!isUuid(sessionId) || !isUuid(outMemberId) || !isUuid(inMemberId)) {
     return { status: "error", error: "Requisição inválida." };
   }
+  const viewer = await requireMatchOperatorAction(sessionId);
   try {
     await substituteSessionTeamPlayer(viewer, sessionId, { outMemberId, inMemberId });
     refresh();
@@ -342,7 +342,6 @@ export async function setPenaltyWinnerAction(
   _previous: MatchActionState,
   formData: FormData,
 ): Promise<MatchActionState> {
-  const viewer = await requireAdminAction();
   const sessionId = formText(formData, "sessionId");
   const matchId = formText(formData, "matchId");
   const teamId = formText(formData, "teamId");
@@ -350,6 +349,7 @@ export async function setPenaltyWinnerAction(
   if (!isUuid(sessionId) || !isUuid(matchId) || !isUuid(teamId) || expectedVersion === null) {
     return { status: "error", error: "Requisição inválida." };
   }
+  const viewer = await requireMatchOperatorAction(sessionId);
   try {
     const match = await setPenaltyWinner(viewer, sessionId, {
       matchId,
@@ -368,7 +368,6 @@ export async function recordMatchEventAction(
   _previous: MatchActionState,
   formData: FormData,
 ): Promise<MatchActionState> {
-  const viewer = await requireAdminAction();
   const sessionId = formText(formData, "sessionId");
   const matchId = formText(formData, "matchId");
   const memberId = formText(formData, "memberId");
@@ -385,6 +384,7 @@ export async function recordMatchEventAction(
     return { status: "error", error: "Requisição inválida." };
   }
   if (assist && !isUuid(assist)) return { status: "error", error: "Assistência inválida." };
+  const viewer = await requireMatchOperatorAction(sessionId);
   try {
     const match = await recordMatchEvent(viewer, sessionId, {
       matchId,
@@ -405,7 +405,6 @@ export async function voidMatchEventAction(
   _previous: MatchActionState,
   formData: FormData,
 ): Promise<MatchActionState> {
-  const viewer = await requireAdminAction();
   const sessionId = formText(formData, "sessionId");
   const matchId = formText(formData, "matchId");
   const eventId = formText(formData, "eventId");
@@ -415,6 +414,7 @@ export async function voidMatchEventAction(
     return { status: "error", error: "Requisição inválida." };
   }
   if (!reason) return { status: "error", error: "Informe o motivo da anulação." };
+  const viewer = await requireMatchOperatorAction(sessionId);
   try {
     const match = await voidMatchEvent(viewer, sessionId, {
       matchId,

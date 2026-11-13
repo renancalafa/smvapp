@@ -15,6 +15,7 @@ import { requireAdmin } from "@/server/auth/dal";
 import { db } from "@/server/db";
 import { getLiveBoard } from "@/server/modules/matches/queries";
 import { isUuid } from "@/server/modules/members/validation";
+import { getSessionScoutBoard } from "@/server/modules/scouts/queries";
 import { getAdminRoster, getSessionBoard } from "@/server/modules/sessions/queries";
 import { syncSessionsForRead } from "@/server/modules/sessions/sync";
 import {
@@ -30,7 +31,9 @@ import { CancelExtraordinaryForm } from "./cancel-extraordinary-form";
 import { ConfirmOnBehalfForm } from "./confirm-on-behalf-form";
 import { DevTestTools } from "./dev-tools";
 import { IncludeForm } from "./include-form";
+import { EndSessionForm } from "./live/end-session-form";
 import { RegistrationActions } from "./registration-actions";
+import { SessionScoutsPanel } from "./session-scouts-panel";
 
 export const metadata: Metadata = { title: "Sessão" };
 
@@ -42,9 +45,10 @@ export default async function AdminSessionPage({ params }: { params: Promise<{ s
   const now = new Date();
   const board = await getSessionBoard(viewer.group.id, sessionId, now);
   if (!board) notFound();
-  const [roster, live] = await Promise.all([
+  const [roster, live, scoutBoard] = await Promise.all([
     getAdminRoster(viewer.group.id, board),
     getLiveBoard(viewer.group.id, sessionId, now),
+    getSessionScoutBoard(viewer.group.id, sessionId),
   ]);
 
   const { session } = board;
@@ -153,12 +157,9 @@ export default async function AdminSessionPage({ params }: { params: Promise<{ s
 
       {board.phase !== "CANCELLED" && (
         <>
-          <Link
-            href={`/admin/sessions/${session.id}/live`}
-            className={`${darkLinkCard} ring-1 ring-smv-gold/30`}
-          >
+          <Link href="/live" className={`${darkLinkCard} ring-1 ring-smv-gold/30`}>
             <span>
-              <span className="block font-medium text-white">Modo Pelada</span>
+              <span className="block font-medium text-white">Ao Vivo</span>
               <span className={`block ${darkMuted}`}>Partidas, cronômetro, placar e Rei da Mesa</span>
             </span>
             <span aria-hidden="true" className="text-smv-gold-bright">
@@ -176,6 +177,20 @@ export default async function AdminSessionPage({ params }: { params: Promise<{ s
           </Link>
         </>
       )}
+
+      {scoutBoard ? (
+        <SessionScoutsPanel
+          sessionId={session.id}
+          canManage={scoutBoard.canManage}
+          active={scoutBoard.active}
+          history={scoutBoard.history}
+          candidates={scoutBoard.candidates}
+        />
+      ) : null}
+
+      {session.status !== "FINISHED" && board.phase !== "CANCELLED" ? (
+        <EndSessionForm sessionId={session.id} />
+      ) : null}
 
       <RegistrationList
         title={`Confirmados · ${board.participants.length}/${board.capacity}`}

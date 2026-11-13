@@ -67,3 +67,14 @@ export async function requireAdminAction(): Promise<Viewer> {
   if (viewer.member.role !== "ADMIN") throw new Error("Acesso restrito a administradores.");
   return viewer;
 }
+
+/**
+ * Server Actions de operação de partida: ADMIN do grupo ou Scout ativo da sessão.
+ * Sempre revalida no servidor (revogação vale na próxima mutation).
+ */
+export async function requireMatchOperatorAction(sessionId: string): Promise<Viewer> {
+  const viewer = await requireViewer();
+  const { assertCanOperateMatch } = await import("@/server/modules/scouts/authorize");
+  await assertCanOperateMatch(viewer, sessionId);
+  return viewer;
+}

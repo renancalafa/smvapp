@@ -33,7 +33,8 @@ check(
     isAdminSubnavActive("/admin/players", "/admin/players") &&
     isAdminSubnavActive("/admin/sessions/abc", "/admin/sessions") &&
     !isAdminSubnavActive("/admin/agenda", "/admin/players") &&
-    ADMIN_SUBNAV.length === 3,
+    ADMIN_SUBNAV.length === 4 &&
+    ADMIN_SUBNAV.some((item) => item.href === "/admin/logs"),
 );
 
 const mobileSlots = ["/", "night", "/historico", "/stats", "mais"] as const;

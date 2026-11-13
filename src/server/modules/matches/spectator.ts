@@ -1,8 +1,10 @@
 import "server-only";
 import { isAwaitingKickoff } from "@/domain/match/kickoff";
 import type { SpectatorPollPhase } from "@/domain/live/polling";
+import type { Viewer } from "@/server/auth/dal";
 import { db } from "@/server/db";
 import { getNightNavMode } from "@/server/modules/nav/night-mode";
+import { viewerCanOperateMatch } from "@/server/modules/scouts/authorize";
 import { getLiveBoard, type LiveBoard } from "./queries";
 
 export type SpectatorSessionSummary = {
@@ -29,6 +31,8 @@ export type SpectatorLiveSnapshot = {
   pollPhase: SpectatorPollPhase;
   state: SpectatorLiveState;
   serverNow: string;
+  /** ADMIN ou Scout ativo da sessão em foco (revalidado a cada poll). */
+  canOperate: boolean;
 };
 
 type SessionCandidate = {
@@ -113,7 +117,7 @@ export async function buildSpectatorRevision(
     };
   }
 
-  const [matches, teams] = await Promise.all([
+  const [matches, teams, scouts] = await Promise.all([
     db.match.findMany({
       where: { gameSessionId: session.id, status: { not: "CANCELLED" } },
       orderBy: { sequence: "asc" },
@@ -136,6 +140,12 @@ export async function buildSpectatorRevision(
       where: { gameSessionId: session.id },
       orderBy: [{ initialQueuePosition: "asc" }, { id: "asc" }],
       select: { id: true, kind: true, initialQueuePosition: true, name: true },
+    }),
+    // Inclui atribuições/revogações na revisão para o poll derrubar controles de scout.
+    db.sessionScout.findMany({
+      where: { gameSessionId: session.id },
+      select: { userId: true, revokedAt: true, updatedAt: true },
+      orderBy: { assignedAt: "asc" },
     }),
   ]);
 
@@ -169,6 +179,13 @@ export async function buildSpectatorRevision(
     .map((team) => `${team.id}:${team.kind}:q${team.initialQueuePosition ?? ""}:${team.name}`)
     .join(",");
 
+  const scoutsDigest = scouts
+    .map(
+      (row) =>
+        `${row.userId}:r${row.revokedAt?.getTime() ?? 0}:u${row.updatedAt.getTime()}`,
+    )
+    .join(",");
+
   const revision = [
     "live",
     session.id,
@@ -177,6 +194,7 @@ export async function buildSpectatorRevision(
     session.updatedAt.getTime(),
     `n${matches.length}`,
     `teams[${teamsDigest}]`,
+    `scouts[${scoutsDigest}]`,
     `fin[${finishedDigest}]`,
     `cur[${currentDigest}]`,
   ].join("|");
@@ -219,6 +237,7 @@ export async function getSpectatorLiveSnapshot(
   now = new Date(),
   /** Reuso do focus de getSpectatorRevision (evita 2ª query no caminho 200 pós-If-None-Match). */
   focusHint?: Focus,
+  viewer?: Viewer,
 ): Promise<SpectatorLiveSnapshot> {
   const focus = focusHint ?? (await findSpectatorFocus(groupId, now));
   const { revision, pollPhase } = await buildSpectatorRevision(focus);
@@ -229,6 +248,7 @@ export async function getSpectatorLiveSnapshot(
       pollPhase,
       state: { kind: "idle" },
       serverNow: now.toISOString(),
+      canOperate: false,
     };
   }
 
@@ -239,13 +259,17 @@ export async function getSpectatorLiveSnapshot(
       pollPhase: "idle",
       state: { kind: "idle" },
       serverNow: now.toISOString(),
+      canOperate: false,
     };
   }
+
+  const canOperate = viewer ? await viewerCanOperateMatch(viewer, focus.session.id) : false;
 
   return {
     revision,
     pollPhase,
     state: { kind: focus.kind, session: toSummary(focus.session), board },
     serverNow: now.toISOString(),
+    canOperate,
   };
 }

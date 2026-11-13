@@ -552,6 +552,25 @@ async function dbScenario(
     );
   }
 
+  // Harness: bump de versão em comando rejeitado pode persistir — relê antes do pause.
+  const versionAfterFinish = await tx.match.findUniqueOrThrow({
+    where: { id: finished.id },
+    select: { version: true },
+  });
+  try {
+    await matches.pauseMatch(adminViewer, session.id, {
+      matchId: finished.id,
+      expectedVersion: versionAfterFinish.version,
+      operationId: randomUUID(),
+    });
+    check("pausar após finalização rejeita", false);
+  } catch (error) {
+    check(
+      "pausar após finalização rejeita",
+      error instanceof UserFacingError && error.message.toLowerCase().includes("finalizada"),
+    );
+  }
+
   // Próxima no mesmo placar: ADMIN sobrescreve a sugestão (2×4) no apito.
   const team2 = sessionTeams.find((t) => t.position === 2)!;
   const team4 = sessionTeams.find((t) => t.position === 4)!;

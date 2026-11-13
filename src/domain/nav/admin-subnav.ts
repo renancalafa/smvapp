@@ -3,6 +3,7 @@ export const ADMIN_SUBNAV = [
   { href: "/admin/players", label: "Jogadores" },
   { href: "/admin/sessions", label: "Sessões" },
   { href: "/admin/agenda", label: "Agenda" },
+  { href: "/admin/logs", label: "Logs" },
 ] as const;
 
 export type AdminSubnavHref = (typeof ADMIN_SUBNAV)[number]["href"];

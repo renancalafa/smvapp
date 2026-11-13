@@ -6,10 +6,16 @@ import {
   scoreFromEvents,
   type QueueTeam,
 } from "@/domain/match/queue";
+import { matchCommandToAuditAction } from "@/domain/audit/catalog";
 import type { MatchEventType, Prisma } from "@/generated/prisma/client";
-import { writeAuditLog } from "@/server/audit";
+import {
+  outcomeFromUserFacingMessage,
+  writeAuditLog,
+  writeAuditLogCommitted,
+} from "@/server/audit";
 import type { Viewer } from "@/server/auth/dal";
 import { ConflictError, UserFacingError } from "@/server/errors";
+import { logOperation } from "@/server/observability/log";
 import { withLockedSession } from "@/server/modules/sessions/service";
 import { beginIdempotentOperation, completeIdempotentOperation, hashRequest } from "./idempotency";
 import { buildMatchView, type MatchView } from "./view";
@@ -159,19 +165,23 @@ async function logConflict(
   gameSessionId: string,
   expectedVersion: number,
   operationId: string,
+  durationMs?: number,
 ): Promise<void> {
   // Transação separada: o conflito não grava nada na transação principal.
-  const { db } = await import("@/server/db");
-  await db.$transaction(async (tx) => {
-    await writeAuditLog(tx, {
-      groupId,
-      actorUserId,
-      action: "MATCH_COMMAND_CONFLICT",
-      entityType: "Match",
-      entityId: matchId,
-      gameSessionId,
-      metadata: { expectedVersion, operationId },
-    });
+  await writeAuditLogCommitted({
+    groupId,
+    actorUserId,
+    action: "MATCH_COMMAND_CONFLICT",
+    entityType: "Match",
+    entityId: matchId,
+    gameSessionId,
+    operationId,
+    correlationId: operationId,
+    outcome: "FAILURE",
+    severity: "WARN",
+    durationMs: durationMs ?? null,
+    metadata: { expectedVersion, operationId },
+    reason: "Conflito de versão / estado da partida",
   });
 }
 
@@ -190,9 +200,45 @@ async function withMatchCommand<T extends Prisma.InputJsonValue>(
   run: (tx: Tx, now: Date, newVersion: number) => Promise<T>,
 ): Promise<T> {
   if (!isUuid(ctx.operationId)) throw new UserFacingError("operationId inválido.");
+  const started = Date.now();
+  const { assertCanOperateMatch } = await import("@/server/modules/scouts/authorize");
+  try {
+    await assertCanOperateMatch(ctx.viewer, ctx.sessionId);
+  } catch (error) {
+    const durationMs = Date.now() - started;
+    if (error instanceof UserFacingError) {
+      await writeAuditLogCommitted({
+        groupId: ctx.viewer.group.id,
+        actorUserId: ctx.viewer.user.id,
+        action: "AUTHZ_DENIED",
+        entityType: "Match",
+        entityId: matchId,
+        gameSessionId: ctx.sessionId,
+        operationId: ctx.operationId,
+        correlationId: ctx.operationId,
+        outcome: "DENIED",
+        severity: "WARN",
+        durationMs,
+        reason: error.message,
+        metadata: { commandType: ctx.commandType },
+      });
+      logOperation({
+        operation: ctx.commandType,
+        correlationId: ctx.operationId,
+        actorUserId: ctx.viewer.user.id,
+        gameSessionId: ctx.sessionId,
+        matchId,
+        durationMs,
+        outcome: "denied",
+        errorClass: "UserFacingError",
+        message: error.message,
+      });
+    }
+    throw error;
+  }
   const requestHash = hashRequest(ctx.request);
   try {
-    return await withLockedSession(ctx.viewer.group.id, ctx.sessionId, async (tx, session, now) => {
+    const result = await withLockedSession(ctx.viewer.group.id, ctx.sessionId, async (tx, session, now) => {
       if (session.status === "CANCELLED") throw new UserFacingError("Esta sessão foi cancelada.");
       if (session.status === "FINISHED") throw new UserFacingError("Esta sessão já terminou.");
 
@@ -210,7 +256,7 @@ async function withMatchCommand<T extends Prisma.InputJsonValue>(
       const bumped = await bumpMatchVersion(tx, matchId, expectedVersion);
       if (!bumped) throw await conflictState(tx, matchId);
 
-      const result = await run(tx, now, bumped.version);
+      const value = await run(tx, now, bumped.version);
       await completeIdempotentOperation(tx, {
         operationId: ctx.operationId,
         groupId: ctx.viewer.group.id,
@@ -219,11 +265,22 @@ async function withMatchCommand<T extends Prisma.InputJsonValue>(
         requestHash,
         targetType: "Match",
         targetId: matchId,
-        result,
+        result: value,
       });
-      return result;
+      return value;
     });
+    logOperation({
+      operation: ctx.commandType,
+      correlationId: ctx.operationId,
+      actorUserId: ctx.viewer.user.id,
+      gameSessionId: ctx.sessionId,
+      matchId,
+      durationMs: Date.now() - started,
+      outcome: "success",
+    });
+    return result;
   } catch (error) {
+    const durationMs = Date.now() - started;
     if (error instanceof ConflictError) {
       await logConflict(
         ctx.viewer.group.id,
@@ -232,7 +289,77 @@ async function withMatchCommand<T extends Prisma.InputJsonValue>(
         ctx.sessionId,
         expectedVersion,
         ctx.operationId,
+        durationMs,
       ).catch(() => undefined);
+      logOperation({
+        operation: ctx.commandType,
+        correlationId: ctx.operationId,
+        actorUserId: ctx.viewer.user.id,
+        gameSessionId: ctx.sessionId,
+        matchId,
+        durationMs,
+        outcome: "conflict",
+        errorClass: "ConflictError",
+        message: error.message,
+      });
+    } else if (error instanceof UserFacingError) {
+      const outcome = outcomeFromUserFacingMessage(error.message);
+      await writeAuditLogCommitted({
+        groupId: ctx.viewer.group.id,
+        actorUserId: ctx.viewer.user.id,
+        action: matchCommandToAuditAction(ctx.commandType),
+        entityType: "Match",
+        entityId: matchId,
+        gameSessionId: ctx.sessionId,
+        operationId: ctx.operationId,
+        correlationId: ctx.operationId,
+        outcome,
+        severity: outcome === "DENIED" ? "WARN" : "ERROR",
+        durationMs,
+        reason: error.message,
+        metadata: { commandType: ctx.commandType, expectedVersion },
+      });
+      logOperation({
+        operation: ctx.commandType,
+        correlationId: ctx.operationId,
+        actorUserId: ctx.viewer.user.id,
+        gameSessionId: ctx.sessionId,
+        matchId,
+        durationMs,
+        outcome: outcome === "DENIED" ? "denied" : "failure",
+        errorClass: "UserFacingError",
+        message: error.message,
+      });
+    } else {
+      await writeAuditLogCommitted({
+        groupId: ctx.viewer.group.id,
+        actorUserId: ctx.viewer.user.id,
+        action: "OPERATION_FAILED",
+        entityType: "Match",
+        entityId: matchId,
+        gameSessionId: ctx.sessionId,
+        operationId: ctx.operationId,
+        correlationId: ctx.operationId,
+        outcome: "FAILURE",
+        severity: "ERROR",
+        durationMs,
+        reason: "Erro inesperado na operação de partida",
+        metadata: {
+          commandType: ctx.commandType,
+          errorClass: error instanceof Error ? error.name : "unknown",
+        },
+      });
+      logOperation({
+        operation: ctx.commandType,
+        correlationId: ctx.operationId,
+        actorUserId: ctx.viewer.user.id,
+        gameSessionId: ctx.sessionId,
+        matchId,
+        durationMs,
+        outcome: "failure",
+        errorClass: error instanceof Error ? error.name : "unknown",
+        message: error instanceof Error ? error.message : String(error),
+      });
     }
     throw error;
   }
@@ -262,6 +389,8 @@ export async function confirmMatchTeams(
   if (!isUuid(input.operationId) || !isUuid(input.teamAId) || !isUuid(input.teamBId)) {
     throw new UserFacingError("Requisição inválida.");
   }
+  const { assertCanOperateMatch } = await import("@/server/modules/scouts/authorize");
+  await assertCanOperateMatch(viewer, sessionId);
   const requestHash = hashRequest(input);
   const commandType = "MATCH_TEAMS_CONFIRM";
 
@@ -510,6 +639,8 @@ export async function kickoffMatchWithTeams(
   if (!isUuid(input.operationId) || !isUuid(input.teamAId) || !isUuid(input.teamBId)) {
     throw new UserFacingError("Requisição inválida.");
   }
+  const { assertCanOperateMatch } = await import("@/server/modules/scouts/authorize");
+  await assertCanOperateMatch(viewer, sessionId);
   const requestHash = hashRequest(input);
   const commandType = "MATCH_KICKOFF_WITH_TEAMS";
 
@@ -741,7 +872,12 @@ export async function pauseMatch(
         select: { id: true, status: true, pausedAt: true, startedAt: true, pausedTotalMs: true },
       });
       if (!match) throw new UserFacingError("Partida não encontrada.");
-      if (match.status !== "IN_PROGRESS") throw new UserFacingError("Só uma partida em andamento pode ser pausada.");
+      if (match.status === "FINISHED") {
+        throw new UserFacingError("Esta partida já foi finalizada.");
+      }
+      if (match.status !== "IN_PROGRESS") {
+        throw new UserFacingError("Só uma partida em andamento pode ser pausada.");
+      }
       if (isAwaitingKickoff(match)) throw new UserFacingError("Ligue o cronômetro antes de pausar.");
       if (match.pausedAt) throw new UserFacingError("A partida já está pausada.");
       await tx.match.update({ where: { id: match.id }, data: { pausedAt: now } });
@@ -775,7 +911,12 @@ export async function resumeMatch(
         select: { id: true, status: true, startedAt: true, pausedAt: true, pausedTotalMs: true },
       });
       if (!match) throw new UserFacingError("Partida não encontrada.");
-      if (match.status !== "IN_PROGRESS") throw new UserFacingError("Só uma partida em andamento pode ser retomada.");
+      if (match.status === "FINISHED") {
+        throw new UserFacingError("Esta partida já foi finalizada.");
+      }
+      if (match.status !== "IN_PROGRESS") {
+        throw new UserFacingError("Só uma partida em andamento pode ser retomada.");
+      }
       if (isAwaitingKickoff(match)) throw new UserFacingError("Use «Iniciar cronômetro» para apitar a partida.");
       if (!match.pausedAt) throw new UserFacingError("A partida não está pausada.");
       const pausedTotalMs = match.pausedTotalMs + (now.getTime() - match.pausedAt.getTime());
@@ -1087,13 +1228,12 @@ export async function substituteSessionTeamPlayer(
   sessionId: string,
   input: { outMemberId: string; inMemberId: string },
 ): Promise<void> {
-  if (viewer.member.role !== "ADMIN") {
-    throw new UserFacingError("Só administradores substituem a escalação da noite.");
-  }
   if (input.outMemberId === input.inMemberId) {
     throw new UserFacingError("Escolha um substituto diferente de quem sai.");
   }
 
+  const { assertCanOperateMatch } = await import("@/server/modules/scouts/authorize");
+  await assertCanOperateMatch(viewer, sessionId);
   const { participantsFrozen } = await import("@/server/modules/sessions/engine");
 
   await withLockedSession(viewer.group.id, sessionId, async (tx, session, now) => {
