@@ -33,6 +33,7 @@ import { DevTestTools } from "./dev-tools";
 import { IncludeForm } from "./include-form";
 import { EndSessionForm } from "./live/end-session-form";
 import { RegistrationActions } from "./registration-actions";
+import { FinishedMatchCorrections } from "./finished-match-corrections";
 import { SessionScoutsPanel } from "./session-scouts-panel";
 
 export const metadata: Metadata = { title: "Sessão" };
@@ -186,6 +187,10 @@ export default async function AdminSessionPage({ params }: { params: Promise<{ s
           history={scoutBoard.history}
           candidates={scoutBoard.candidates}
         />
+      ) : null}
+
+      {live && live.history.length > 0 ? (
+        <FinishedMatchCorrections sessionId={session.id} history={live.history} />
       ) : null}
 
       {session.status !== "FINISHED" && board.phase !== "CANCELLED" ? (

@@ -86,6 +86,7 @@ export default async function HistoricoPage({
                       year={selectedYear}
                       initiallyOpen={openSessionId === session.sessionId}
                       initialPanel={panel}
+                      canCorrectScouts={viewer.member.role === "ADMIN"}
                     />
                   </li>
                 ))}

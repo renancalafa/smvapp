@@ -134,6 +134,7 @@ export async function listHistoricoSessions(
 export type HistoricoMatchDetail = {
   id: string;
   sequence: number;
+  version: number;
   teamAId: string;
   teamBId: string;
   teamAName: string;
@@ -151,6 +152,8 @@ export type HistoricoMatchDetail = {
     nickname: string | null;
     teamId: string;
     role: "FIELD" | "GOALKEEPER";
+    enteredAt: string;
+    leftAt: string | null;
   }[];
   events: {
     id: string;
@@ -166,6 +169,7 @@ export type HistoricoMatchDetail = {
 };
 
 export type HistoricoSessionDetail = {
+  sessionId: string;
   recap: RodadaRecap;
   matches: HistoricoMatchDetail[];
   durations: HistoricoDurationPoint[];
@@ -183,6 +187,7 @@ export async function getHistoricoSessionDetail(
       select: {
         id: true,
         sequence: true,
+        version: true,
         teamAId: true,
         teamBId: true,
         penaltyWinnerTeamId: true,
@@ -213,6 +218,8 @@ export async function getHistoricoSessionDetail(
             memberId: true,
             teamId: true,
             role: true,
+            enteredAt: true,
+            leftAt: true,
             member: { select: { nickname: true, user: { select: { name: true } } } },
           },
         },
@@ -250,6 +257,7 @@ export async function getHistoricoSessionDetail(
     return {
       id: match.id,
       sequence: match.sequence,
+      version: match.version,
       teamAId: match.teamAId,
       teamBId: match.teamBId,
       teamAName: teamNameById.get(match.teamAId) ?? match.teamA.name,
@@ -267,6 +275,8 @@ export async function getHistoricoSessionDetail(
         nickname: player.member.nickname,
         teamId: player.teamId,
         role: player.role,
+        enteredAt: player.enteredAt.toISOString(),
+        leftAt: player.leftAt?.toISOString() ?? null,
       })),
       events: match.events.map((event) => ({
         id: event.id,
@@ -295,5 +305,5 @@ export async function getHistoricoSessionDetail(
     })),
   );
 
-  return { recap, matches: detailMatches, durations };
+  return { sessionId, recap, matches: detailMatches, durations };
 }

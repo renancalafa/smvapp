@@ -42,11 +42,13 @@ export function SessionCard({
   year,
   initiallyOpen,
   initialPanel,
+  canCorrectScouts = false,
 }: {
   summary: HistoricoSessionSummary;
   year: number;
   initiallyOpen: boolean;
   initialPanel: HistoricoPanel;
+  canCorrectScouts?: boolean;
 }) {
   const router = useRouter();
   const [open, setOpen] = useState(initiallyOpen);
@@ -161,7 +163,14 @@ export function SessionCard({
             <p className={`${darkMutedXs} mt-4`}>Carregando detalhes…</p>
           ) : null}
           {error ? <p className="mt-4 text-sm text-red-200">{error}</p> : null}
-          {detail ? <SessionDetailTabs detail={detail} initialPanel={initialPanel} /> : null}
+          {detail ? (
+            <SessionDetailTabs
+              detail={detail}
+              initialPanel={initialPanel}
+              canCorrectScouts={canCorrectScouts}
+              onDetailRefresh={loadDetail}
+            />
+          ) : null}
         </div>
       ) : null}
     </article>

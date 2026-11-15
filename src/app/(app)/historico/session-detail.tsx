@@ -5,10 +5,12 @@ import { TeamBadge } from "@/components/team-badge";
 import { MATCH_EVENT_LABELS, isMatchEventType } from "@/domain/match/events";
 import type { HistoricoSessionDetail } from "@/server/modules/historico/queries";
 import {
+  darkBtnSecondary,
   darkEmpty,
   darkMutedXs,
   darkSectionLabel,
 } from "@/lib/ui/dark-surfaces";
+import { CorrectScoutsPanel } from "./correct-scouts-panel";
 
 const PANELS = [
   { id: "partidas", label: "Partidas" },
@@ -32,14 +34,21 @@ function playerLabel(name: string, nickname: string | null): string {
 export function SessionDetailTabs({
   detail,
   initialPanel = "partidas",
+  canCorrectScouts = false,
+  onDetailRefresh,
 }: {
   detail: HistoricoSessionDetail;
   initialPanel?: HistoricoPanel;
+  canCorrectScouts?: boolean;
+  onDetailRefresh?: () => void;
 }) {
   const [panel, setPanel] = useState<HistoricoPanel>(initialPanel);
   const [openMatchId, setOpenMatchId] = useState<string | null>(null);
+  const [correctingMatchId, setCorrectingMatchId] = useState<string | null>(null);
   const { recap, matches, durations } = detail;
   const teamById = new Map(recap.teams.map((team) => [team.id, team]));
+  const teamNameById = new Map(recap.teams.map((team) => [team.id, team.name]));
+  const correctingMatch = matches.find((match) => match.id === correctingMatchId) ?? null;
 
   return (
     <div className="mt-4 flex flex-col gap-3 border-t border-white/10 pt-4">
@@ -182,6 +191,15 @@ export function SessionDetailTabs({
                             </ul>
                           )}
                         </div>
+                        {canCorrectScouts ? (
+                          <button
+                            type="button"
+                            className={`${darkBtnSecondary} w-full`}
+                            onClick={() => setCorrectingMatchId(match.id)}
+                          >
+                            Corrigir scouts
+                          </button>
+                        ) : null}
                       </div>
                     ) : null}
                   </li>
@@ -340,6 +358,16 @@ export function SessionDetailTabs({
             </ul>
           ) : null}
         </div>
+      ) : null}
+
+      {canCorrectScouts && correctingMatch ? (
+        <CorrectScoutsPanel
+          sessionId={detail.sessionId}
+          match={correctingMatch}
+          teamNameById={teamNameById}
+          onClose={() => setCorrectingMatchId(null)}
+          onApplied={() => onDetailRefresh?.()}
+        />
       ) : null}
     </div>
   );
