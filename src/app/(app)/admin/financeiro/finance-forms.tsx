@@ -16,7 +16,6 @@ import {
   approveCreditForm,
   confirmPaymentForm,
   freezeCycleForm,
-  initializeFinanceForm,
   recordAdjustmentForm,
   recordFieldCostForm,
   recordOtherExpenseForm,
@@ -432,27 +431,3 @@ export function FreezeCycleCard({ cycleId, label }: { cycleId: string; label: st
   );
 }
 
-export function InitializeFinanceCard(props: {
-  monthlyMembers: Array<{ id: string; name: string }>;
-}) {
-  const [state, action, pending] = useActionState(initializeFinanceForm, undefined);
-  return (
-    <form action={action} className={`flex flex-col gap-3 ${darkCardPad}`}>
-      <h2 className={darkTitleMd}>Implantação financeira</h2>
-      <p className={darkMuted}>
-        Operação única. Informe saldo real, mensalidade do mês corrente e quem ainda deve.
-      </p>
-      <Banner state={state} />
-      <CurrencyCentsField label="Saldo inicial" name="initialBalanceCents" defaultCents={0} required allowZero />
-      <CurrencyCentsField label="Mensalidade do mês" name="openingMonthlyFeeCents" defaultCents={0} required allowZero />
-      <CurrencyCentsField label="Campo ainda a pagar" name="remainingFieldCostCents" defaultCents={0} required allowZero />
-      <TextField
-        label="IDs dos devedores (vírgula)"
-        name="debtorMemberIds"
-        hint={props.monthlyMembers.map((m) => `${m.name}=${m.id}`).join(" · ")}
-      />
-      <TextField label="Motivo" name="reason" required defaultValue="Implantação inicial" />
-      <SubmitButton pending={pending} label="Implantar" pendingLabel="Implantando…" />
-    </form>
-  );
-}

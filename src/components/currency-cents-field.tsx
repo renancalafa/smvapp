@@ -19,6 +19,8 @@ export type CurrencyCentsFieldProps = {
   maxCents?: number;
   className?: string;
   disabled?: boolean;
+  /** Notifica mudanças para prévias em formulários compostos. */
+  onCentsChange?: (cents: number | null) => void;
 };
 
 /**
@@ -37,6 +39,7 @@ export function CurrencyCentsField({
   maxCents,
   className,
   disabled,
+  onCentsChange,
 }: CurrencyCentsFieldProps) {
   const displayId = useId();
   const initial =
@@ -49,13 +52,16 @@ export function CurrencyCentsField({
 
   function commit(next: number | null) {
     if (next == null) {
-      setCents(allowEmpty ? null : 0);
+      const value = allowEmpty ? null : 0;
+      setCents(value);
+      onCentsChange?.(value);
       return;
     }
     let value = next;
     if (minCents != null && value < minCents) value = minCents;
     if (maxCents != null && value > maxCents) value = maxCents;
     setCents(value);
+    onCentsChange?.(value);
   }
 
   const display = cents == null ? "" : formatCentsBRL(cents);

@@ -24,6 +24,7 @@ import {
   firstWeekdayOfMonth,
   formatActivationDateTimePt,
   formatReferenceMonthLabelPt,
+  startOfMonthCivil,
   zonedDateTimeFromFormParts,
 } from "../src/domain/finance/cycleDates";
 import { netCashCents } from "../src/domain/finance/cashBalance";
@@ -523,6 +524,27 @@ function domainChecks() {
       movementsSrc.includes("Pagar quadra") &&
       movementsSrc.includes("Outra despesa") &&
       movementsSrc.includes("Ajuste de caixa"),
+  );
+  check(
+    "implantação não usa IDs crus no formulário legado",
+    !movementsSrc.includes("IDs dos devedores"),
+  );
+  const initUiSrc = readFileSync(
+    path.resolve("src/app/(app)/admin/financeiro/initialize-finance-card.tsx"),
+    "utf8",
+  );
+  check(
+    "UI implantação com seletor de nomes",
+    initUiSrc.includes("DebtorPicker") &&
+      initUiSrc.includes("Buscar mensalista") &&
+      initUiSrc.includes("Nenhum devedor inicial selecionado") &&
+      initUiSrc.includes("Mensalistas no próximo período") &&
+      !initUiSrc.includes("IDs dos devedores"),
+  );
+  check(
+    "UI implantação explica go-live sem cobrança imediata",
+    initUiSrc.includes("Começando a cobrar só em dezembro") &&
+      initUiSrc.includes("Deixe a lista de devedores iniciais vazia"),
   );
   const transparencyPage = readFileSync(
     path.resolve("src/app/(app)/financeiro/page.tsx"),
@@ -1146,6 +1168,345 @@ async function scenario(tx: Tx) {
   );
   const dashAfter = await queries.getAdminFinanceDashboard(ctx.group.id, "America/Recife");
   check("pós-init: admin marca configurado", dashAfter.financeInitialized === true);
+  check(
+    "dashboard lista mensalistas com feeExempt",
+    dashAfter.monthlyMembers.some((m) => m.feeExempt) &&
+      dashAfter.monthlyMembers.every((m) => typeof m.feeExempt === "boolean"),
+  );
+
+  // --- Transição Nov→Dez (go-live): init no mês corrente sem devedores ---
+  const lateJoinMod = await import("../src/server/modules/finance/late-join");
+  const emptyCtx = await seedFinanceGroup(tx);
+  const emptyAdmin = viewerOf(emptyCtx.group, emptyCtx.admin);
+  const emptyPlayer = viewerOf(emptyCtx.group, emptyCtx.payer1);
+  const emptyInit = await finance.initializeFinance(emptyAdmin, {
+    initialBalanceCents: 25_000,
+    openingMonthlyFeeCents: 5_000,
+    remainingFieldCostCents: 40_000,
+    debtorMemberIds: [],
+    reason: "Virada dezembro sem dívidas prévias",
+    operationId: randomUUID(),
+  });
+  check("init vazio: alreadyInitialized=false", emptyInit.alreadyInitialized === false);
+  check(
+    "init vazio: zero cobranças no OPENING",
+    emptyInit.chargeIds.length === 0 &&
+      (await tx.charge.count({
+        where: { groupId: emptyCtx.group.id, billingCycleId: emptyInit.openingCycleId },
+      })) === 0,
+  );
+  check(
+    "init vazio: saldo de abertura gravado",
+    emptyInit.initialBalanceTransactionId != null &&
+      (
+        await tx.cashTransaction.findUniqueOrThrow({
+          where: { id: emptyInit.initialBalanceTransactionId },
+        })
+      ).amountCents === 25_000,
+  );
+
+  const emptyOpening = await tx.billingCycle.findUniqueOrThrow({
+    where: { id: emptyInit.openingCycleId },
+  });
+  const emptyNext = await tx.billingCycle.findUniqueOrThrow({
+    where: { id: emptyInit.nextCycleId },
+  });
+  const emptyNextCivil = {
+    year: emptyNext.referenceMonth.getUTCFullYear(),
+    month: emptyNext.referenceMonth.getUTCMonth() + 1,
+    day: 1,
+  };
+  const emptyExpectedCut = defaultFreezesAt(emptyNextCivil, "America/Recife");
+  check(
+    "go-live: OPENING = mês corrente CLOSED sem mensalidades",
+    emptyOpening.kind === "OPENING" &&
+      emptyOpening.status === "CLOSED" &&
+      (await tx.charge.count({
+        where: { billingCycleId: emptyOpening.id, type: "MONTHLY_FEE" },
+      })) === 0,
+  );
+  check(
+    "go-live: próximo ciclo REGULAR OPEN com corte sexta 08:00 natural",
+    emptyNext.kind === "REGULAR" &&
+      emptyNext.status === "OPEN" &&
+      emptyNext.freezesAt.toISOString() === emptyExpectedCut.toISOString(),
+    `${emptyNext.freezesAt.toISOString()} vs ${emptyExpectedCut.toISOString()}`,
+  );
+  // Quando o relógio civil é nov/2026, o primeiro REGULAR é dez/2026 → 04/12 08:00 Recife.
+  const civilNow = startOfMonthCivil(new Date(), "America/Recife");
+  if (civilNow.year === 2026 && civilNow.month === 11) {
+    check(
+      "go-live nov/2026: corte do 1º REGULAR = 2026-12-04T11:00:00.000Z",
+      emptyNext.freezesAt.toISOString() === "2026-12-04T11:00:00.000Z",
+    );
+  }
+
+  // Navegação / lazy ensure não gera mensalidade do mês corrente antes do corte.
+  await cycles.ensureFinanceState(emptyCtx.group.id, emptyAdmin.user.id);
+  await cycles.freezeDueCyclesInTx(tx, emptyCtx.group.id, emptyAdmin.user.id);
+  check(
+    "go-live: ensure/freezeDue antes do corte → zero MONTHLY_FEE",
+    (await tx.charge.count({
+      where: { groupId: emptyCtx.group.id, type: "MONTHLY_FEE" },
+    })) === 0,
+  );
+
+  // Encerrar sessão no mês corrente: só diária (PRESENT + DAILY), nunca mensalidade.
+  const novSession = await tx.gameSession.create({
+    data: {
+      groupId: emptyCtx.group.id,
+      seasonId: emptyCtx.seasonId,
+      status: "FINISHED",
+      type: "NORMAL",
+      origin: "EXTRAORDINARY",
+      scheduledFor: new Date(Date.UTC(2026, 10, 19)),
+      startsAt: new Date("2026-11-19T22:00:00.000Z"),
+      endsAt: new Date("2026-11-20T00:00:00.000Z"),
+      finishedAt: new Date("2026-11-20T00:05:00.000Z"),
+      maxExtraMinutes: 30,
+      registrationOpensAt: new Date("2026-11-16T11:00:00.000Z"),
+      openedAt: new Date("2026-11-16T11:00:00.000Z"),
+      priorityDeadlineAt: new Date("2026-11-19T21:00:00.000Z"),
+      priorityClosedAt: new Date("2026-11-19T21:00:00.000Z"),
+      startedAt: new Date("2026-11-19T22:00:00.000Z"),
+      maxPlayers: 20,
+      teamSize: 5,
+      matchDurationSec: 420,
+      drawOptionsCount: 2,
+      drawMinOptionDifference: 2,
+      dailyFeeCents: 1500,
+      venueName: "Go-live Nov session",
+    },
+  });
+  const novDailyReg = await tx.sessionRegistration.create({
+    data: {
+      gameSessionId: novSession.id,
+      memberId: emptyCtx.daily.id,
+      status: "PARTICIPANT",
+      source: "SELF",
+      queuedAt: new Date("2026-11-17T12:00:00.000Z"),
+      queueSortAt: new Date("2026-11-17T12:00:00.000Z"),
+      priorityTier: "GENERAL",
+      modalitySnapshot: "DAILY",
+      respondedAt: new Date("2026-11-17T12:00:00.000Z"),
+      attendance: "PRESENT",
+      attendanceMarkedAt: new Date("2026-11-20T00:01:00.000Z"),
+      attendanceMarkedByUserId: emptyCtx.admin.user.id,
+    },
+  });
+  const novMonthlyReg = await tx.sessionRegistration.create({
+    data: {
+      gameSessionId: novSession.id,
+      memberId: emptyCtx.payer1.id,
+      status: "PARTICIPANT",
+      source: "SELF",
+      queuedAt: new Date("2026-11-17T12:05:00.000Z"),
+      queueSortAt: new Date("2026-11-17T12:05:00.000Z"),
+      priorityTier: "GENERAL",
+      modalitySnapshot: "MONTHLY",
+      respondedAt: new Date("2026-11-17T12:05:00.000Z"),
+      attendance: "PRESENT",
+      attendanceMarkedAt: new Date("2026-11-20T00:01:00.000Z"),
+      attendanceMarkedByUserId: emptyCtx.admin.user.id,
+    },
+  });
+  await dailyCharges.generateDailyFeeChargesInTx(tx, {
+    groupId: emptyCtx.group.id,
+    sessionId: novSession.id,
+    actorUserId: emptyCtx.admin.user.id,
+  });
+  check(
+    "go-live: fim de sessão gera diária do diarista",
+    (await tx.charge.findUnique({ where: { sessionRegistrationId: novDailyReg.id } })) != null,
+  );
+  check(
+    "go-live: fim de sessão NÃO gera mensalidade do mensalista",
+    (await tx.charge.findUnique({ where: { sessionRegistrationId: novMonthlyReg.id } })) == null &&
+      (await tx.charge.count({
+        where: { groupId: emptyCtx.group.id, type: "MONTHLY_FEE" },
+      })) === 0,
+  );
+
+  // LATE_JOIN no OPENING vazio deve adiar (não cobrar novembro).
+  const joinerUser = await tx.user.create({
+    data: {
+      username: `fin_join_${randomUUID().slice(0, 8)}`,
+      name: "Late Joiner",
+      passwordHash: "x",
+      mustChangePassword: false,
+    },
+  });
+  const joiner = await tx.groupMember.create({
+    data: {
+      groupId: emptyCtx.group.id,
+      userId: joinerUser.id,
+      role: "PLAYER",
+      modality: "MONTHLY",
+      baseRating: 3,
+      status: "ACTIVE",
+    },
+  });
+  const lateEmpty = await lateJoinMod.ensureLateJoinMonthlyChargeInTx(tx, {
+    groupId: emptyCtx.group.id,
+    memberId: joiner.id,
+    timeZone: "America/Recife",
+    actorUserId: emptyCtx.admin.user.id,
+  });
+  check(
+    "go-live: LATE_JOIN em OPENING vazio adia ao próximo freeze",
+    lateEmpty.chargeId == null && lateEmpty.deferredToFreeze === true,
+  );
+  check(
+    "go-live: ainda zero MONTHLY_FEE após LATE_JOIN",
+    (await tx.charge.count({
+      where: { groupId: emptyCtx.group.id, type: "MONTHLY_FEE" },
+    })) === 0,
+  );
+
+  // Locks ligados + dívidas mensais inexistentes → sem restrição (diária do diarista não afeta payer1).
+  await tx.groupSettings.update({
+    where: { groupId: emptyCtx.group.id },
+    data: { financeAccessLocksEnabled: true },
+  });
+  const accessBeforeCut = await accessMod.getFinancialAccessForViewer(emptyPlayer);
+  check(
+    "go-live: locks on antes do corte sem mensalidade → full",
+    accessBeforeCut.mode === "full" &&
+      (accessBeforeCut.reason === "no_blocking_debt" || accessBeforeCut.reason === "locks_disabled"),
+  );
+  // Restaura locks off (padrão do produto até go-live de cobrança).
+  await tx.groupSettings.update({
+    where: { groupId: emptyCtx.group.id },
+    data: { financeAccessLocksEnabled: false },
+  });
+
+  // Freeze antecipado do REGULAR sem override deve falhar enquanto freezesAt > now.
+  let earlyFreezeBlocked = false;
+  try {
+    await cycles.freezeBillingCycle(emptyAdmin, emptyNext.id, randomUUID());
+  } catch (error) {
+    earlyFreezeBlocked = error instanceof UserFacingError;
+  }
+  check("go-live: freeze antes do corte bloqueado", earlyFreezeBlocked);
+  check(
+    "go-live: freeze bloqueado não criou MONTHLY_FEE",
+    (await tx.charge.count({
+      where: { groupId: emptyCtx.group.id, type: "MONTHLY_FEE" },
+    })) === 0,
+  );
+
+  await cycles.overrideCycleActivation(
+    emptyAdmin,
+    emptyNext.id,
+    new Date("2020-01-01T03:00:00.000Z"),
+  );
+  const emptyFreeze = await cycles.freezeBillingCycle(emptyAdmin, emptyNext.id, randomUUID());
+  // 3 seed payers + joiner LATE_JOIN adiado; Tulio isento.
+  check(
+    "go-live: freeze do 1º REGULAR cobra 4 mensalistas (Tulio isento)",
+    emptyFreeze.payingMonthlyCount === 4,
+    String(emptyFreeze.payingMonthlyCount),
+  );
+  check(
+    "go-live: mensalidades só após corte do próximo ciclo",
+    (await tx.charge.count({
+      where: {
+        groupId: emptyCtx.group.id,
+        billingCycleId: emptyNext.id,
+        type: "MONTHLY_FEE",
+      },
+    })) === 4,
+  );
+  check(
+    "go-live: joiner adiado entra no 1º REGULAR",
+    (await tx.charge.count({
+      where: {
+        billingCycleId: emptyNext.id,
+        memberId: joiner.id,
+        type: "MONTHLY_FEE",
+        monthlyFeeOrigin: "CYCLE_FREEZE",
+      },
+    })) === 1,
+  );
+  check(
+    "go-live: Tulio sem cobrança no 1º REGULAR",
+    (await tx.charge.count({
+      where: {
+        groupId: emptyCtx.group.id,
+        memberId: emptyCtx.tulioMember.id,
+        type: "MONTHLY_FEE",
+      },
+    })) === 0,
+  );
+  check(
+    "go-live: OPENING continua sem MONTHLY_FEE",
+    (await tx.charge.count({
+      where: { billingCycleId: emptyOpening.id, type: "MONTHLY_FEE" },
+    })) === 0,
+  );
+  const freezeAgain = await cycles.freezeBillingCycle(emptyAdmin, emptyNext.id, randomUUID());
+  check("go-live: segundo freeze idempotente", freezeAgain.alreadyClosed === true);
+  check(
+    "go-live: cobranças do 1º REGULAR exatamente uma vez",
+    (await tx.charge.count({
+      where: {
+        groupId: emptyCtx.group.id,
+        billingCycleId: emptyNext.id,
+        type: "MONTHLY_FEE",
+      },
+    })) === 4,
+  );
+
+  // OPENING com devedores reais: LATE_JOIN no mês corrente permanece permitido.
+  const debtCtx = await seedFinanceGroup(tx);
+  const debtAdmin = viewerOf(debtCtx.group, debtCtx.admin);
+  const debtInit = await finance.initializeFinance(debtAdmin, {
+    initialBalanceCents: 1_000,
+    openingMonthlyFeeCents: 5_000,
+    remainingFieldCostCents: 0,
+    debtorMemberIds: [debtCtx.payer1.id],
+    reason: "Implantação com dívida prévia",
+    operationId: randomUUID(),
+  });
+  const debtJoinerUser = await tx.user.create({
+    data: {
+      username: `fin_djoin_${randomUUID().slice(0, 8)}`,
+      name: "Debt Month Joiner",
+      passwordHash: "x",
+      mustChangePassword: false,
+    },
+  });
+  const debtJoiner = await tx.groupMember.create({
+    data: {
+      groupId: debtCtx.group.id,
+      userId: debtJoinerUser.id,
+      role: "PLAYER",
+      modality: "MONTHLY",
+      baseRating: 3,
+      status: "ACTIVE",
+    },
+  });
+  const lateWithDebt = await lateJoinMod.ensureLateJoinMonthlyChargeInTx(tx, {
+    groupId: debtCtx.group.id,
+    memberId: debtJoiner.id,
+    timeZone: "America/Recife",
+    actorUserId: debtCtx.admin.user.id,
+  });
+  check(
+    "OPENING com devedores: LATE_JOIN ainda cria cobrança",
+    lateWithDebt.chargeId != null && lateWithDebt.deferredToFreeze === false,
+  );
+  check(
+    "OPENING com devedores: charge LATE_JOIN no ciclo de abertura",
+    (await tx.charge.count({
+      where: {
+        billingCycleId: debtInit.openingCycleId,
+        memberId: debtJoiner.id,
+        type: "MONTHLY_FEE",
+        monthlyFeeOrigin: "LATE_JOIN",
+      },
+    })) === 1,
+  );
 
   const next = await tx.billingCycle.findUniqueOrThrow({ where: { id: init.nextCycleId } });
   const expectedCut = defaultFreezesAt(

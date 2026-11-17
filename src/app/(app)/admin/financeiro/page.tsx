@@ -25,8 +25,8 @@ import {
   CreditApprovalCard,
   FinancialMovementsPanel,
   FreezeCycleCard,
-  InitializeFinanceCard,
 } from "./finance-forms";
+import { InitializeFinanceCard } from "./initialize-finance-card";
 import { ReceiptReviewQueue } from "./receipt-review";
 import { FinanceLocksToggle } from "./locks-toggle";
 
@@ -89,8 +89,9 @@ export default async function AdminFinanceiroPage() {
         <div className={darkAlertWarn} role="status">
           <p className="font-semibold text-amber-50">Financeiro ainda não configurado</p>
           <p className="mt-1 text-sm text-amber-100/90">
-            Implante o caixa e as cobranças do mês corrente abaixo. Até lá, o app não gera ciclos,
-            mensalidades nem diárias automaticamente — a pelada continua normal.
+            Faça a implantação única abaixo (saldo, mensalidade de referência e dívidas iniciais
+            opcionais). Até lá, o app não gera ciclos, mensalidades nem diárias automaticamente — a
+            pelada continua normal.
           </p>
         </div>
       ) : null}
@@ -143,7 +144,11 @@ export default async function AdminFinanceiroPage() {
 
       {!financeInitialized && (
         <InitializeFinanceCard
-          monthlyMembers={data.monthlyMembers.map((m) => ({ id: m.id, name: m.name }))}
+          monthlyMembers={data.monthlyMembers.map((m) => ({
+            id: m.id,
+            name: m.name,
+            feeExempt: m.feeExempt,
+          }))}
         />
       )}
 

@@ -62,6 +62,18 @@ export async function ensureLateJoinMonthlyChargeInTx(
   }
   if (member.feeExempt) return { chargeId: null, deferredToFreeze: false };
 
+  // Go-live sem dívidas iniciais: OPENING CLOSED sem MONTHLY_FEE não deve cobrar
+  // quem entra/promove no mês corrente — cobrança regular só no próximo REGULAR freeze.
+  // Se a implantação listou devedores, LATE_JOIN no OPENING permanece (mês já em cobrança).
+  if (locked.kind === "OPENING") {
+    const openingMonthlyCharges = await tx.charge.count({
+      where: { billingCycleId: locked.id, type: "MONTHLY_FEE" },
+    });
+    if (openingMonthlyCharges === 0) {
+      return { chargeId: null, deferredToFreeze: true };
+    }
+  }
+
   const charge = await tx.charge.create({
     data: {
       groupId: input.groupId,

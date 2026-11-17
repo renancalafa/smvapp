@@ -21,7 +21,11 @@ export type InitializeFinanceInput = {
   openingMonthlyFeeCents: number;
   /** Parte do campo do mês ainda a pagar (>= 0). */
   remainingFieldCostCents: number;
-  /** Mensalistas que ainda devem a mensalidade do mês corrente. */
+  /**
+   * Mensalistas com dívida pré-existente do período corrente (opcional).
+   * Lista vazia = padrão de go-live (ex.: cobrança regular só a partir do próximo ciclo).
+   * Não marca automaticamente todos os mensalistas como devedores.
+   */
   debtorMemberIds: string[];
   reason: string;
   operationId: string;
