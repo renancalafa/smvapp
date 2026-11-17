@@ -51,6 +51,9 @@ export default async function AccountPage() {
       <PushSettings vapidPublicKey={getVapidPublicKey()} deviceCount={pushDeviceCount} />
 
       <div className="flex flex-col gap-2">
+        <Link href="/pagamentos" className={darkBtnSecondary}>
+          Pagamentos
+        </Link>
         <Link href={`/stats/players/${viewer.member.id}`} className={darkBtnSecondary}>
           Minhas estatísticas
         </Link>

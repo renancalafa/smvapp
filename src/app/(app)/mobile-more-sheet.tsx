@@ -170,6 +170,16 @@ export function MobileMoreSheet({
             />
           ) : null}
           <li>
+            <Link href="/financeiro" className={itemClass} onClick={onClose}>
+              Financeiro
+            </Link>
+          </li>
+          <li>
+            <Link href="/pagamentos" className={itemClass} onClick={onClose}>
+              Pagamentos
+            </Link>
+          </li>
+          <li>
             <Link href="/account" className={itemClass} onClick={onClose}>
               Conta
             </Link>

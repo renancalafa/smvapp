@@ -60,6 +60,26 @@ const ACTION_LABELS: Record<string, string> = {
   DEV_RESET_MATCHES: "Reset de partidas (dev)",
   DEV_RESET_DRAW_AND_MATCHES: "Reset de sorteio e partidas (dev)",
   PUSH_TEST_SENT: "Push de teste enviado",
+  BILLING_CYCLE_FROZEN: "Mensalidade congelada",
+  BILLING_CYCLE_ACTIVATION_OVERRIDDEN: "Ativação do ciclo alterada",
+  FINANCE_INITIALIZED: "Implantação financeira",
+  DAILY_FEE_CHARGES_GENERATED: "Cobranças de diária geradas",
+  CHARGE_CREATED: "Cobrança criada",
+  CHARGE_CANCELLED: "Cobrança cancelada",
+  CHARGE_REACTIVATED: "Cobrança reativada",
+  PAYMENT_CONFIRMED: "Pagamento confirmado",
+  PAYMENT_REVERSED: "Pagamento estornado",
+  FIELD_COST_RECORDED: "Pagamento do campo",
+  CASH_TRANSACTION_REVERSED: "Lançamento de caixa estornado",
+  MEMBER_FEE_EXEMPT_CHANGED: "Isenção financeira alterada",
+  BILLING_CREDIT_APPROVED: "Crédito financeiro aprovado",
+  PAYMENT_RECEIPT_UPLOADED: "Pagamento informado",
+  PAYMENT_RECEIPT_APPROVED: "Pagamento aprovado",
+  PAYMENT_RECEIPT_REJECTED: "Pagamento rejeitado",
+  FINANCIAL_ACCESS_GRANTED: "Acesso financeiro liberado excepcionalmente",
+  FINANCIAL_ACCESS_REVOKED: "Liberação financeira revogada",
+  OTHER_EXPENSE_RECORDED: "Despesa registrada",
+  CASH_ADJUSTMENT_RECORDED: "Ajuste de caixa registrado",
 };
 
 export const CATEGORY_LABELS: Record<AuditCategory, string> = {
@@ -70,6 +90,7 @@ export const CATEGORY_LABELS: Record<AuditCategory, string> = {
   ADMIN: "Admin",
   AUTH: "Auth",
   SYSTEM: "Sistema",
+  FINANCE: "Financeiro",
   OTHER: "Outros",
 };
 

@@ -58,6 +58,9 @@ $RECYCLE.BIN/
 # prisma client (gerado por `prisma generate`)
 /src/generated/
 
+# storage local de comprovantes (Phase 3)
+.data/
+
 # vercel
 .vercel
 

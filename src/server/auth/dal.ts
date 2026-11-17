@@ -47,8 +47,18 @@ export async function requireViewerAllowingPasswordChange(): Promise<Viewer> {
 /**
  * Exigido em toda página e Server Action protegida (o layout sozinho não basta).
  * Senha temporária leva à troca obrigatória.
+ * Em seguida aplica restrição financeira (lazy) via enforceFinancialAccessOrRedirect.
  */
 export async function requireViewer(): Promise<Viewer> {
+  const viewer = await requireViewerAllowingPasswordChange();
+  if (viewer.user.mustChangePassword) redirect("/change-password");
+  const { enforceFinancialAccessOrRedirect } = await import("@/server/modules/finance/access");
+  await enforceFinancialAccessOrRedirect(viewer);
+  return viewer;
+}
+
+/** Viewer sem checagem de restrição financeira (página /pagamentos e uploads). */
+export async function requireViewerForPayments(): Promise<Viewer> {
   const viewer = await requireViewerAllowingPasswordChange();
   if (viewer.user.mustChangePassword) redirect("/change-password");
   return viewer;
@@ -74,6 +84,8 @@ export async function requireAdminAction(): Promise<Viewer> {
  */
 export async function requireMatchOperatorAction(sessionId: string): Promise<Viewer> {
   const viewer = await requireViewer();
+  const { assertNotPaymentRestricted } = await import("@/server/modules/finance/access");
+  await assertNotPaymentRestricted(viewer);
   const { assertCanOperateMatch } = await import("@/server/modules/scouts/authorize");
   await assertCanOperateMatch(viewer, sessionId);
   return viewer;

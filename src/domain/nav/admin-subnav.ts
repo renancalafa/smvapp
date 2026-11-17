@@ -2,7 +2,8 @@
 export const ADMIN_SUBNAV = [
   { href: "/admin/players", label: "Jogadores" },
   { href: "/admin/sessions", label: "Sessões" },
-  { href: "/admin/agenda", label: "Agenda" },
+  { href: "/admin/financeiro", label: "Financeiro" },
+  { href: "/admin/configuracoes", label: "Configurações" },
   { href: "/admin/logs", label: "Logs" },
 ] as const;
 

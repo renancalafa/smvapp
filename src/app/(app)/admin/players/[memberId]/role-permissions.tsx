@@ -1,10 +1,11 @@
 "use client";
 
-import { useActionState, type FormEvent } from "react";
+import { useActionState } from "react";
+import { useConfirmSubmit } from "@/components/confirm-dialog";
 import { FormError, SubmitButton } from "@/components/form-fields";
+import { ActionToast } from "@/components/toast/action-toast";
 import type { MemberRole } from "@/generated/prisma/enums";
 import {
-  darkAlertSuccess,
   darkCardPad,
   darkMuted,
   darkTitleMd,
@@ -12,25 +13,13 @@ import {
 import { changeMemberRoleAction } from "@/server/modules/members/actions";
 import { ROLE_LABEL } from "../../../labels";
 
-const PROMOTE_CONFIRM =
-  "Promover este jogador a ADMIN?\n\n" +
-  "Ele poderá: gerenciar jogadores e permissões, sessões, sorteios, Modo Pelada, " +
-  "estatísticas administrativas e configurações do grupo.\n\n" +
-  "Modalidade, nota, presença e histórico permanecem iguais.";
+const PROMOTE_DESCRIPTION =
+  "Ele poderá gerenciar jogadores e permissões, sessões, sorteios, Modo Pelada, " +
+  "estatísticas administrativas e configurações do grupo. Modalidade, nota, presença e histórico permanecem iguais.";
 
-const DEMOTE_CONFIRM =
-  "Rebaixar este administrador a JOGADOR?\n\n" +
-  "Ele perderá o acesso às telas e ações de ADMIN (jogadores, sessões, sorteio, " +
-  "Modo Pelada administrativo, configurações).\n\n" +
-  "Continuará podendo confirmar presença, votar e ver placar/estatísticas.\n\n" +
-  "Modalidade, nota, presença e histórico permanecem iguais.\n\n" +
+const DEMOTE_DESCRIPTION =
+  "Ele perderá o acesso às telas e ações de ADMIN. Continuará podendo confirmar presença, votar e ver placar/estatísticas. " +
   "Não é possível rebaixar o último administrador ativo do grupo.";
-
-function confirmSubmit(message: string) {
-  return (event: FormEvent<HTMLFormElement>) => {
-    if (!window.confirm(message)) event.preventDefault();
-  };
-}
 
 export function RolePermissions({
   memberId,
@@ -42,10 +31,12 @@ export function RolePermissions({
   role: MemberRole;
 }) {
   const [state, formAction, pending] = useActionState(changeMemberRoleAction, undefined);
+  const confirmSubmit = useConfirmSubmit();
   const nextRole: MemberRole = role === "PLAYER" ? "ADMIN" : "PLAYER";
 
   return (
     <div className={`flex flex-col gap-2 ${darkCardPad}`}>
+      <ActionToast state={state} successTitle="Permissões atualizadas" errorTitle="Falha ao alterar papel" />
       <h2 className={darkTitleMd}>Permissões</h2>
       <p className={darkMuted}>
         Papel atual: <span className="font-medium text-white">{ROLE_LABEL[role]}</span> ({username}).
@@ -54,7 +45,20 @@ export function RolePermissions({
       </p>
       <form
         action={formAction}
-        onSubmit={confirmSubmit(nextRole === "ADMIN" ? PROMOTE_CONFIRM : DEMOTE_CONFIRM)}
+        onSubmit={confirmSubmit(
+          nextRole === "ADMIN"
+            ? {
+                title: "Promover a administrador?",
+                description: PROMOTE_DESCRIPTION,
+                confirmLabel: "Promover",
+              }
+            : {
+                title: "Rebaixar a jogador?",
+                description: DEMOTE_DESCRIPTION,
+                confirmLabel: "Rebaixar",
+                tone: "danger",
+              },
+        )}
       >
         <input type="hidden" name="memberId" value={memberId} />
         <input type="hidden" name="role" value={nextRole} />
@@ -65,7 +69,6 @@ export function RolePermissions({
           variant={nextRole === "ADMIN" ? "primary" : "danger"}
         />
       </form>
-      {state?.status === "done" && <p className={darkAlertSuccess}>{state.message}</p>}
       <FormError message={state?.status === "error" ? state.error : undefined} />
     </div>
   );

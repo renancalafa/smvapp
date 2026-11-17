@@ -8,6 +8,10 @@ import { db } from "@/server/db";
 import { UserFacingError } from "@/server/errors";
 import { commitThenSchedulePush } from "@/server/modules/notifications/schedule";
 import {
+  generateDailyFeeChargesInTx,
+  reconcileDailyFeeChargeForAttendanceInTx,
+} from "@/server/modules/finance/daily-charges";
+import {
   advanceLockedSession,
   allocationPhase,
   assertListChangesAllowed,
@@ -628,6 +632,13 @@ export async function markAttendance(
       before: { attendance: registration.attendance },
       after: { attendance },
     });
+    await reconcileDailyFeeChargeForAttendanceInTx(tx, {
+      groupId: viewer.group.id,
+      sessionId: session.id,
+      registrationId: registration.id,
+      attendance,
+      actorUserId: viewer.user.id,
+    });
   });
 }
 
@@ -636,8 +647,7 @@ export type EndGameSessionResult = { finishedAt: Date; alreadyFinished: boolean 
 /**
  * Encerrar a sessão (Modo Pelada): grava FINISHED + finishedAt, preserva histórico
  * de partidas finalizadas. Partida com cronômetro ligado bloqueia; partida só
- * aguardando apito é descartada. Cobranças de diária ficam para o job financeiro
- * (chargesGeneratedAt ainda null).
+ * aguardando apito é descartada. Em seguida gera Charges DAILY_FEE (idempotente).
  */
 export async function endGameSession(viewer: Viewer, sessionId: string): Promise<EndGameSessionResult> {
   return withLockedSession(viewer.group.id, sessionId, async (tx, session, now) => {
@@ -646,8 +656,15 @@ export async function endGameSession(viewer: Viewer, sessionId: string): Promise
     if (session.status === "FINISHED") {
       const row = await tx.gameSession.findUniqueOrThrow({
         where: { id: session.id },
-        select: { finishedAt: true },
+        select: { finishedAt: true, chargesGeneratedAt: true },
       });
+      if (!row.chargesGeneratedAt) {
+        await generateDailyFeeChargesInTx(tx, {
+          groupId: viewer.group.id,
+          sessionId: session.id,
+          actorUserId: viewer.user.id,
+        });
+      }
       return { finishedAt: row.finishedAt ?? now, alreadyFinished: true };
     }
 
@@ -705,6 +722,11 @@ export async function endGameSession(viewer: Viewer, sessionId: string): Promise
       gameSessionId: session.id,
       before: { status: session.status },
       after: { status: "FINISHED", finishedAt: now.toISOString() },
+    });
+    await generateDailyFeeChargesInTx(tx, {
+      groupId: viewer.group.id,
+      sessionId: session.id,
+      actorUserId: viewer.user.id,
     });
     return { finishedAt: now, alreadyFinished: false };
   });

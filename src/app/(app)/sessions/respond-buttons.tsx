@@ -1,6 +1,8 @@
 "use client";
 
-import { useActionState, type FormEvent } from "react";
+import { useActionState } from "react";
+import { useConfirmSubmit } from "@/components/confirm-dialog";
+import { ActionToast } from "@/components/toast/action-toast";
 import type { RegistrationStatus } from "@/generated/prisma/enums";
 import {
   darkAlertError,
@@ -34,18 +36,21 @@ export function RespondButtons({
   disabledReason?: string | null;
 }) {
   const [state, formAction, pending] = useActionState(respondAction, undefined);
+  const confirmSubmit = useConfirmSubmit();
   const playingSelected = myStatus === "PARTICIPANT" || myStatus === "WAITLISTED";
   const absentSelected = myStatus === "DECLINED" || myStatus === "WITHDRAWN";
   const needsLeaveConfirm = playingSelected;
-
-  function confirmLeave(event: FormEvent<HTMLFormElement>) {
-    if (!needsLeaveConfirm) return;
-    const message =
-      myStatus === "PARTICIPANT"
-        ? "Confirmar que não vai? Sua vaga vai para o próximo da lista de espera."
-        : "Confirmar que não vai? Você sai da lista de espera.";
-    if (!window.confirm(message)) event.preventDefault();
-  }
+  const leaveConfirm = needsLeaveConfirm
+    ? confirmSubmit({
+        title: "Confirmar ausência",
+        description:
+          myStatus === "PARTICIPANT"
+            ? "Sua vaga vai para o próximo da lista de espera."
+            : "Você sai da lista de espera.",
+        confirmLabel: "Não vou",
+        tone: "danger",
+      })
+    : undefined;
 
   const confirmClass = playingSelected ? selectedPlayClass : `${darkBtnPrimary} flex-1`;
   const declineClass = absentSelected ? selectedAbsentClass : `${darkBtnSecondary} flex-1`;
@@ -53,6 +58,7 @@ export function RespondButtons({
 
   return (
     <div className="flex flex-col gap-2">
+      <ActionToast state={state} successTitle="Presença atualizada" errorTitle="Não foi possível responder" />
       <div className="flex gap-2">
         <form action={formAction} className="flex flex-1">
           <input type="hidden" name="sessionId" value={sessionId} />
@@ -66,7 +72,7 @@ export function RespondButtons({
             {pending ? "Enviando…" : confirmLabel}
           </button>
         </form>
-        <form action={formAction} onSubmit={confirmLeave} className="flex flex-1">
+        <form action={formAction} onSubmit={leaveConfirm} className="flex flex-1">
           <input type="hidden" name="sessionId" value={sessionId} />
           <input type="hidden" name="response" value="DECLINE" />
           <button

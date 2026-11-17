@@ -13,6 +13,7 @@ export type AuditCategory =
   | "ADMIN"
   | "AUTH"
   | "SYSTEM"
+  | "FINANCE"
   | "OTHER";
 
 export const AUDIT_OUTCOMES: readonly AuditOutcome[] = ["SUCCESS", "FAILURE", "DENIED"];
@@ -24,6 +25,7 @@ export const AUDIT_CATEGORIES: readonly AuditCategory[] = [
   "ADMIN",
   "AUTH",
   "SYSTEM",
+  "FINANCE",
   "OTHER",
 ];
 
@@ -99,12 +101,36 @@ const SYSTEM_ACTIONS = new Set([
   "OPERATION_FAILED",
 ]);
 
+const FINANCE_ACTIONS = new Set([
+  "BILLING_CYCLE_FROZEN",
+  "BILLING_CYCLE_ACTIVATION_OVERRIDDEN",
+  "FINANCE_INITIALIZED",
+  "DAILY_FEE_CHARGES_GENERATED",
+  "CHARGE_CREATED",
+  "CHARGE_CANCELLED",
+  "CHARGE_REACTIVATED",
+  "PAYMENT_CONFIRMED",
+  "PAYMENT_REVERSED",
+  "FIELD_COST_RECORDED",
+  "CASH_TRANSACTION_REVERSED",
+  "MEMBER_FEE_EXEMPT_CHANGED",
+  "BILLING_CREDIT_APPROVED",
+  "OTHER_EXPENSE_RECORDED",
+  "CASH_ADJUSTMENT_RECORDED",
+  "PAYMENT_RECEIPT_UPLOADED",
+  "PAYMENT_RECEIPT_APPROVED",
+  "PAYMENT_RECEIPT_REJECTED",
+  "FINANCIAL_ACCESS_GRANTED",
+  "FINANCIAL_ACCESS_REVOKED",
+]);
+
 /** Classifica action string (incluindo legado desconhecido). */
 export function categorizeAuditAction(action: string): AuditCategory {
   if (MATCH_ACTIONS.has(action)) return "MATCH";
   if (ATTENDANCE_ACTIONS.has(action)) return "ATTENDANCE";
   if (DRAW_ACTIONS.has(action)) return "DRAW";
   if (SCOUT_ACTIONS.has(action)) return "SCOUT";
+  if (FINANCE_ACTIONS.has(action)) return "FINANCE";
   if (ADMIN_ACTIONS.has(action)) return "ADMIN";
   if (AUTH_ACTIONS.has(action)) return "AUTH";
   if (SYSTEM_ACTIONS.has(action)) return "SYSTEM";
@@ -112,6 +138,17 @@ export function categorizeAuditAction(action: string): AuditCategory {
   if (action.startsWith("REGISTRATION_") || action.startsWith("ATTENDANCE_")) return "ATTENDANCE";
   if (action.startsWith("DRAW_")) return "DRAW";
   if (action.startsWith("SESSION_SCOUT_")) return "SCOUT";
+  if (
+    action.startsWith("BILLING_") ||
+    action.startsWith("CHARGE_") ||
+    action.startsWith("PAYMENT_") ||
+    action.startsWith("FIELD_COST_") ||
+    action.startsWith("CASH_") ||
+    action.startsWith("FINANCE_") ||
+    action.startsWith("DAILY_FEE_")
+  ) {
+    return "FINANCE";
+  }
   if (action.startsWith("MEMBER_") || action.startsWith("SESSION_")) return "ADMIN";
   return "OTHER";
 }
@@ -133,6 +170,8 @@ export function actionsForCategory(category: AuditCategory): readonly string[] {
       return [...AUTH_ACTIONS];
     case "SYSTEM":
       return [...SYSTEM_ACTIONS];
+    case "FINANCE":
+      return [...FINANCE_ACTIONS];
     case "OTHER":
       return [];
   }

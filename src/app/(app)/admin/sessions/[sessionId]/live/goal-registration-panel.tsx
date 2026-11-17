@@ -1,6 +1,7 @@
 "use client";
 
 import { useActionState, useEffect, useId, useMemo, useState, type FormEvent } from "react";
+import { useConfirm, useToast } from "@/components/app-feedback";
 import {
   darkAlertError,
   darkAlertWarn,
@@ -54,6 +55,8 @@ export function GoalRegistrationPanel({
   const [state, action, pending] = useActionState(recordMatchEventAction, undefined);
   const operationId = useOperationId(state);
   const formId = useId();
+  const confirm = useConfirm();
+  const { push } = useToast();
   const scoringTeam = side === "A" ? match.teamA : match.teamB;
   const opposingTeam = side === "A" ? match.teamB : match.teamA;
   const [eventType, setEventType] = useState<"GOAL" | "OWN_GOAL">("GOAL");
@@ -69,6 +72,12 @@ export function GoalRegistrationPanel({
 
   useEffect(() => {
     if (state?.status === "done" && state.match) {
+      push({
+        tone: "success",
+        title: "Gol registrado",
+        description: state.message ?? "Evento registrado com sucesso.",
+        id: "goal-registered",
+      });
       onMatchUpdated(state.match);
       onClose();
     }
@@ -82,20 +91,39 @@ export function GoalRegistrationPanel({
     setAssistId("");
   }
 
-  function onSubmit(event: FormEvent<HTMLFormElement>) {
+  async function onSubmit(event: FormEvent<HTMLFormElement>) {
     if (!scorerId) {
       event.preventDefault();
-      window.alert("Escolha quem marcou.");
+      push({
+        tone: "warning",
+        title: "Escolha quem marcou",
+        description: "Selecione o jogador antes de registrar o gol.",
+        id: "goal-missing-scorer",
+      });
       return;
     }
+    const form = event.currentTarget;
+    if (form.dataset.bypassConfirm === "1") {
+      delete form.dataset.bypassConfirm;
+      return;
+    }
+    event.preventDefault();
     const scorer = eligible.find((player) => player.memberId === scorerId);
     const scorerName = scorer ? playerLabel(scorer) : "jogador";
     const assist = assistId ? eligible.find((player) => player.memberId === assistId) : null;
-    const summary =
+    const description =
       eventType === "GOAL"
         ? `Registrar gol de ${scorerName}${assist ? ` (assist. ${playerLabel(assist)})` : ""} para ${scoringTeam.name}?`
         : `Registrar gol contra de ${scorerName} (${opposingTeam.name})? O ponto conta para ${scoringTeam.name}.`;
-    if (!window.confirm(summary)) event.preventDefault();
+    const ok = await confirm({
+      title: eventType === "GOAL" ? "Confirmar gol" : "Confirmar gol contra",
+      description,
+      confirmLabel: "Registrar",
+    });
+    if (!ok) return;
+    form.dataset.bypassConfirm = "1";
+    if (typeof form.requestSubmit === "function") form.requestSubmit();
+    else form.submit();
   }
 
   return (

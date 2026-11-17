@@ -1,7 +1,9 @@
 "use client";
 
-import { useActionState, type FormEvent } from "react";
+import { useActionState } from "react";
+import { useConfirmSubmit } from "@/components/confirm-dialog";
 import { FormError, SubmitButton } from "@/components/form-fields";
+import { ActionToast } from "@/components/toast/action-toast";
 import type { MemberStatus } from "@/generated/prisma/enums";
 import {
   darkAlertSuccess,
@@ -11,12 +13,6 @@ import {
 } from "@/lib/ui/dark-surfaces";
 import { resetPasswordAction, setMemberStatusAction } from "@/server/modules/members/actions";
 import { TemporaryPassword } from "../temporary-password";
-
-function confirmSubmit(message: string) {
-  return (event: FormEvent<HTMLFormElement>) => {
-    if (!window.confirm(message)) event.preventDefault();
-  };
-}
 
 export function PlayerActions({
   memberId,
@@ -29,10 +25,21 @@ export function PlayerActions({
 }) {
   const [statusState, statusAction, statusPending] = useActionState(setMemberStatusAction, undefined);
   const [resetState, resetAction, resetPending] = useActionState(resetPasswordAction, undefined);
+  const confirmSubmit = useConfirmSubmit();
   const nextStatus: MemberStatus = status === "ACTIVE" ? "INACTIVE" : "ACTIVE";
 
   return (
     <div className="flex flex-col gap-4">
+      <ActionToast
+        state={statusState}
+        successTitle="Participação atualizada"
+        errorTitle="Falha ao atualizar participação"
+      />
+      <ActionToast
+        state={resetState}
+        successTitle="Senha redefinida"
+        errorTitle="Falha ao redefinir senha"
+      />
       <div className={`flex flex-col gap-2 ${darkCardPad}`}>
         <h2 className={darkTitleMd}>Participação</h2>
         <p className={darkMuted}>
@@ -43,7 +50,15 @@ export function PlayerActions({
         <form
           action={statusAction}
           onSubmit={
-            nextStatus === "INACTIVE" ? confirmSubmit(`Desativar ${username}?`) : undefined
+            nextStatus === "INACTIVE"
+              ? confirmSubmit({
+                  title: `Desativar ${username}?`,
+                  description:
+                    "O jogador sai das próximas listas e da divisão da mensalidade. Histórico e login são mantidos.",
+                  confirmLabel: "Desativar",
+                  tone: "danger",
+                })
+              : undefined
           }
         >
           <input type="hidden" name="memberId" value={memberId} />
@@ -55,9 +70,6 @@ export function PlayerActions({
             variant={nextStatus === "INACTIVE" ? "danger" : "primary"}
           />
         </form>
-        {statusState?.status === "done" && (
-          <p className={darkAlertSuccess}>{statusState.message}</p>
-        )}
         <FormError message={statusState?.status === "error" ? statusState.error : undefined} />
       </div>
 
@@ -66,7 +78,16 @@ export function PlayerActions({
         <p className={darkMuted}>
           Gera uma nova senha temporária, encerra todas as sessões do jogador e exige a troca no próximo login.
         </p>
-        <form action={resetAction} onSubmit={confirmSubmit(`Redefinir a senha de ${username}?`)}>
+        <form
+          action={resetAction}
+          onSubmit={confirmSubmit({
+            title: `Redefinir a senha de ${username}?`,
+            description:
+              "Gera uma senha temporária, encerra todas as sessões e exige troca no próximo login.",
+            confirmLabel: "Redefinir",
+            tone: "danger",
+          })}
+        >
           <input type="hidden" name="memberId" value={memberId} />
           <SubmitButton
             pending={resetPending}

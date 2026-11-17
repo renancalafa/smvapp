@@ -1,9 +1,10 @@
 "use client";
 
 import { useActionState } from "react";
+import { useConfirmSubmit } from "@/components/confirm-dialog";
+import { ActionToast } from "@/components/toast/action-toast";
 import {
   darkAlertError,
-  darkAlertSuccess,
   darkBtnDanger,
   darkBtnPrimary,
   darkControl,
@@ -22,9 +23,12 @@ import {
 import type { SessionScoutRow } from "@/server/modules/scouts/queries";
 
 function Feedback({ state }: { state: ScoutActionState }) {
-  if (!state) return null;
-  if (state.status === "error") return <p className={darkAlertError}>{state.error}</p>;
-  return <p className={darkAlertSuccess}>{state.message}</p>;
+  return (
+    <>
+      <ActionToast state={state} successTitle="Scout atualizado" errorTitle="Falha no scout" />
+      {state?.status === "error" ? <p className={darkAlertError}>{state.error}</p> : null}
+    </>
+  );
 }
 
 function scoutLabel(row: SessionScoutRow): string {
@@ -46,6 +50,7 @@ export function SessionScoutsPanel({
 }) {
   const [assignState, assignAction, assigning] = useActionState(assignSessionScoutAction, undefined);
   const [revokeState, revokeAction, revoking] = useActionState(revokeSessionScoutAction, undefined);
+  const confirmSubmit = useConfirmSubmit();
 
   return (
     <section className="flex flex-col gap-3">
@@ -69,7 +74,16 @@ export function SessionScoutsPanel({
                 </p>
               </div>
               {canManage ? (
-                <form action={revokeAction} className="shrink-0">
+                <form
+                  action={revokeAction}
+                  onSubmit={confirmSubmit({
+                    title: "Revogar scout?",
+                    description: `${scoutLabel(row)} deixa de operar partidas nesta sessão.`,
+                    confirmLabel: "Revogar",
+                    tone: "danger",
+                  })}
+                  className="shrink-0"
+                >
                   <input type="hidden" name="sessionId" value={sessionId} />
                   <input type="hidden" name="sessionScoutId" value={row.id} />
                   <button type="submit" disabled={revoking} className={`min-h-10 px-3 ${darkBtnDanger}`}>

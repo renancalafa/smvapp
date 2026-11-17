@@ -21,7 +21,7 @@ import { isValidUsername, normalizeUsername } from "../src/server/auth/validatio
 const USAGE = `Uso:
   npm run bootstrap -- --username <usuario> --name "<nome>" --modality MONTHLY|DAILY
                        [--rating 1-5] [--group-name "Pelada"] [--group-slug pelada]
-                       [--timezone America/Sao_Paulo] [--allow-remote]
+                       [--timezone America/Recife] [--allow-remote]
   Remoto também exige SMV_ALLOW_REMOTE_BOOTSTRAP=I_UNDERSTAND no ambiente.`;
 
 class UsageError extends Error {}
@@ -35,7 +35,7 @@ function parseOptions() {
       rating: { type: "string", default: "3" },
       "group-name": { type: "string", default: "Pelada" },
       "group-slug": { type: "string", default: "pelada" },
-      timezone: { type: "string", default: "America/Sao_Paulo" },
+      timezone: { type: "string", default: "America/Recife" },
       "allow-remote": { type: "boolean", default: false },
       help: { type: "boolean", default: false },
     },

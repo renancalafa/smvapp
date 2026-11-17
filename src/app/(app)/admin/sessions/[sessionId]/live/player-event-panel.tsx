@@ -1,6 +1,7 @@
 "use client";
 
 import { useActionState, useEffect, useId, useMemo, useState, type FormEvent } from "react";
+import { useConfirm, useToast } from "@/components/app-feedback";
 import {
   MATCH_EVENT_LABELS,
   PLAYER_EVENT_TYPES,
@@ -55,6 +56,8 @@ export function PlayerEventPanel({
   const [state, action, pending] = useActionState(recordMatchEventAction, undefined);
   const operationId = useOperationId(state);
   const formId = useId();
+  const confirm = useConfirm();
+  const { push } = useToast();
   const [eventType, setEventType] = useState<PlayerEventType | "">("");
 
   const teamName =
@@ -62,20 +65,44 @@ export function PlayerEventPanel({
 
   useEffect(() => {
     if (state?.status === "done" && state.match) {
+      push({
+        tone: "success",
+        title: "Evento registrado",
+        description: state.message ?? "Registro salvo com sucesso.",
+        id: "player-event-registered",
+      });
       onMatchUpdated(state.match);
       onClose();
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps -- intentionally [state]
   }, [state]);
 
-  function onSubmit(event: FormEvent<HTMLFormElement>) {
+  async function onSubmit(event: FormEvent<HTMLFormElement>) {
     if (!eventType) {
       event.preventDefault();
-      window.alert("Escolha o tipo de evento.");
+      push({
+        tone: "warning",
+        title: "Escolha o tipo de evento",
+        description: "Selecione um evento estatístico antes de confirmar.",
+        id: "player-event-missing-type",
+      });
       return;
     }
-    const summary = `Registrar ${MATCH_EVENT_LABELS[eventType].toLowerCase()} para ${playerLabel(player)} (${teamName})?`;
-    if (!window.confirm(summary)) event.preventDefault();
+    const form = event.currentTarget;
+    if (form.dataset.bypassConfirm === "1") {
+      delete form.dataset.bypassConfirm;
+      return;
+    }
+    event.preventDefault();
+    const ok = await confirm({
+      title: "Confirmar evento",
+      description: `Registrar ${MATCH_EVENT_LABELS[eventType].toLowerCase()} para ${playerLabel(player)} (${teamName})?`,
+      confirmLabel: "Registrar",
+    });
+    if (!ok) return;
+    form.dataset.bypassConfirm = "1";
+    if (typeof form.requestSubmit === "function") form.requestSubmit();
+    else form.submit();
   }
 
   return (

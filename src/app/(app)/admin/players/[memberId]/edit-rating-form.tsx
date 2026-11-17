@@ -1,9 +1,10 @@
 "use client";
 
 import { useActionState, type FormEvent } from "react";
+import { useConfirm } from "@/components/confirm-dialog";
 import { FormError, SelectField, SubmitButton } from "@/components/form-fields";
+import { ActionToast } from "@/components/toast/action-toast";
 import {
-  darkAlertSuccess,
   darkCardPad,
   darkMuted,
   darkTitleMd,
@@ -25,21 +26,33 @@ export function EditRatingForm({
   baseRating: number;
 }) {
   const [state, formAction, pending] = useActionState(changeMemberRatingAction, undefined);
+  const confirm = useConfirm();
 
-  function onSubmit(event: FormEvent<HTMLFormElement>) {
+  async function onSubmit(event: FormEvent<HTMLFormElement>) {
     const form = event.currentTarget;
+    if (form.dataset.bypassConfirm === "1") {
+      delete form.dataset.bypassConfirm;
+      return;
+    }
+    event.preventDefault();
     const selected = Number(new FormData(form).get("baseRating"));
     const label = Number.isInteger(selected) ? selected : "?";
-    const message =
-      `Alterar a nota de ${username}?\n\n` +
-      `Atual: ${baseRating} → Nova: ${label}\n\n` +
-      "Sorteios e times já definidos nesta ou em outras sessões não são recalculados. " +
-      "O próximo sorteio usa a nota nova. Modalidade, papel, presença e estatísticas permanecem iguais.";
-    if (!window.confirm(message)) event.preventDefault();
+    const ok = await confirm({
+      title: `Alterar a nota de ${username}?`,
+      description:
+        `Atual: ${baseRating} → Nova: ${label}. Sorteios e times já definidos não são recalculados. ` +
+        "O próximo sorteio usa a nota nova.",
+      confirmLabel: "Salvar nota",
+    });
+    if (!ok) return;
+    form.dataset.bypassConfirm = "1";
+    if (typeof form.requestSubmit === "function") form.requestSubmit();
+    else form.submit();
   }
 
   return (
     <div className={`flex flex-col gap-2 ${darkCardPad}`}>
+      <ActionToast state={state} successTitle="Nota atualizada" errorTitle="Falha ao salvar nota" />
       <h2 className={darkTitleMd}>Editar nota</h2>
       <p className={darkMuted}>
         Nota atual:{" "}
@@ -60,7 +73,6 @@ export function EditRatingForm({
         />
         <SubmitButton pending={pending} label="Salvar nota" pendingLabel="Salvando…" />
       </form>
-      {state?.status === "done" && <p className={darkAlertSuccess}>{state.message}</p>}
       <FormError message={state?.status === "error" ? state.error : undefined} />
     </div>
   );

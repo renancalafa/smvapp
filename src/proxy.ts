@@ -12,7 +12,12 @@ export function proxy(request: NextRequest) {
   if (!request.cookies.has(SESSION_COOKIE_NAME)) {
     return NextResponse.redirect(new URL("/login", request.url));
   }
-  return NextResponse.next();
+  // Pathname para o DAL aplicar restrição financeira sem depender do fuso do browser.
+  const requestHeaders = new Headers(request.headers);
+  requestHeaders.set("x-smv-pathname", request.nextUrl.pathname);
+  return NextResponse.next({
+    request: { headers: requestHeaders },
+  });
 }
 
 export const config = {

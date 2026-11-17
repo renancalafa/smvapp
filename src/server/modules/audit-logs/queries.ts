@@ -120,6 +120,7 @@ const AUDIT_CATEGORIES_FLAT = [
   ...actionsForCategory("ADMIN"),
   ...actionsForCategory("AUTH"),
   ...actionsForCategory("SYSTEM"),
+  ...actionsForCategory("FINANCE"),
 ];
 
 /** Where compartilhado entre lista e resumo. `omitOutcome` ignora filtro de resultado (cards do dashboard). */

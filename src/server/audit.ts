@@ -64,7 +64,22 @@ export type AuditAction =
   | "OPERATION_FAILED"
   | "DEV_RESET_MATCHES"
   | "DEV_RESET_DRAW_AND_MATCHES"
-  | "PUSH_TEST_SENT";
+  | "PUSH_TEST_SENT"
+  | "BILLING_CYCLE_FROZEN"
+  | "BILLING_CYCLE_ACTIVATION_OVERRIDDEN"
+  | "FINANCE_INITIALIZED"
+  | "DAILY_FEE_CHARGES_GENERATED"
+  | "CHARGE_CREATED"
+  | "CHARGE_CANCELLED"
+  | "CHARGE_REACTIVATED"
+  | "PAYMENT_CONFIRMED"
+  | "PAYMENT_REVERSED"
+  | "FIELD_COST_RECORDED"
+  | "CASH_TRANSACTION_REVERSED"
+  | "MEMBER_FEE_EXEMPT_CHANGED"
+  | "BILLING_CREDIT_APPROVED"
+  | "OTHER_EXPENSE_RECORDED"
+  | "CASH_ADJUSTMENT_RECORDED";
 
 /** Entidades referenciadas no AuditLog (AuditLog.entityType). */
 export type AuditEntityType =
@@ -79,7 +94,12 @@ export type AuditEntityType =
   | "Match"
   | "MatchPlayer"
   | "MatchEvent"
-  | "PushSubscription";
+  | "PushSubscription"
+  | "BillingCycle"
+  | "Charge"
+  | "Payment"
+  | "CashTransaction"
+  | "BillingCreditAllocation";
 
 export type AuditLogEntry = {
   groupId: string;

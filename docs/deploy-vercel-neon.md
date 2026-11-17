@@ -27,8 +27,22 @@ Runbook do primeiro deploy do SMV. **Não** rode `migrate reset` em produção. 
 | `VAPID_PRIVATE_KEY` | Chave privada VAPID do mesmo par (Sensitive) | Production |
 | `VAPID_SUBJECT` | `mailto:voce@dominio` | Production |
 | `NODE_ENV` | definido pela Vercel como `production` | — |
+| `SMV_RECEIPT_STORAGE` | `s3` | Production. Comprovantes **não** podem usar disco local na Vercel |
+| `SMV_RECEIPT_S3_ENDPOINT` | `https://<ACCOUNT_ID>.r2.cloudflarestorage.com` | Production (API S3 do R2; **não** URL pública do bucket) |
+| `SMV_RECEIPT_S3_BUCKET` | nome do bucket privado | Production |
+| `SMV_RECEIPT_S3_ACCESS_KEY_ID` | API token R2 (Sensitive) | Production |
+| `SMV_RECEIPT_S3_SECRET_ACCESS_KEY` | secret do token R2 (Sensitive) | Production |
+| `SMV_RECEIPT_S3_REGION` | `auto` (padrão R2) | Production |
 
 Não coloquem `.env` no Git. O runtime da app usa só `DATABASE_URL` (pool serverless com `max: 1` em `src/server/db.ts`).
+
+### Comprovantes (Cloudflare R2)
+
+1. Crie um bucket R2 **privado** (sem acesso público / sem custom domain público para objetos).
+2. Crie um API token R2 com permissão de Object Read & Write **somente** nesse bucket.
+3. Na Vercel, defina as variáveis `SMV_RECEIPT_*` acima. Sem elas (ou com `SMV_RECEIPT_STORAGE=local`), upload/download de comprovantes falha fechado — **não** há fallback para filesystem.
+4. Downloads passam só por `GET /api/finance/receipts/[receiptId]` (dono ou ADMIN). A app nunca expõe URLs públicas do R2 nem credenciais ao browser.
+5. Mantenha `financeAccessLocksEnabled` desligado até revisar dados de cobrança; storage R2 é independente dos locks.
 
 ## Rate limit de login (escolhas)
 
@@ -97,6 +111,7 @@ npm run bootstrap -- --username seu.usuario --name "Seu Nome" --modality MONTHLY
 2. Defina em Production:
    - `DATABASE_URL` (pooled);
    - `CRON_SECRET`, se algum agendador for chamar `/api/cron/tick` (passo 6);
+   - comprovantes: `SMV_RECEIPT_STORAGE=s3` + endpoint/bucket/chaves R2 (tabela acima; Sensitive nas secrets);
    - para notificações push: `NEXT_PUBLIC_VAPID_PUBLIC_KEY`, `VAPID_PRIVATE_KEY` (marque como Sensitive) e `VAPID_SUBJECT`, de um par gerado só para produção (`docs/push-notifications.md`). Sem as três, o app funciona normalmente com o push desligado. Variáveis novas ou alteradas só valem depois de um novo deploy.
 3. Deploy a partir do branch aprovado.
 4. Abra `https://<dominio>/login`, entre com a senha temporária e troque a senha.
@@ -121,6 +136,8 @@ A rota continua protegida: sem `CRON_SECRET` definido, ou com segredo errado, re
 - [ ] Ferramentas “dev reset” **não** aparecem
 - [ ] `GET /api/cron/tick` sem secret → 401; com secret (se `CRON_SECRET` estiver definido) → `{ ok: true, … }`
 - [ ] Conta → Ativar notificações → Enviar notificação de teste chega no Android e no iPhone instalado (`docs/push-notifications.md`)
+- [ ] Declaração de pagamento com comprovante grava no R2; download autenticado em `/api/finance/receipts/[id]` funciona para dono/ADMIN e 403 para outros
+- [ ] Sem `SMV_RECEIPT_STORAGE=s3` completo, upload de comprovante falha (não grava em disco da Vercel)
 
 ## Rollback (cuidados)
 

@@ -2,7 +2,13 @@ import Image from "next/image";
 import Link from "next/link";
 import { LogoutForm } from "@/components/logout-form";
 import { requireViewer } from "@/server/auth/dal";
+import { getFinancialAccessForViewer } from "@/server/modules/finance/access";
 import { getNightNavMode, nightNavItem } from "@/server/modules/nav/night-mode";
+import {
+  restrictedDesktopNavItems,
+  restrictedMobileNavItems,
+  shouldUseRestrictedNav,
+} from "@/domain/nav/restricted-nav";
 import type { NavItem } from "./app-nav";
 import { NightAwareBottomNav, NightAwareSideNav } from "./night-mode-nav";
 
@@ -10,6 +16,9 @@ import { NightAwareBottomNav, NightAwareSideNav } from "./night-mode-nav";
 // renderizado de novo a cada navegação.
 export default async function AppLayout({ children }: { children: React.ReactNode }) {
   const viewer = await requireViewer();
+  const access = await getFinancialAccessForViewer(viewer);
+  const paymentRestricted = shouldUseRestrictedNav(access.mode);
+
   const nightItem = nightNavItem(await getNightNavMode(viewer.group.id));
   const nightNav: NavItem = {
     href: nightItem.href,
@@ -21,20 +30,38 @@ export default async function AppLayout({ children }: { children: React.ReactNod
   // Admin/Conta/Sair ficam no sheet "Mais". Desktop mantém a lateral completa.
   // Admin nas páginas ainda exige requireAdmin() — ocultar no UI não é a fronteira.
   const isAdmin = viewer.member.role === "ADMIN";
-  const mobileItems: NavItem[] = [
+  const mobileItemsFull: NavItem[] = [
     { href: "/", label: "Início", icon: "home" },
     nightNav,
     { href: "/historico", label: "Histórico", icon: "historico" },
     { href: "/stats", label: "Estatísticas", icon: "stats" },
   ];
-  // Admin vira submenu expansível na SideNav (não um item plano /admin).
-  const desktopItems: NavItem[] = [
+  const desktopItemsFull: NavItem[] = [
     { href: "/", label: "Início", icon: "home" },
     nightNav,
     { href: "/historico", label: "Histórico", icon: "historico" },
     { href: "/stats", label: "Estatísticas", icon: "stats" },
+    { href: "/financeiro", label: "Financeiro", icon: "finance" },
+    { href: "/pagamentos", label: "Pagamentos", icon: "account" },
     { href: "/account", label: "Conta", icon: "account" },
   ];
+
+  const paymentNavItem: NavItem = {
+    href: "/pagamentos",
+    label: "Pagamentos",
+    icon: "account",
+  };
+  const financeNavItem: NavItem = {
+    href: "/financeiro",
+    label: "Financeiro",
+    icon: "finance",
+  };
+  const mobileItems = paymentRestricted
+    ? restrictedMobileNavItems(mobileItemsFull, paymentNavItem, financeNavItem)
+    : mobileItemsFull;
+  const desktopItems = paymentRestricted
+    ? restrictedDesktopNavItems(desktopItemsFull)
+    : desktopItemsFull;
 
   // min-h-full (not flex-1): shell grows with content so the document scrolls.
   // flex-1 under a fixed html/body height locked the shell to the viewport and
@@ -43,7 +70,7 @@ export default async function AppLayout({ children }: { children: React.ReactNod
     <div className="flex min-h-full flex-col bg-smv-navy-deep md:flex-row">
       <aside className="hidden md:sticky md:top-0 md:flex md:h-dvh md:w-60 md:shrink-0 md:flex-col md:border-r md:border-white/10 md:bg-smv-navy md:p-4">
         <Link
-          href="/"
+          href={paymentRestricted ? "/pagamentos" : "/"}
           aria-label="Início · Safadeza e Ma Vontade FC"
           className="mb-7 flex items-center justify-center px-2 py-3 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-smv-gold"
         >
@@ -56,9 +83,14 @@ export default async function AppLayout({ children }: { children: React.ReactNod
             className="h-16 w-auto object-contain drop-shadow-[0_6px_16px_rgba(0,0,0,0.45)]"
           />
         </Link>
+        {paymentRestricted ? (
+          <p className="mb-3 rounded-xl bg-amber-400/15 px-3 py-2 text-xs text-amber-100 ring-1 ring-amber-300/30">
+            Acesso limitado — pendência financeira.
+          </p>
+        ) : null}
         <NightAwareSideNav
           items={desktopItems}
-          showAdmin={isAdmin}
+          showAdmin={isAdmin && !paymentRestricted}
           initialNight={{
             href: nightItem.href,
             label: nightItem.label,
@@ -79,7 +111,7 @@ export default async function AppLayout({ children }: { children: React.ReactNod
         <header className="sticky top-0 z-10 border-b border-white/10 bg-smv-navy/95 pt-[env(safe-area-inset-top)] backdrop-blur md:hidden">
           <div className="flex h-14 items-center justify-between gap-3 px-4">
             <Link
-              href="/"
+              href={paymentRestricted ? "/pagamentos" : "/"}
               className="flex items-center gap-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-smv-gold"
             >
               <Image
@@ -102,7 +134,7 @@ export default async function AppLayout({ children }: { children: React.ReactNod
 
       <NightAwareBottomNav
         items={mobileItems}
-        showAdminInMore={isAdmin}
+        showAdminInMore={isAdmin && !paymentRestricted}
         initialNight={{
           href: nightItem.href,
           label: nightItem.label,

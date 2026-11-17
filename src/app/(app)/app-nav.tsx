@@ -13,7 +13,16 @@ import { MobileMoreSheet } from "./mobile-more-sheet";
 
 export { isMaisNavActive, isNavHrefActive } from "@/domain/nav/mobile-active";
 
-export type NavIcon = "home" | "live" | "rodada" | "historico" | "stats" | "admin" | "account" | "more";
+export type NavIcon =
+  | "home"
+  | "live"
+  | "rodada"
+  | "historico"
+  | "stats"
+  | "admin"
+  | "account"
+  | "finance"
+  | "more";
 export type NavItem = { href: string; label: string; icon: NavIcon };
 
 const ICON_PATHS: Record<NavIcon, string> = {
@@ -24,6 +33,7 @@ const ICON_PATHS: Record<NavIcon, string> = {
   stats: "M4 19V9m5 10V5m5 14v-6m5 6V3",
   admin: "M12 3 4 6v6c0 4.5 3.4 8.3 8 9 4.6-.7 8-4.5 8-9V6zm0 6v4m0 3h.01",
   account: "M12 12a4 4 0 1 0 0-8 4 4 0 0 0 0 8zm-8 9a8 8 0 0 1 16 0",
+  finance: "M12 3v18M7 8h8a3 3 0 0 1 0 6H9a3 3 0 0 0 0 6h8",
   more: "M5 12h.01M12 12h.01M19 12h.01",
 };
 
@@ -87,7 +97,17 @@ export function BottomNav({
         aria-label="Navegação principal"
         className="fixed inset-x-0 bottom-0 z-40 border-t border-white/10 bg-smv-navy/95 pb-[env(safe-area-inset-bottom)] backdrop-blur md:hidden"
       >
-        <ul className="grid grid-cols-5">
+        <ul
+          className={
+            items.length <= 1
+              ? "grid grid-cols-2"
+              : items.length === 2
+                ? "grid grid-cols-3"
+                : items.length === 3
+                  ? "grid grid-cols-4"
+                  : "grid grid-cols-5"
+          }
+        >
           {items.map((item) => {
             const active = pathname !== null && isNavHrefActive(pathname, item.href);
             return (

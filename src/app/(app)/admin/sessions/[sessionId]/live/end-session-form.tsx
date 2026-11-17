@@ -2,9 +2,9 @@
 
 import { useActionState, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
+import { ActionToast } from "@/components/toast/action-toast";
 import {
   darkAlertError,
-  darkAlertSuccess,
   darkBody,
   darkBtnDanger,
   darkBtnSecondary,
@@ -16,11 +16,12 @@ import {
 import { endSessionAction, type SessionActionState } from "@/server/modules/sessions/actions";
 
 function Feedback({ state }: { state: SessionActionState }) {
-  if (!state) return null;
-  if (state.status === "error") {
-    return <p className={darkAlertError}>{state.error}</p>;
-  }
-  return <p className={darkAlertSuccess}>{state.message}</p>;
+  return (
+    <>
+      <ActionToast state={state} successTitle="Sessão encerrada" errorTitle="Falha ao encerrar" />
+      {state?.status === "error" ? <p className={darkAlertError}>{state.error}</p> : null}
+    </>
+  );
 }
 
 /** Formulário ADMIN para encerrar a sessão (não aparece em /live). */

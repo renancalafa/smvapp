@@ -39,6 +39,9 @@
     "check:dev-reset": "tsx scripts/check-dev-reset.ts",
     "check:member-role": "tsx scripts/check-member-role.ts",
     "check:member-modality": "tsx scripts/check-member-modality.ts",
+    "check:finance": "tsx scripts/check-finance.ts",
+    "check:app-feedback": "tsx scripts/check-app-feedback.ts",
+    "seed:finance-phase3": "tsx scripts/seed-finance-phase3-scenarios.ts",
     "check:member-rating": "tsx scripts/check-member-rating.ts",
     "check:own-profile": "tsx scripts/check-own-profile.ts",
     "check:extraordinary": "tsx scripts/check-extraordinary.ts",
@@ -54,6 +57,7 @@
     "postinstall": "prisma generate"
   },
   "dependencies": {
+    "@aws-sdk/client-s3": "^3.1169.0",
     "@prisma/adapter-pg": "7.10.0",
     "@prisma/client": "7.10.0",
     "next": "16.3.8",

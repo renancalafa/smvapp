@@ -17,9 +17,26 @@ export const AGENDA_SETTINGS_SELECT = {
   updatedByUserId: true,
 } as const;
 
+export const SESSION_FORMAT_SELECT = {
+  ...AGENDA_SETTINGS_SELECT,
+  maxExtraMinutes: true,
+  maxPlayers: true,
+  teamSize: true,
+  matchDurationSec: true,
+  drawOptionsCount: true,
+  drawMinOptionDifference: true,
+} as const;
+
 export async function getAgendaSettings(groupId: string) {
   return db.groupSettings.findUnique({
     where: { groupId },
     select: AGENDA_SETTINGS_SELECT,
+  });
+}
+
+export async function getSessionFormatSettings(groupId: string) {
+  return db.groupSettings.findUnique({
+    where: { groupId },
+    select: SESSION_FORMAT_SELECT,
   });
 }

@@ -5,7 +5,7 @@ export type CivilDate = { year: number; month: number; day: number };
 const WEEKDAYS = ["SUNDAY", "MONDAY", "TUESDAY", "WEDNESDAY", "THURSDAY", "FRIDAY", "SATURDAY"] as const;
 export type WeekdayName = (typeof WEEKDAYS)[number];
 
-function zonedParts(instant: Date, timeZone: string) {
+export function zonedParts(instant: Date, timeZone: string) {
   const parts = new Intl.DateTimeFormat("en-US", {
     timeZone,
     hourCycle: "h23",

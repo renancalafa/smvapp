@@ -1,5 +1,6 @@
 import type { Metadata, Viewport } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
+import { AppFeedback } from "@/components/app-feedback";
 import { APP_DESCRIPTION, APP_NAME, THEME_COLOR } from "@/lib/pwa/config";
 import { ServiceWorkerRegistrar } from "@/lib/pwa/service-worker-registrar";
 import "./globals.css";
@@ -46,8 +47,10 @@ export default function RootLayout({
       className={`${geistSans.variable} ${geistMono.variable} min-h-full antialiased`}
     >
       <body className="min-h-full flex flex-col">
-        {children}
-        <ServiceWorkerRegistrar />
+        <AppFeedback>
+          {children}
+          <ServiceWorkerRegistrar />
+        </AppFeedback>
       </body>
     </html>
   );

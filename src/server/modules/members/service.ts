@@ -6,6 +6,7 @@ import type { Viewer } from "@/server/auth/dal";
 import { generateTemporaryPassword, hashPassword } from "@/server/auth/password";
 import { db } from "@/server/db";
 import { UserFacingError } from "@/server/errors";
+import { ensureLateJoinMonthlyChargeInTx } from "@/server/modules/finance/late-join";
 import { releaseMemberFromUpcomingSessions } from "@/server/modules/sessions/service";
 import { getMonthlyJoinPolicy } from "./queries";
 import type { CreatePlayerInput, OwnProfileInput } from "./validation";
@@ -77,6 +78,14 @@ export async function createPlayer(viewer: Viewer, input: CreatePlayerInput): Pr
           status: "ACTIVE",
         },
       });
+      if (input.modality === "MONTHLY") {
+        await ensureLateJoinMonthlyChargeInTx(tx, {
+          groupId: viewer.group.id,
+          memberId: member.id,
+          timeZone: viewer.group.timezone,
+          actorUserId: viewer.user.id,
+        });
+      }
       return { memberId: member.id, name: input.name, username: input.username, temporaryPassword };
     });
   } catch (error) {
@@ -133,6 +142,15 @@ export async function setMemberStatus(
       before: { status: member.status },
       after: { status },
     });
+
+    if (status === "ACTIVE" && member.modality === "MONTHLY") {
+      await ensureLateJoinMonthlyChargeInTx(tx, {
+        groupId: viewer.group.id,
+        memberId: member.id,
+        timeZone: viewer.group.timezone,
+        actorUserId: viewer.user.id,
+      });
+    }
 
     const releasedSessions =
       status === "INACTIVE"
@@ -305,6 +323,13 @@ export async function promoteMemberToMonthly(
           status: member.status,
           feeExempt: member.feeExempt,
         },
+      });
+
+      await ensureLateJoinMonthlyChargeInTx(tx, {
+        groupId: viewer.group.id,
+        memberId: member.id,
+        timeZone: viewer.group.timezone,
+        actorUserId: viewer.user.id,
       });
 
       return { previousModality: "DAILY", newModality: "MONTHLY" };

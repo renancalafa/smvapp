@@ -1,10 +1,11 @@
 "use client";
 
-import { useActionState, type FormEvent } from "react";
+import { useActionState } from "react";
+import { useConfirmSubmit } from "@/components/confirm-dialog";
 import { FormError, SelectField, SubmitButton, TextField } from "@/components/form-fields";
+import { ActionToast } from "@/components/toast/action-toast";
 import {
   darkAlertError,
-  darkAlertSuccess,
   darkAlertWarn,
   darkBody,
   darkCardPad,
@@ -22,27 +23,29 @@ import {
 } from "@/server/modules/draws/actions";
 
 function Feedback({ state }: { state: DrawActionState }) {
-  if (!state) return null;
-  if (state.status === "error") return <FormError message={state.error} />;
   return (
-    <p role="status" className={darkAlertSuccess}>
-      {state.message}
-    </p>
+    <>
+      <ActionToast state={state} successTitle="Sorteio atualizado" errorTitle="Falha no sorteio" />
+      {state?.status === "error" ? <FormError message={state.error} /> : null}
+    </>
   );
 }
 
 export function GenerateDrawForm({ sessionId, early }: { sessionId: string; early: boolean }) {
   const [state, formAction, pending] = useActionState(generateDrawAction, undefined);
-  function confirmGenerate(event: FormEvent<HTMLFormElement>) {
-    const message = early
-      ? "Antecipar o sorteio, antes do prazo dos mensalistas? A lista de presença trava agora: ninguém desiste " +
-        "nem entra como participante sem um administrador, e a fila não promove automaticamente. Até o prazo, " +
-        "mensalistas que ainda não confirmaram só podem entrar na lista de espera; diaristas ficam travados."
-      : "Gerar o sorteio e abrir a votação? A partir daí só os administradores alteram a lista de presença.";
-    if (!window.confirm(message)) event.preventDefault();
-  }
+  const confirmSubmit = useConfirmSubmit();
   return (
-    <form action={formAction} onSubmit={confirmGenerate} className="flex flex-col gap-2">
+    <form
+      action={formAction}
+      onSubmit={confirmSubmit({
+        title: early ? "Antecipar o sorteio?" : "Gerar o sorteio?",
+        description: early
+          ? "A lista de presença trava agora: ninguém desiste nem entra como participante sem um administrador, e a fila não promove automaticamente. Até o prazo, mensalistas que ainda não confirmaram só podem entrar na lista de espera; diaristas ficam travados."
+          : "A votação abre neste passo. A partir daí só os administradores alteram a lista de presença.",
+        confirmLabel: early ? "Antecipar" : "Gerar sorteio",
+      })}
+      className="flex flex-col gap-2"
+    >
       <input type="hidden" name="sessionId" value={sessionId} />
       <p className={darkBody}>
         O sistema gera as opções e abre a votação no mesmo passo. Com a votação aberta, a lista fica travada para os
@@ -62,11 +65,17 @@ export function GenerateDrawForm({ sessionId, early }: { sessionId: string; earl
 
 export function CloseVotingForm({ sessionId, drawId }: { sessionId: string; drawId: string }) {
   const [state, formAction, pending] = useActionState(closeVotingAction, undefined);
-  function confirmClose(event: FormEvent<HTMLFormElement>) {
-    if (!window.confirm("Encerrar a votação agora? Com maioria, o sorteio vira oficial.")) event.preventDefault();
-  }
+  const confirmSubmit = useConfirmSubmit();
   return (
-    <form action={formAction} onSubmit={confirmClose} className="flex flex-col gap-2">
+    <form
+      action={formAction}
+      onSubmit={confirmSubmit({
+        title: "Encerrar a votação agora?",
+        description: "Com maioria, o sorteio vira oficial.",
+        confirmLabel: "Encerrar votação",
+      })}
+      className="flex flex-col gap-2"
+    >
       <input type="hidden" name="sessionId" value={sessionId} />
       <input type="hidden" name="drawId" value={drawId} />
       <SubmitButton pending={pending} label="Encerrar votação" pendingLabel="Encerrando…" />
@@ -115,16 +124,22 @@ export function InvalidateDrawForm({
   decided: boolean;
 }) {
   const [state, formAction, pending] = useActionState(invalidateDrawAction, undefined);
-  function confirmInvalidate(event: FormEvent<HTMLFormElement>) {
-    const message = decided
-      ? "Invalidar o sorteio oficial? Os times da sessão serão desfeitos; o histórico e os votos ficam preservados."
-      : "Invalidar este sorteio? Os votos ficam no histórico e não são transferidos.";
-    if (!window.confirm(message)) event.preventDefault();
-  }
+  const confirmSubmit = useConfirmSubmit();
   return (
     <details className={`border border-red-300/30 p-4 ${darkCardPad}`}>
       <summary className="cursor-pointer font-medium text-red-200">Refazer sorteio…</summary>
-      <form action={formAction} onSubmit={confirmInvalidate} className="mt-3 flex flex-col gap-3">
+      <form
+        action={formAction}
+        onSubmit={confirmSubmit({
+          title: decided ? "Invalidar o sorteio oficial?" : "Invalidar este sorteio?",
+          description: decided
+            ? "Os times da sessão serão desfeitos; o histórico e os votos ficam preservados."
+            : "Os votos ficam no histórico e não são transferidos.",
+          confirmLabel: "Invalidar sorteio",
+          tone: "danger",
+        })}
+        className="mt-3 flex flex-col gap-3"
+      >
         <p className={darkBody}>
           Ação excepcional, só antes da primeira partida, registrada no histórico com o motivo. O sorteio atual, suas
           opções e votos ficam no histórico. Sem gerar o novo sorteio agora, a lista volta a abrir para os jogadores e a

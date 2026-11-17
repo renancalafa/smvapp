@@ -32,8 +32,5 @@ export function monthlyJoinPolicy(input: {
       reason: `Mensalistas só podem entrar ou ser reativados do dia 1 ao dia ${input.monthlyFeeDueDay} do mês.`,
     };
   }
-  return {
-    allowed: false,
-    reason: "A entrada ou reativação de mensalista após a implantação financeira depende do módulo de cobranças, ainda não disponível.",
-  };
+  return { allowed: true };
 }

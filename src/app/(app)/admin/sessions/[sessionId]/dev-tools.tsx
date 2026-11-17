@@ -1,9 +1,10 @@
 "use client";
 
 import { useActionState, type FormEvent } from "react";
+import { useConfirm, useToast } from "@/components/app-feedback";
 import { FormError, SubmitButton, TextField } from "@/components/form-fields";
+import { ActionToast } from "@/components/toast/action-toast";
 import {
-  darkAlertSuccess,
   darkAlertWarn,
   darkBody,
   darkInset,
@@ -40,18 +41,36 @@ function ResetForm({
   buttonLabel: string;
 }) {
   const [state, formAction, pending] = useActionState(devResetSessionAction, undefined);
+  const confirm = useConfirm();
+  const { push } = useToast();
 
-  function onSubmit(event: FormEvent<HTMLFormElement>) {
+  async function onSubmit(event: FormEvent<HTMLFormElement>) {
     const form = event.currentTarget;
-    const typed = new FormData(form).get("confirmation");
-    if (String(typed ?? "").trim().toUpperCase() !== "RESETAR") {
-      event.preventDefault();
-      window.alert("Digite RESETAR no campo de confirmação antes de continuar.");
+    if (form.dataset.bypassConfirm === "1") {
+      delete form.dataset.bypassConfirm;
       return;
     }
-    if (!window.confirm(confirmMessage)) {
-      event.preventDefault();
+    event.preventDefault();
+    const typed = new FormData(form).get("confirmation");
+    if (String(typed ?? "").trim().toUpperCase() !== "RESETAR") {
+      push({
+        tone: "warning",
+        title: "Confirmação incompleta",
+        description: "Digite RESETAR no campo de confirmação antes de continuar.",
+        id: "dev-reset-confirm-text",
+      });
+      return;
     }
+    const ok = await confirm({
+      title: "Confirmar reset de desenvolvimento",
+      description: confirmMessage,
+      confirmLabel: "Resetar",
+      tone: "danger",
+    });
+    if (!ok) return;
+    form.dataset.bypassConfirm = "1";
+    if (typeof form.requestSubmit === "function") form.requestSubmit();
+    else form.submit();
   }
 
   return (
@@ -60,6 +79,7 @@ function ResetForm({
       onSubmit={onSubmit}
       className={`flex flex-col gap-3 border border-amber-300/30 p-4 ${darkAlertWarn}`}
     >
+      <ActionToast state={state} successTitle="Reset concluído" errorTitle="Falha no reset" />
       <input type="hidden" name="sessionId" value={sessionId} />
       <input type="hidden" name="level" value={level} />
       <h3 className="font-medium text-amber-50">{title}</h3>
@@ -75,7 +95,6 @@ function ResetForm({
         autoComplete="off"
       />
       <FormError message={state?.status === "error" ? state.error : undefined} />
-      {state?.status === "done" && <p className={darkAlertSuccess}>{state.message}</p>}
       <SubmitButton pending={pending} label={buttonLabel} pendingLabel="Resetando…" variant="danger" />
     </form>
   );

@@ -1,10 +1,11 @@
 "use client";
 
-import { useActionState, type FormEvent } from "react";
+import { useActionState } from "react";
+import { useConfirmSubmit } from "@/components/confirm-dialog";
 import { FormError, SubmitButton } from "@/components/form-fields";
+import { ActionToast } from "@/components/toast/action-toast";
 import type { MemberStatus, PlayerModality } from "@/generated/prisma/enums";
 import {
-  darkAlertSuccess,
   darkCardPad,
   darkMuted,
   darkTitleMd,
@@ -12,22 +13,9 @@ import {
 import { promoteMemberToMonthlyAction } from "@/server/modules/members/actions";
 import { MODALITY_LABEL } from "../../../labels";
 
-const PROMOTE_CONFIRM =
-  "Promover este diarista a MENSALISTA?\n\n" +
-  "O que muda:\n" +
-  "• A modalidade passa a Mensalista imediatamente na ficha e nas listas.\n" +
-  "• Nas próximas confirmações de presença, vale a prioridade de mensalista.\n\n" +
-  "O que NÃO muda:\n" +
-  "• Inscrições já feitas (participante/espera), snapshots de modalidade e fila das sessões atuais.\n" +
-  "• Papel, isenção financeira, estatísticas, pagamentos e histórico.\n" +
-  "• Ninguém é deslocado automaticamente de uma sessão em andamento.\n\n" +
-  "Cobranças: se a implantação financeira já ocorreu, a promoção pode ser bloqueada pela mesma regra de entrada de novos mensalistas (módulo de cobranças).";
-
-function confirmSubmit(message: string) {
-  return (event: FormEvent<HTMLFormElement>) => {
-    if (!window.confirm(message)) event.preventDefault();
-  };
-}
+const PROMOTE_DESCRIPTION =
+  "A modalidade passa a Mensalista imediatamente. Inscrições já feitas, papel, estatísticas e histórico não mudam. " +
+  "Se a implantação financeira já ocorreu, a promoção pode ser bloqueada pela regra de entrada de novos mensalistas.";
 
 export function PromoteModality({
   memberId,
@@ -41,10 +29,16 @@ export function PromoteModality({
   status: MemberStatus;
 }) {
   const [state, formAction, pending] = useActionState(promoteMemberToMonthlyAction, undefined);
+  const confirmSubmit = useConfirmSubmit();
   const eligible = modality === "DAILY" && status === "ACTIVE";
 
   return (
     <div className={`flex flex-col gap-2 ${darkCardPad}`}>
+      <ActionToast
+        state={state}
+        successTitle="Modalidade atualizada"
+        errorTitle="Falha ao promover"
+      />
       <h2 className={darkTitleMd}>Modalidade</h2>
       <p className={darkMuted}>
         Modalidade atual:{" "}
@@ -52,7 +46,14 @@ export function PromoteModality({
         {status !== "ACTIVE" ? " Só diaristas ativos podem ser promovidos." : null}
       </p>
       {eligible ? (
-        <form action={formAction} onSubmit={confirmSubmit(PROMOTE_CONFIRM)}>
+        <form
+          action={formAction}
+          onSubmit={confirmSubmit({
+            title: "Promover a mensalista?",
+            description: PROMOTE_DESCRIPTION,
+            confirmLabel: "Promover",
+          })}
+        >
           <input type="hidden" name="memberId" value={memberId} />
           <SubmitButton
             pending={pending}
@@ -64,7 +65,6 @@ export function PromoteModality({
       ) : modality === "MONTHLY" ? (
         <p className={darkMuted}>Este jogador já é mensalista. Não há rebaixamento nesta tela.</p>
       ) : null}
-      {state?.status === "done" && <p className={darkAlertSuccess}>{state.message}</p>}
       <FormError message={state?.status === "error" ? state.error : undefined} />
     </div>
   );

@@ -157,7 +157,7 @@ Configuração atual:
 - Diferença mínima entre opções de sorteio: 3 jogadores;
 - Valor da diária (exemplo atual): R$ 15;
 - Custo mensal do campo (exemplo atual): R$ 900 por mês;
-- Mensalidade congelada e disponível para pagamento no dia 1 de cada mês (fixo);
+- Mensalidade congelada e disponível para pagamento na sexta-feira às 08:00 após a 1ª quinta-feira regular do mês (fuso do grupo; override por mês permitido);
 - Prazo de pagamento da mensalidade: dia 7 de cada mês;
 - Vencimento do pagamento do campo: dia 10 de cada mês.
 
@@ -1053,25 +1053,27 @@ A rastreabilidade deve permitir seguir:
 - BillingCycle → cobranças dos mensalistas → pagamentos recebidos → movimentações de entrada;
 - BillingCycle → pagamento do campo → movimentação de saída.
 
-A cobrança de diária não pertence a um ciclo: o ciclo cuja mensalidade ela reduz é decidido quando o pagamento é confirmado (seção 31.6).
+A cobrança de diária não pertence a um ciclo: o ciclo cujo surplus elegível ela alimenta é decidido quando o pagamento é confirmado (seção 31.6). Só o crédito aprovado pelo ADMIN reduz a mensalidade.
 
 ## 31.2 Ciclo financeiro (BillingCycle)
 
 O ciclo financeiro é mensal e é representado por uma entidade explícita. O ciclo de um mês reúne a mensalidade daquele mês e o pagamento do campo daquele mês.
 
-Linha do tempo (exemplo: ciclo de outubro/2026):
+Linha do tempo (exemplo: ciclo de outubro/2026, fuso America/Recife):
 
-- durante setembro, o ciclo de outubro está ABERTO e acumula as diárias confirmadas; a mensalidade de outubro aparece como previsão;
-- em 01/10, às 00:00 no fuso do grupo, a mensalidade de outubro é calculada e CONGELADA, e as cobranças de mensalidade ficam disponíveis para pagamento;
-- os mensalistas pagam de 01/10 a 07/10;
-- o campo de outubro é pago até 10/10;
-- as diárias confirmadas a partir de 01/10 acumulam para a mensalidade de novembro.
+- o ciclo de outubro fica OPEN acumulando diárias confirmadas atribuídas a ele;
+- o corte/ativação padrão é a sexta-feira às 08:00 imediatamente após a primeira quinta-feira regular de outubro (mesmo que a sessão da quinta seja cancelada);
+- nesse instante a mensalidade de outubro é calculada e CONGELADA; as cobranças ficam disponíveis para pagamento;
+- o ADMIN pode sobrescrever o instante de ativação de um mês específico (auditado);
+- os mensalistas pagam até o dia configurado do mês (padrão: dia 7);
+- o campo de outubro é pago até o dia configurado (padrão: dia 10);
+- diárias confirmadas depois do corte de outubro acumulam para novembro.
 
 Cada ciclo possui pelo menos:
 
 - mês de referência;
 - openedAt;
-- instante de congelamento programado (00:00 do dia 1 do mês de referência, no fuso do grupo);
+- instante de congelamento/ativação programado (`freezesAt`: sexta 08:00 após a 1ª quinta do mês, no fuso do grupo, salvo override);
 - closedAt (instante em que o congelamento foi executado);
 - prazo de pagamento da mensalidade (exemplo: 07/10/2026);
 - prazo do pagamento do campo (exemplo: 10/10/2026);
@@ -1080,14 +1082,14 @@ Cada ciclo possui pelo menos:
 
 Status:
 
-- OPEN: o ciclo acumula receitas de diaristas e a mensalidade é uma previsão;
+- OPEN: o ciclo recebe diárias atribuídas e a mensalidade é uma previsão; crédito discricionário só entra se o ADMIN aprovar antes do corte;
 - CLOSED: a mensalidade está congelada. CLOSED NÃO significa que o ciclo deixa de receber dinheiro: ele continua recebendo os pagamentos das mensalidades e o pagamento do campo. Só as entradas e os resultados do cálculo ficam imutáveis.
 
 Toda mensalidade e toda movimentação do caixa são vinculadas explicitamente a um ciclo. A atribuição fica gravada no momento do lançamento e nunca é recalculada.
 
-As receitas de diaristas que reduzem a mensalidade são as movimentações de diária vinculadas explicitamente ao ciclo (regra de atribuição na seção 31.6).
+Diárias confirmadas atribuídas ao ciclo entram no saldo elegível disponível para crédito, mas NÃO reduzem automaticamente a mensalidade: só o valor aprovado pelo ADMIN é aplicado no cálculo.
 
-Ao congelar um ciclo, seus valores históricos (custo do campo, receitas elegíveis, crédito herdado, mensalistas pagantes e valor por mensalista) ficam gravados e NÃO mudam silenciosamente por causa de alterações posteriores em configurações, cadastros, pagamentos ou estornos.
+Ao congelar um ciclo, seus valores históricos (custo do campo, surplus elegível disponível, crédito aprovado aplicado, mensalistas pagantes e valor por mensalista) ficam gravados e NÃO mudam silenciosamente por causa de alterações posteriores em configurações, cadastros, pagamentos ou estornos.
 
 Ciclos congelados nunca são recalculados retroativamente.
 
@@ -1101,9 +1103,9 @@ O pagamento do campo deve ser realizado até o dia 10 de cada mês.
 
 O vencimento é no dia configurado DO PRÓPRIO MÊS do ciclo. Exemplo: ciclo de outubro/2026 → vencimento em 10/10/2026.
 
-A mensalidade do mesmo ciclo é congelada em 01/10 e tem prazo de pagamento no dia configurado do próprio mês (padrão: dia 7, ou seja, 07/10/2026). Assim, as mensalidades de outubro são recebidas antes do vencimento do campo de outubro.
+A mensalidade do mesmo ciclo é congelada no corte de ativação (sexta 08:00 após a 1ª quinta, salvo override) e tem prazo de pagamento no dia configurado do próprio mês (padrão: dia 7). Assim, as mensalidades de outubro são recebidas antes do vencimento do campo de outubro.
 
-O custo mensal e os dias de vencimento (campo e mensalidade) são configuráveis por ADMIN e NÃO devem ser hardcoded. Se o mês não tiver o dia configurado, vale o último dia do mês. O dia do congelamento é sempre o dia 1.
+O custo mensal e os dias de vencimento (campo e mensalidade) são configuráveis por ADMIN e NÃO devem ser hardcoded. Se o mês não tiver o dia configurado, vale o último dia do mês. O corte padrão NÃO é o dia 1 do calendário.
 
 Cada BillingCycle guarda:
 
@@ -1161,7 +1163,7 @@ Somente quando o pagamento for CONFIRMADO o dinheiro entra no caixa. Vale para d
 
 No MVP, o pagamento é confirmado manualmente por ADMIN.
 
-No MVP NÃO existe pagamento parcial: cada cobrança possui no máximo um pagamento confirmado válido, sempre pelo valor integral da cobrança. Correções são feitas por estorno + novo registro, preservando o pagamento estornado no histórico.
+Pagamentos parciais são permitidos: uma cobrança pode ter vários pagamentos CONFIRMADOS; ela só fica PAID quando a soma cobre o valor. Correções são feitas por estorno + novo registro, preservando o pagamento estornado no histórico.
 
 Exemplo, com 3 diaristas em uma sessão:
 
@@ -1194,16 +1196,16 @@ São guardadas as duas datas: a data/hora real do pagamento (paidAt, informada p
 
 ### Atribuição da diária ao ciclo
 
-Somente pagamentos de diária CONFIRMADOS reduzem uma mensalidade.
+Somente pagamentos de diária CONFIRMADOS entram no surplus elegível disponível para crédito discricionário. Eles NÃO reduzem automaticamente a mensalidade.
 
-Regra: a entrada de uma diária é atribuída ao primeiro ciclo cujo congelamento programado (00:00 do dia 1, fuso do grupo) é POSTERIOR à confirmação.
+Regra: a entrada de uma diária é atribuída ao primeiro ciclo cujo congelamento programado (`freezesAt`) é POSTERIOR à confirmação.
 
-Exemplos com o ciclo de outubro (congelamento programado em 01/10 00:00):
+Exemplos com o ciclo de outubro (corte = sexta 08:00 após a 1ª quinta de outubro):
 
-- recebida em setembro e confirmada em setembro: reduz a mensalidade de outubro;
-- recebida em setembro e confirmada depois do congelamento de outubro (por exemplo, em 01/10 às 09:00 ou em 15/10): NÃO altera a mensalidade congelada de outubro; reduz a de novembro;
-- recebida em outubro: nunca reduz a mensalidade de outubro, mesmo que o job de congelamento de outubro atrase; reduz a de novembro;
-- diária de uma sessão de setembro paga com atraso em outubro: reduz a de novembro.
+- confirmada antes do corte de outubro: entra no surplus elegível de outubro (só reduz a mensalidade se o ADMIN aprovar crédito);
+- confirmada depois do corte de outubro: NÃO entra no ciclo de outubro; vai para novembro;
+- o atraso do job de congelamento não muda a atribuição (ela depende de `confirmedAt` e `freezesAt` gravados);
+- diária de uma sessão de setembro paga com atraso em outubro: alimenta o surplus de novembro.
 
 Garantias:
 
@@ -1212,7 +1214,7 @@ Garantias:
 - cada pagamento gera uma única entrada no caixa, atribuída uma única vez e nunca recalculada;
 - o congelamento de um ciclo sempre inclui todas as diárias confirmadas antes do seu corte e nenhuma confirmada depois;
 - a cobrança permanece vinculada à sessão e o pagamento à cobrança; só a movimentação do caixa aponta para o ciclo;
-- o estorno de uma diária segue a mesma regra pela data/hora do estorno: se a mensalidade que ela reduziu já foi congelada, o estorno reduz a receita do próximo ciclo ainda não congelado, e o ciclo congelado não é recalculado.
+- o estorno de uma diária segue a mesma regra pela data/hora do estorno: se o ciclo cujo surplus ela alimentava já foi congelado, o estorno ajusta o próximo ciclo ainda OPEN, e o ciclo congelado não é recalculado.
 
 Pagamentos de mensalidade (e seus estornos) são sempre atribuídos ao ciclo da própria mensalidade, mesmo depois do congelamento.
 
@@ -1238,79 +1240,49 @@ Novos mensalistas só podem entrar no período de pagamento da mensalidade: do d
 
 A regra vale depois da implantação financeira (seção 31.12). Antes dela, os mensalistas que já fazem parte do grupo são cadastrados livremente; a implantação declara quem ainda deve a mensalidade do mês corrente.
 
-Como a mensalidade é congelada no dia 1, quem entra entre os dias 1 e 7 paga a mensalidade do mês corrente já congelada:
+Como a mensalidade é congelada no corte de ativação (sexta 08:00 após a 1ª quinta, salvo override), quem entra depois do congelamento e ainda dentro da janela de cadastro (até o dia de vencimento da mensalidade) paga a mensalidade do mês corrente já congelada:
 
 - é criada uma cobrança individual de mensalidade com exatamente o valor congelado;
-- divisor, mensalidade congelada, cobranças existentes, diferença de arredondamento e crédito para o ciclo seguinte NÃO são recalculados;
+- divisor, mensalidade congelada, cobranças existentes e diferença de arredondamento NÃO são recalculados;
 - nunca existe mais de uma cobrança de mensalidade para o mesmo jogador no mesmo ciclo;
 - se a mensalidade congelada for zero, nenhuma cobrança é criada;
-- o pagamento dessa cobrança aumenta o saldo real do caixa, mas NÃO é receita de diarista e NÃO reduz a mensalidade do mês seguinte (o crédito usa o total cobrado congelado).
+- o pagamento dessa cobrança aumenta o saldo real do caixa, mas NÃO é receita de diarista e NÃO alimenta surplus para crédito automático.
 
 No mês seguinte ele já faz parte do divisor normalmente.
 
 ## 31.9 Cálculo da mensalidade
 
-Enquanto o ciclo está aberto (na prática, durante o mês anterior), são acumulados os pagamentos CONFIRMADOS de diaristas atribuídos a ele (seção 31.6). Exemplo: as diárias confirmadas em setembro reduzem a mensalidade de outubro.
+Enquanto o ciclo está OPEN, o sistema calcula o surplus elegível disponível (diárias confirmadas atribuídas ao ciclo + sobra não alocada do ciclo anterior). Esse valor NÃO é deduzido automaticamente.
 
-Fórmula:
+O ADMIN aprova explicitamente um crédito discricionário ≤ surplus disponível, antes do corte. Sem aprovação, o crédito aplicado é zero; o dinheiro permanece no caixa.
 
-- valorParaMensalistas = custoDoCampoDoCiclo − receitasElegiveisRecebidasDeDiaristas − créditoDoCicloAnterior, nunca menor que zero;
-- mensalistasPagantes = mensalistas ativos não isentos no momento do congelamento;
+Fórmula no congelamento:
+
+- créditoAplicado = valor aprovado pelo ADMIN (ou 0);
+- valorParaMensalistas = max(custoDoCampoDoCiclo − créditoAplicado, 0);
+- mensalistasPagantes = mensalistas ativos não isentos (`feeExempt = false`) no momento do congelamento;
 - valorPorMensalista = valorParaMensalistas / mensalistasPagantes, arredondado PARA CIMA ao próximo centavo.
 
-O créditoDoCicloAnterior é a sobra positiva do ciclo anterior: a diferença de arredondamento ou, se o custo do campo já estava coberto, o excedente. Crédito nunca é negativo:
+A sobra não usada do surplus elegível e a diferença de arredondamento ficam no caixa e entram no surplus disponível do ciclo seguinte (sujeitas a nova aprovação). Déficit nunca é levado adiante.
 
-- créditoParaOCicloSeguinte = máximo entre zero e (receitas elegíveis de diaristas + crédito herdado + total cobrado de mensalidades − custo do campo);
-- o total cobrado é o congelado (19 × R$ 43,43 no exemplo abaixo); cobranças de quem entrou depois do congelamento (seção 31.8) não entram no crédito;
-- um déficit NUNCA é levado para o ciclo seguinte.
+Nenhum mensalista pagante: mensalidade, total e arredondamento são zero; nenhuma cobrança é criada.
 
-Custo do campo já coberto: se as receitas elegíveis de diaristas mais o crédito herdado cobrem todo o custo do campo:
+Exemplo (campo R$ 900, crédito aprovado R$ 75, 19 pagantes):
 
-- o valor a dividir entre os mensalistas é zero;
-- a previsão da mensalidade é R$ 0;
-- nenhuma cobrança de mensalidade de valor zero é criada;
-- o excedente permanece no caixa e vira crédito do ciclo seguinte.
-
-Nenhum mensalista pagante: o ciclo pode ser congelado com zero mensalistas pagantes. Na prática isso não deve acontecer, porque sem mensalistas suficientes normalmente não há pelada, mas o comportamento é determinístico:
-
-- a mensalidade individual, o total cobrado e a diferença de arredondamento são zero;
-- nenhuma cobrança de mensalidade é criada;
-- nunca há divisão por zero;
-- se o custo do campo não estiver coberto, a parte descoberta NÃO é levada ao ciclo seguinte: o crédito do ciclo seguinte é zero.
-
-A previsão da mensalidade segue as mesmas regras e nunca produz mensalidade negativa.
-
-Exemplo (mensalidade de outubro, congelada em 01/10):
-
-- campo de outubro: R$ 900;
-- diárias confirmadas em setembro: R$ 75;
-- mensalistas pagantes em 01/10: 19;
 - R$ 900 − R$ 75 = R$ 825;
-- R$ 825 / 19 = R$ 43,421...;
-- mensalidade individual = R$ 43,43;
-- total cobrado = 19 × R$ 43,43 = R$ 825,17;
-- diferença de arredondamento = R$ 0,17.
+- R$ 825 / 19 → mensalidade R$ 43,43;
+- total cobrado R$ 825,17; arredondamento R$ 0,17.
 
-Cobranças PENDENTES não reduzem a mensalidade.
+Cobranças PENDENTES e pagamentos não confirmados não entram no surplus elegível.
 
-Enquanto o ciclo está aberto, o sistema apresenta o valor como PREVISÃO dinâmica, visível para todos os usuários autenticados.
-
-No congelamento (dia 1), o valor passa a ser o valor definitivo daquele ciclo.
-
-A previsão exibida é sempre a da próxima mensalidade ainda não congelada. Exemplo: durante outubro, o caixa mostra a mensalidade de outubro (congelada) e a previsão da de novembro, com as diárias de outubro confirmadas até o momento.
-
-Previsão e valores congelados são coisas diferentes:
-
-- enquanto o ciclo está ABERTO, a previsão está SEMPRE disponível para os usuários. Ela é calculada na hora a partir das receitas elegíveis confirmadas, do crédito herdado, da quantidade atual de mensalistas pagantes e do custo do campo, e muda conforme esses dados mudam. Ela não é gravada como valor do ciclo; os campos congelados permanecem vazios porque o resultado ainda não é final;
-- no CONGELAMENTO, os valores definitivos são calculados com a mesma regra, gravados, e nunca mudam retroativamente.
+Enquanto OPEN, a UI Admin mostra a prévia (custo, pagantes, surplus, crédito aprovado, mensalidade estimada). No congelamento, os valores definitivos são gravados e nunca recalculados.
 
 Divisão monetária:
 
 - todos os cálculos são feitos em centavos inteiros;
-- todos os mensalistas pagantes pagam EXATAMENTE O MESMO VALOR; não se distribuem centavos diferentes entre jogadores;
-- quando houver fração de centavo, o valor individual é arredondado PARA CIMA;
-- a diferença de arredondamento NÃO é descartada: permanece como saldo positivo do caixa e beneficia o ciclo seguinte, entrando como crédito no cálculo da próxima mensalidade;
-- nenhum centavo pode ser criado ou perdido sem registro.
+- todos os mensalistas pagantes pagam EXATAMENTE O MESMO VALOR;
+- arredondamento PARA CIMA ao centavo;
+- nenhum centavo pode ser criado ou perdido sem registro no ledger.
 
 O BillingCycle registra no congelamento:
 
@@ -1324,25 +1296,22 @@ NÃO devem ser hardcoded: custo do campo, dias de vencimento (campo e mensalidad
 
 ## 31.10 Congelamento da mensalidade e cobrança das mensalidades
 
-A mensalidade de cada mês é congelada AUTOMATICAMENTE pelo sistema no dia 1, às 00:00 no fuso configurado do grupo.
+A mensalidade de cada mês é congelada no instante `freezesAt` (padrão: sexta 08:00 após a 1ª quinta do mês de referência, no fuso do grupo).
 
-Se a tarefa automática atrasar, o congelamento é executado na primeira operação ou consulta financeira seguinte, e o ADMIN também pode dispará-lo manualmente como fallback. As três formas usam a mesma operação idempotente: repetir não congela duas vezes nem duplica cobranças. O atraso nunca muda quais diárias entram no cálculo (seção 31.6).
+Se a tarefa automática atrasar, o congelamento é executado na primeira operação ou consulta financeira seguinte, e o ADMIN também pode dispará-lo manualmente como fallback. As três formas usam a mesma operação idempotente. O atraso nunca muda atribuições de diária (seção 31.6).
 
-Enquanto o ciclo está OPEN, o sistema mostra a previsão dinâmica.
+O congelamento só acontece a partir de `now >= freezesAt` e depois do congelamento do mês anterior. Em uma única operação transacional:
 
-O congelamento só acontece a partir do dia 1 do mês de referência e depois do congelamento do mês anterior. Em uma única operação transacional:
+1. calcular o surplus elegível disponível e ler o crédito aprovado (0 se não houver);
+2. determinar os mensalistas ativos não isentos;
+3. calcular a mensalidade individual com a fórmula da seção 31.9;
+4. gravar os valores congelados, closedAt e o status CLOSED;
+5. se a mensalidade individual for maior que zero, criar uma cobrança MONTHLY_FEE por pagante;
+6. marcar a alocação de crédito como APPLIED (se existir) e gravar AuditLog.
 
-1. determinar as receitas de diárias atribuídas ao ciclo e o crédito herdado do ciclo anterior;
-2. determinar os mensalistas ativos não isentos naquele momento;
-3. calcular a mensalidade individual;
-4. arredondar para cima conforme a regra da seção 31.9;
-5. gravar os valores congelados, closedAt e o status CLOSED;
-6. se a mensalidade individual for maior que zero, criar uma cobrança de mensalidade para cada mensalista pagante, todas com o mesmo valor individual congelado;
-7. gerar AuditLog (ator SYSTEM, ou o ADMIN no fallback).
+As cobranças de mensalidade nascem PENDENTES e podem ser pagas a partir do congelamento, com prazo até o dia configurado (padrão: 7). Pagamentos parciais são permitidos; a cobrança só fica PAID quando a soma dos pagamentos confirmados cobre o valor.
 
-As cobranças de mensalidade nascem PENDENTES e podem ser pagas desde o dia 1, com prazo até o dia 7.
-
-O pagamento é confirmado manualmente por ADMIN, com os mesmos registros exigidos na seção 31.6, e só então entra no caixa. Pagamentos de mensalidade, pagamento do campo e estornos continuam sendo registrados no ciclo congelado sem alterar os valores congelados.
+O pagamento é confirmado manualmente por ADMIN e só então entra no caixa. Pagamentos de mensalidade, pagamento do campo e estornos continuam no ciclo congelado sem alterar os valores congelados.
 
 ## 31.11 Pagamento do campo
 
@@ -1359,7 +1328,7 @@ Exemplo do ciclo de outubro:
 - diárias confirmadas em setembro: + R$ 75;
 - mensalidades de outubro, pagas de 01/10 a 07/10: + R$ 825,17 (19 × R$ 43,43);
 - pagamento do campo de outubro, até 10/10: − R$ 900;
-- saldo do ciclo: + R$ 0,17 (diferença de arredondamento, que vira crédito da mensalidade de novembro).
+- saldo do ciclo: + R$ 0,17 (diferença de arredondamento fica no caixa; pode compor o surplus disponível para crédito aprovado no ciclo seguinte, sem auto-alocação).
 
 ## 31.12 Implantação e saldo inicial do caixa
 
@@ -1685,6 +1654,15 @@ Correção do calendário financeiro. Substitui o fechamento manual da Revisão 
 ### Revisão 31 — 05/11/2026
 
 - Sorteio antecipado (seção 11, "Sorteio antecipado"): antes do prazo dos mensalistas, o ADMIN pode gerar o sorteio só com a sessão cheia; a formação segue `planDraw` (3 ou 4 times completos, ou 3 times + rotativos marcados pelo ADMIN). Antes do prazo, só FLEXIBLE_ROTATION e com a sessão cheia; FIXED_TEAMS só depois do prazo. AuditLog `DRAW_GENERATED` com `earlyDraw`. Até o prazo, mensalistas ainda confirmam (sozinhos ou por “Confirmar pelo jogador”), mas só para a lista de espera; diaristas e desistências continuam travados; nenhuma promoção automática com sorteio ativo. Antes do prazo, a promoção pelo ADMIN só aceita mensalistas com prioridade. Sem migration. Script `npm run check:early-draw`.
+
+### Revisão 32 — 15/11/2026
+
+Alinha o caixa (seção 31) e a UI Admin ao corte sexta 08:00 e ao crédito discricionário. Substitui o congelamento no dia 1 da Revisão 14 e a dedução automática de diárias / crédito herdado das Revisões 3, 4, 12 e 14. Pagamento parcial (Revisão 7) passa a ser permitido.
+
+- Corte/ativação padrão: sexta-feira 08:00 após a 1ª quinta-feira regular do mês (`freezesAt`), no fuso do grupo; override mensal auditado; sessão da quinta cancelada não muda o corte (seções 4, 31.2, 31.10).
+- Diárias confirmadas alimentam surplus elegível; NÃO reduzem a mensalidade sozinhas. Só crédito aprovado pelo ADMIN (≤ disponível) entra no cálculo; sem aprovação, crédito = 0 (seção 31.9).
+- Pagamentos parciais: vários CONFIRMADOS por cobrança; PAID quando a soma cobre o valor (seção 31.6).
+- UI Admin: `/admin/configuracoes` (Sessões + Financeiro) e `/admin/financeiro` (prévia, crédito, pagamentos, despesas, ciclos). Scripts `npm run check:finance`, `check:audit-logs`, `check:mobile-nav`.
 
 ### Revisão 24 — 18/10/2026
 

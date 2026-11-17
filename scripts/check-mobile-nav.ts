@@ -7,6 +7,11 @@ import {
   isAdminSubnavActive,
 } from "../src/domain/nav/admin-subnav";
 import { isMaisNavActive, isNavHrefActive } from "../src/domain/nav/mobile-active";
+import {
+  restrictedDesktopNavItems,
+  restrictedMobileNavItems,
+  shouldUseRestrictedNav,
+} from "../src/domain/nav/restricted-nav";
 
 const results: { name: string; ok: boolean }[] = [];
 function check(name: string, ok: boolean) {
@@ -32,13 +37,44 @@ check(
   isAdminSectionPath("/admin/sessions") &&
     isAdminSubnavActive("/admin/players", "/admin/players") &&
     isAdminSubnavActive("/admin/sessions/abc", "/admin/sessions") &&
-    !isAdminSubnavActive("/admin/agenda", "/admin/players") &&
-    ADMIN_SUBNAV.length === 4 &&
-    ADMIN_SUBNAV.some((item) => item.href === "/admin/logs"),
+    isAdminSubnavActive("/admin/financeiro", "/admin/financeiro") &&
+    isAdminSubnavActive("/admin/configuracoes", "/admin/configuracoes") &&
+    !isAdminSubnavActive("/admin/configuracoes", "/admin/players") &&
+    ADMIN_SUBNAV.length === 5 &&
+    ADMIN_SUBNAV.some((item) => item.href === "/admin/logs") &&
+    ADMIN_SUBNAV.some((item) => item.href === "/admin/financeiro"),
 );
 
 const mobileSlots = ["/", "night", "/historico", "/stats", "mais"] as const;
 check("barra mobile tem exatamente 5 slots", mobileSlots.length === 5);
+
+check("modo restrito ativa nav limitada", shouldUseRestrictedNav("payment_restricted"));
+check(
+  "nav mobile restrita: pagamentos + financeiro",
+  restrictedMobileNavItems(
+    [
+      { href: "/", label: "Início" },
+      { href: "/historico", label: "Histórico" },
+      { href: "/stats", label: "Estatísticas" },
+    ],
+    { href: "/pagamentos", label: "Pagamentos" },
+    { href: "/financeiro", label: "Financeiro" },
+  )
+    .map((item) => item.href)
+    .join(",") === "/pagamentos,/financeiro",
+);
+check(
+  "nav desktop restrita: pagamentos/financeiro/conta",
+  restrictedDesktopNavItems([
+    { href: "/" },
+    { href: "/pagamentos" },
+    { href: "/financeiro" },
+    { href: "/account" },
+    { href: "/stats" },
+  ])
+    .map((item) => item.href)
+    .join(",") === "/pagamentos,/financeiro,/account",
+);
 
 for (const result of results) {
   console.log(`${result.ok ? "ok  " : "FAIL"} ${result.name}`);
