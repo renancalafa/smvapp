@@ -7,6 +7,7 @@ import {
   isAdminSubnavActive,
 } from "../src/domain/nav/admin-subnav";
 import { isMaisNavActive, isNavHrefActive } from "../src/domain/nav/mobile-active";
+import { resolvePostAuthPath } from "../src/domain/auth/post-auth-path";
 import {
   restrictedDesktopNavItems,
   restrictedMobileNavItems,
@@ -75,6 +76,11 @@ check(
     .map((item) => item.href)
     .join(",") === "/pagamentos,/financeiro,/account",
 );
+check(
+  "login restrito aterrissa em pagamentos (mobile-safe)",
+  resolvePostAuthPath(false, "payment_restricted").startsWith("/pagamentos"),
+);
+check("login livre aterrissa na home", resolvePostAuthPath(false, "full") === "/");
 
 for (const result of results) {
   console.log(`${result.ok ? "ok  " : "FAIL"} ${result.name}`);

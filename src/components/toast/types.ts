@@ -48,7 +48,7 @@ export const PAYMENT_RESTRICTED_FLASH: FlashToastPayload = {
     "Você possui um pagamento pendente. Regularize sua situação para continuar utilizando o SMV.",
 };
 
-/** Destino após bloqueio financeiro (RSC-safe). */
+/** Destino após bloqueio financeiro (RSC-safe). Deve coincidir com resolvePostAuthPath. */
 export function paymentRestrictedRedirectPath(): string {
   return `/pagamentos?${SMV_FLASH_QUERY}=${SMV_FLASH_PAYMENT_RESTRICTED}`;
 }

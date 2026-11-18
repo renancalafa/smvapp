@@ -129,7 +129,10 @@ export async function getFinancialAccessForViewer(
 /**
  * Após requireViewer: redireciona jogador com dívida bloqueante para /pagamentos.
  * ADMIN nunca é restrito. Sem locks habilitados, ninguém é restrito.
- * Server Actions sem pathname são negadas (use requireViewerForPayments no fluxo de pagamento).
+ *
+ * Mutations sem UI de navegação: use assertNotPaymentRestricted (erro explícito).
+ * Pathname vazio ou /login = soft-nav pós-login (RSC no request do Server Action) —
+ * redirect, nunca throw (throw deixava a UI quebrada até F5).
  */
 export async function enforceFinancialAccessOrRedirect(viewer: Viewer): Promise<FinancialAccessResult> {
   const access = await getFinancialAccessForViewer(viewer);
@@ -137,16 +140,15 @@ export async function enforceFinancialAccessOrRedirect(viewer: Viewer): Promise<
 
   const headerList = await headers();
   const pathname = headerList.get("x-smv-pathname") ?? "";
-  if (pathname) {
-    if (isPathAllowedWhenPaymentRestricted(pathname)) return access;
-    // RSC cannot set cookies during render — opaque query carries the notice.
+  const { isPostLoginSoftNavPath } = await import("@/domain/auth/post-auth-path");
+  if (isPostLoginSoftNavPath(pathname)) {
     const { paymentRestrictedRedirectPath } = await import("@/components/toast/types");
     redirect(paymentRestrictedRedirectPath());
   }
-  const { UserFacingError } = await import("@/server/errors");
-  throw new UserFacingError(
-    "Acesso restrito por pendência financeira. Regularize em Pagamentos.",
-  );
+  if (isPathAllowedWhenPaymentRestricted(pathname)) return access;
+  // RSC cannot set cookies during render — opaque query carries the notice.
+  const { paymentRestrictedRedirectPath } = await import("@/components/toast/types");
+  redirect(paymentRestrictedRedirectPath());
 }
 
 /** Mutations de partida / app: bloqueia Scout/PLAYER com dívida. */

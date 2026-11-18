@@ -1,9 +1,11 @@
 "use server";
 
+import { revalidatePath } from "next/cache";
 import { headers } from "next/headers";
 import { redirect } from "next/navigation";
+import { resolvePostAuthPath } from "@/domain/auth/post-auth-path";
 import { cleanupPushOnLogout } from "@/server/modules/notifications/handlers";
-import { requireViewerAllowingPasswordChange } from "./dal";
+import { getViewer, requireViewerAllowingPasswordChange } from "./dal";
 import { clientIpFromHeaders } from "./login-throttle";
 import { changePassword, login, logout } from "./service";
 import {
@@ -14,6 +16,24 @@ import {
   validateSessionToken,
 } from "./session";
 import { formText } from "./validation";
+
+/**
+ * Cookie novo + destino final numa única navegação (sem `/` → `/pagamentos` aninhado).
+ * revalidatePath limpa o shell (auth) → (app) após troca de identidade.
+ */
+async function redirectAfterSessionIssued(mustChangePassword: boolean): Promise<never> {
+  revalidatePath("/", "layout");
+  if (mustChangePassword) {
+    redirect(resolvePostAuthPath(true, "full"));
+  }
+  const viewer = await getViewer();
+  if (!viewer) {
+    redirect("/login");
+  }
+  const { getFinancialAccessForViewer } = await import("@/server/modules/finance/access");
+  const access = await getFinancialAccessForViewer(viewer);
+  redirect(resolvePostAuthPath(false, access.mode));
+}
 
 export type LoginFormState = { error: string; username: string } | undefined;
 export type ChangePasswordFormState = { error: string } | undefined;
@@ -54,7 +74,7 @@ export async function loginAction(
   }
 
   await setSessionCookie(result.session);
-  redirect(result.mustChangePassword ? "/change-password" : "/");
+  await redirectAfterSessionIssued(result.mustChangePassword);
 }
 
 export async function changePasswordAction(
@@ -78,7 +98,7 @@ export async function changePasswordAction(
   if (!result.ok) return { error: result.error };
 
   await setSessionCookie(result.session);
-  redirect("/");
+  await redirectAfterSessionIssued(false);
 }
 
 /** `pushEndpoint` vem do LogoutForm: a inscrição deste aparelho, já cancelada no navegador. */
@@ -102,5 +122,6 @@ export async function logoutAction(formData?: FormData): Promise<void> {
     }
   }
   await deleteSessionCookie();
+  revalidatePath("/", "layout");
   redirect("/login");
 }

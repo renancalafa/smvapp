@@ -8,13 +8,17 @@ const PUBLIC_PATHS = new Set(["/login"]);
  * real da sessão fica no DAL (src/server/auth/dal.ts), em cada página e Server Action.
  */
 export function proxy(request: NextRequest) {
-  if (PUBLIC_PATHS.has(request.nextUrl.pathname)) return NextResponse.next();
+  // Sempre propaga o pathname (inclui /login): o soft-nav pós-login reaproveita
+  // o request do Server Action; sem este header o DAL não consegue redirectar.
+  const requestHeaders = new Headers(request.headers);
+  requestHeaders.set("x-smv-pathname", request.nextUrl.pathname);
+
+  if (PUBLIC_PATHS.has(request.nextUrl.pathname)) {
+    return NextResponse.next({ request: { headers: requestHeaders } });
+  }
   if (!request.cookies.has(SESSION_COOKIE_NAME)) {
     return NextResponse.redirect(new URL("/login", request.url));
   }
-  // Pathname para o DAL aplicar restrição financeira sem depender do fuso do browser.
-  const requestHeaders = new Headers(request.headers);
-  requestHeaders.set("x-smv-pathname", request.nextUrl.pathname);
   return NextResponse.next({
     request: { headers: requestHeaders },
   });

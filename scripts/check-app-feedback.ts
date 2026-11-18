@@ -18,6 +18,10 @@ import {
   TOAST_DEFAULT_DURATION_MS,
 } from "../src/components/toast/types";
 import {
+  isPostLoginSoftNavPath,
+  resolvePostAuthPath,
+} from "../src/domain/auth/post-auth-path";
+import {
   isPathAllowedWhenPaymentRestricted,
   PAYMENT_RESTRICTED_ALLOWED_PREFIXES,
 } from "../src/domain/finance/accessPolicy";
@@ -89,6 +93,61 @@ check(
     !paymentRestrictedRedirectPath().includes("cent") &&
     !paymentRestrictedRedirectPath().includes("charge"),
 );
+
+check(
+  "post-auth path: admin/full → /",
+  resolvePostAuthPath(false, "full") === "/" && resolvePostAuthPath(false, "full") !== "/pagamentos",
+);
+check(
+  "post-auth path: restricted → pagamentos (mesmo query do toast)",
+  resolvePostAuthPath(false, "payment_restricted") === paymentRestrictedRedirectPath(),
+);
+check(
+  "post-auth path: mustChangePassword tem prioridade",
+  resolvePostAuthPath(true, "payment_restricted") === "/change-password",
+);
+check(
+  "soft-nav pós-login detecta /login e pathname vazio",
+  isPostLoginSoftNavPath("") &&
+    isPostLoginSoftNavPath("/login") &&
+    isPostLoginSoftNavPath("/login?x=1") &&
+    !isPostLoginSoftNavPath("/") &&
+    !isPostLoginSoftNavPath("/pagamentos"),
+);
+
+const proxyTs = readSrc("src/proxy.ts");
+check(
+  "proxy propaga x-smv-pathname também em /login",
+  proxyTs.includes('requestHeaders.set("x-smv-pathname"') &&
+    proxyTs.includes("PUBLIC_PATHS.has") &&
+    proxyTs.indexOf('requestHeaders.set("x-smv-pathname"') <
+      proxyTs.indexOf("PUBLIC_PATHS.has"),
+);
+
+const authActions = readSrc("src/server/auth/actions.ts");
+check(
+  "login resolve destino pós-auth (sem só redirect /)",
+  authActions.includes("redirectAfterSessionIssued") &&
+    authActions.includes("resolvePostAuthPath") &&
+    authActions.includes('revalidatePath("/", "layout")'),
+);
+
+const accessTsLogin = readSrc("src/server/modules/finance/access.ts");
+{
+  const enforceStart = accessTsLogin.indexOf(
+    "export async function enforceFinancialAccessOrRedirect",
+  );
+  const assertStart = accessTsLogin.indexOf("export async function assertNotPaymentRestricted");
+  const enforceBody = accessTsLogin.slice(enforceStart, assertStart);
+  check(
+    "restrição em soft-nav pós-login redireciona (não throw)",
+    enforceStart >= 0 &&
+      assertStart > enforceStart &&
+      enforceBody.includes("isPostLoginSoftNavPath") &&
+      enforceBody.includes("paymentRestrictedRedirectPath") &&
+      !enforceBody.includes("UserFacingError"),
+  );
+}
 
 check(
   "paths permitidos em restrição",

@@ -541,7 +541,10 @@ function domainChecks() {
 
   check("path /pagamentos allowed", isPathAllowedWhenPaymentRestricted("/pagamentos"));
   check("path /financeiro allowed", isPathAllowedWhenPaymentRestricted("/financeiro"));
+  check("path /account allowed", isPathAllowedWhenPaymentRestricted("/account"));
   check("path /stats denied", !isPathAllowedWhenPaymentRestricted("/stats"));
+  check("path /login denied under restriction", !isPathAllowedWhenPaymentRestricted("/login"));
+  check("path / denied under restriction", !isPathAllowedWhenPaymentRestricted("/"));
   check(
     "UI status aguardando",
     resolvePlayerChargeUiStatus({
