@@ -60,6 +60,25 @@ export function activationInputPartsInZone(
   };
 }
 
+/** Valor para `<input type="datetime-local">` no fuso do grupo (não UTC via toISOString). */
+export function datetimeLocalValueInZone(instant: Date, timeZone: string): string {
+  const parts = activationInputPartsInZone(instant, timeZone);
+  return `${parts.date}T${parts.time}`;
+}
+
+/**
+ * Interpreta `datetime-local` (YYYY-MM-DDTHH:mm[ :ss]) no fuso IANA do grupo.
+ * Não usa `new Date(string)` — evita misturar fuso do navegador.
+ */
+export function zonedDateTimeFromDatetimeLocal(
+  value: string,
+  timeZone: string,
+): Date | null {
+  const match = /^(\d{4}-\d{2}-\d{2})[T ](\d{2}:\d{2})(?::\d{2})?/.exec(value.trim());
+  if (!match) return null;
+  return zonedDateTimeFromFormParts(match[1], match[2], timeZone);
+}
+
 /**
  * Interpreta data (YYYY-MM-DD) + hora (HH:mm) no fuso IANA do grupo.
  * Independente do fuso do navegador/processo.

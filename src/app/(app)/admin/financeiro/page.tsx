@@ -52,6 +52,9 @@ function cashCategoryLabel(category: string): string {
     OTHER_EXPENSE: "Despesa",
     ADJUSTMENT: "Ajuste",
     OPENING_BALANCE: "Saldo inicial",
+    INITIAL_BALANCE: "Saldo inicial",
+    MONTHLY_FEE: "Mensalidade",
+    DAILY_FEE: "Diária",
     CREDIT_CARRY: "Crédito",
     REVERSAL: "Estorno",
   };
@@ -69,7 +72,10 @@ export default async function AdminFinanceiroPage() {
     }),
   ]);
   const tz = data.timezone;
-  const financeInitialized = data.financeInitialized;
+  const setup = data.financeSetupState;
+  const operational = setup === "initialized";
+  const orphan = setup === "orphan";
+  const uninitialized = setup === "uninitialized";
 
   return (
     <section className="flex flex-col gap-6 pb-8">
@@ -85,7 +91,7 @@ export default async function AdminFinanceiroPage() {
         </Link>
       </header>
 
-      {!financeInitialized ? (
+      {uninitialized ? (
         <div className={darkAlertWarn} role="status">
           <p className="font-semibold text-amber-50">Financeiro ainda não configurado</p>
           <p className="mt-1 text-sm text-amber-100/90">
@@ -96,35 +102,52 @@ export default async function AdminFinanceiroPage() {
         </div>
       ) : null}
 
-      <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
-        <div className={darkStat}>
-          <p className={darkMutedXs}>Caixa</p>
-          <p className="text-base font-semibold text-smv-gold-bright">
-            {formatCentsBRL(data.balanceCents)}
+      {orphan ? (
+        <div className={darkAlertWarn} role="status">
+          <p className="font-semibold text-amber-50">
+            Dados financeiros de teste anteriores à implantação
+          </p>
+          <p className="mt-1 text-sm text-amber-100/90">
+            Este grupo tem ciclos, cobranças ou lançamentos, mas não tem ciclo OPENING — não é uma
+            implantação válida. A implantação automática está bloqueada para não duplicar histórico.
+            Use o grupo de laboratório financeiro local (finance-lab) para testes limpos, ou peça
+            remediação explícita sem apagar estes registros.
           </p>
         </div>
-        <div className={darkStat}>
-          <p className={darkMutedXs}>Em aberto</p>
-          <p className="text-base font-semibold text-white">
-            {formatCentsBRL(data.outstandingCents)}
-          </p>
-        </div>
-        <div className={darkStat}>
-          <p className={darkMutedXs}>Entradas</p>
-          <p className="text-base font-semibold text-emerald-200">
-            {formatCentsBRL(data.confirmedIncomeCents)}
-          </p>
-        </div>
-        <div className={darkStat}>
-          <p className={darkMutedXs}>Saídas</p>
-          <p className="text-base font-semibold text-rose-200">
-            {formatCentsBRL(data.recordedExpenseCents)}
-          </p>
-        </div>
-      </div>
+      ) : null}
 
-      {financeInitialized ? (
+      {operational || orphan ? (
+        <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+          <div className={darkStat}>
+            <p className={darkMutedXs}>Caixa</p>
+            <p className="text-base font-semibold text-smv-gold-bright">
+              {formatCentsBRL(data.balanceCents)}
+            </p>
+          </div>
+          <div className={darkStat}>
+            <p className={darkMutedXs}>Em aberto</p>
+            <p className="text-base font-semibold text-white">
+              {formatCentsBRL(data.outstandingCents)}
+            </p>
+          </div>
+          <div className={darkStat}>
+            <p className={darkMutedXs}>Entradas</p>
+            <p className="text-base font-semibold text-emerald-200">
+              {formatCentsBRL(data.confirmedIncomeCents)}
+            </p>
+          </div>
+          <div className={darkStat}>
+            <p className={darkMutedXs}>Saídas</p>
+            <p className="text-base font-semibold text-rose-200">
+              {formatCentsBRL(data.recordedExpenseCents)}
+            </p>
+          </div>
+        </div>
+      ) : null}
+
+      {operational ? (
         <ReceiptReviewQueue
+          timeZone={tz}
           items={receiptQueue.map((r) => ({
             ...r,
             createdAt: r.createdAt.toLocaleString("pt-BR", {
@@ -138,11 +161,11 @@ export default async function AdminFinanceiroPage() {
         />
       ) : null}
 
-      {financeInitialized ? (
+      {operational ? (
         <FinanceLocksToggle enabled={settings?.financeAccessLocksEnabled === true} />
       ) : null}
 
-      {!financeInitialized && (
+      {uninitialized ? (
         <InitializeFinanceCard
           monthlyMembers={data.monthlyMembers.map((m) => ({
             id: m.id,
@@ -150,9 +173,10 @@ export default async function AdminFinanceiroPage() {
             feeExempt: m.feeExempt,
           }))}
         />
-      )}
+      ) : null}
 
-      {(data.openCycle && data.creditPreview && data.forecast) || data.openCycle ? (
+      {operational &&
+      ((data.openCycle && data.creditPreview && data.forecast) || data.openCycle) ? (
         <section className="flex flex-col gap-3">
           <h2 className={darkSectionLabel}>Ciclo aberto</h2>
           {data.openCycle && data.creditPreview && data.forecast ? (
@@ -181,95 +205,134 @@ export default async function AdminFinanceiroPage() {
         </section>
       ) : null}
 
-      <FinancialMovementsPanel
-        charges={data.outstandingCharges.map((c) => ({
-          id: c.id,
-          remainingCents: c.remainingCents,
-          label: `${c.memberName} · ${c.type === "DAILY_FEE" ? "Diária" : "Mensalidade"}`,
-        }))}
-        cycleOptions={data.cycles.map((c) => ({
-          value: c.id,
-          label: `${c.referenceMonth} · ${cycleStatusLabel(c.status)}${
-            c.kind === "OPENING" ? " (abertura)" : ""
-          }`,
-        }))}
-      />
+      {operational ? (
+        <FinancialMovementsPanel
+          timeZone={tz}
+          charges={data.outstandingCharges.map((c) => ({
+            id: c.id,
+            remainingCents: c.remainingCents,
+            label: `${c.memberName} · ${c.type === "DAILY_FEE" ? "Diária" : "Mensalidade"}`,
+          }))}
+          cycleOptions={data.cycles.map((c) => ({
+            value: c.id,
+            label: `${c.referenceMonth} · ${cycleStatusLabel(c.status)}${
+              c.kind === "OPENING" ? " (abertura)" : ""
+            }`,
+          }))}
+        />
+      ) : null}
 
-      <section className="flex flex-col gap-2">
-        <h2 className={darkSectionLabel}>Cobranças em aberto</h2>
-        {data.outstandingCharges.length === 0 ? (
-          <p className={`${darkMuted} ${darkCardPad}`}>Nenhuma cobrança pendente.</p>
-        ) : (
-          <ul className={darkList}>
-            {data.outstandingCharges.slice(0, 20).map((c) => (
-              <li key={c.id} className={darkListRow}>
-                <div className="min-w-0 flex-1">
-                  <p className="truncate font-medium text-white">{c.memberName}</p>
-                  <p className={darkMutedXs}>
-                    {c.type === "DAILY_FEE" ? "Diária" : "Mensalidade"} · pago{" "}
-                    {formatCentsBRL(c.paidCents)} / {formatCentsBRL(c.amountCents)}
-                  </p>
-                </div>
-                <span className={darkBadgeGold}>{formatCentsBRL(c.remainingCents)}</span>
-              </li>
-            ))}
-          </ul>
-        )}
-      </section>
+      {operational || orphan ? (
+        <section className="flex flex-col gap-2">
+          <h2 className={darkSectionLabel}>
+            {orphan ? "Cobranças legadas (somente leitura)" : "Cobranças em aberto"}
+          </h2>
+          {data.outstandingCharges.length === 0 ? (
+            <p className={`${darkMuted} ${darkCardPad}`}>Nenhuma cobrança pendente.</p>
+          ) : (
+            <ul className={darkList}>
+              {data.outstandingCharges.slice(0, 20).map((c) => (
+                <li key={c.id} className={darkListRow}>
+                  <div className="min-w-0 flex-1">
+                    <p className="truncate font-medium text-white">{c.memberName}</p>
+                    <p className={darkMutedXs}>
+                      {c.type === "DAILY_FEE" ? "Diária" : "Mensalidade"} · pago{" "}
+                      {formatCentsBRL(c.paidCents)} / {formatCentsBRL(c.amountCents)}
+                    </p>
+                  </div>
+                  <span className={darkBadgeGold}>{formatCentsBRL(c.remainingCents)}</span>
+                </li>
+              ))}
+            </ul>
+          )}
+        </section>
+      ) : null}
 
-      <section className="flex flex-col gap-2">
-        <h2 className={darkSectionLabel}>Ciclos</h2>
-        <ul className="flex flex-col gap-2">
-          {data.cycles.map((c) => (
-            <Link key={c.id} href={`/admin/financeiro/ciclos/${c.id}`} className={darkLinkCard}>
-              <div>
-                <p className="font-semibold text-white">{c.referenceMonth}</p>
-                <p className={darkMutedXs}>
-                  {cycleKindLabel(c.kind)} · corte{" "}
-                  {new Date(c.freezesAt).toLocaleString("pt-BR", { timeZone: tz })}
-                  {c.monthlyFeeCents != null
-                    ? ` · mensalidade ${formatCentsBRL(c.monthlyFeeCents)}`
-                    : ""}
-                </p>
-              </div>
-              <span className={c.status === "OPEN" ? darkBadgeGold : darkBadge}>
-                {cycleStatusLabel(c.status)}
-              </span>
-            </Link>
-          ))}
-        </ul>
-      </section>
+      {operational || orphan ? (
+        <section className="flex flex-col gap-2">
+          <h2 className={darkSectionLabel}>{orphan ? "Ciclos legados" : "Ciclos"}</h2>
+          {data.cycles.length === 0 ? (
+            <p className={`${darkMuted} ${darkCardPad}`}>Nenhum ciclo.</p>
+          ) : (
+            <ul className="flex flex-col gap-2">
+              {data.cycles.map((c) =>
+                operational ? (
+                  <Link
+                    key={c.id}
+                    href={`/admin/financeiro/ciclos/${c.id}`}
+                    className={darkLinkCard}
+                  >
+                    <div>
+                      <p className="font-semibold text-white">{c.referenceMonth}</p>
+                      <p className={darkMutedXs}>
+                        {cycleKindLabel(c.kind)} · corte{" "}
+                        {new Date(c.freezesAt).toLocaleString("pt-BR", { timeZone: tz })}
+                        {c.monthlyFeeCents != null
+                          ? ` · mensalidade ${formatCentsBRL(c.monthlyFeeCents)}`
+                          : ""}
+                      </p>
+                    </div>
+                    <span className={c.status === "OPEN" ? darkBadgeGold : darkBadge}>
+                      {cycleStatusLabel(c.status)}
+                    </span>
+                  </Link>
+                ) : (
+                  <div key={c.id} className={darkLinkCard}>
+                    <div>
+                      <p className="font-semibold text-white">{c.referenceMonth}</p>
+                      <p className={darkMutedXs}>
+                        {cycleKindLabel(c.kind)} · corte{" "}
+                        {new Date(c.freezesAt).toLocaleString("pt-BR", { timeZone: tz })}
+                        {c.monthlyFeeCents != null
+                          ? ` · mensalidade ${formatCentsBRL(c.monthlyFeeCents)}`
+                          : ""}
+                      </p>
+                    </div>
+                    <span className={c.status === "OPEN" ? darkBadgeGold : darkBadge}>
+                      {cycleStatusLabel(c.status)}
+                    </span>
+                  </div>
+                ),
+              )}
+            </ul>
+          )}
+        </section>
+      ) : null}
 
-      <section className={`flex flex-col gap-2 ${darkCardPad}`}>
-        <h2 className={darkTitleMd}>Últimos lançamentos</h2>
-        {data.recentCash.length === 0 ? (
-          <p className={darkMuted}>Nenhum lançamento ainda.</p>
-        ) : (
-          <ul className="divide-y divide-white/8">
-            {data.recentCash.map((row) => (
-              <li key={row.id} className="flex items-center justify-between gap-2 py-2.5 text-sm">
-                <div className="min-w-0">
-                  <p className="truncate text-white">
-                    {cashCategoryLabel(row.category)}
-                    {row.reason ? ` · ${row.reason}` : ""}
-                  </p>
-                  <p className={darkMutedXs}>
-                    {new Date(row.recordedAt).toLocaleString("pt-BR", { timeZone: tz })}
-                  </p>
-                </div>
-                <span
-                  className={`shrink-0 font-medium ${
-                    row.direction === "IN" ? "text-emerald-200" : "text-rose-200"
-                  }`}
-                >
-                  {row.direction === "IN" ? "+" : "−"}
-                  {formatCentsBRL(row.amountCents)}
-                </span>
-              </li>
-            ))}
-          </ul>
-        )}
-      </section>
+      {operational || orphan ? (
+        <section className={`flex flex-col gap-2 ${darkCardPad}`}>
+          <h2 className={darkTitleMd}>
+            {orphan ? "Lançamentos legados" : "Últimos lançamentos"}
+          </h2>
+          {data.recentCash.length === 0 ? (
+            <p className={darkMuted}>Nenhum lançamento ainda.</p>
+          ) : (
+            <ul className="divide-y divide-white/8">
+              {data.recentCash.map((row) => (
+                <li key={row.id} className="flex items-center justify-between gap-2 py-2.5 text-sm">
+                  <div className="min-w-0">
+                    <p className="truncate text-white">
+                      {cashCategoryLabel(row.category)}
+                      {row.reason ? ` · ${row.reason}` : ""}
+                    </p>
+                    <p className={darkMutedXs}>
+                      {new Date(row.recordedAt).toLocaleString("pt-BR", { timeZone: tz })}
+                    </p>
+                  </div>
+                  <span
+                    className={`shrink-0 font-medium ${
+                      row.direction === "IN" ? "text-emerald-200" : "text-rose-200"
+                    }`}
+                  >
+                    {row.direction === "IN" ? "+" : "−"}
+                    {formatCentsBRL(row.amountCents)}
+                  </span>
+                </li>
+              ))}
+            </ul>
+          )}
+        </section>
+      ) : null}
     </section>
   );
 }

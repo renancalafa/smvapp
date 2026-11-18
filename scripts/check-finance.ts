@@ -20,14 +20,17 @@ import { readFileSync } from "node:fs";
 import {
   activationInputPartsInZone,
   buildCycleDates,
+  datetimeLocalValueInZone,
   defaultFreezesAt,
   firstWeekdayOfMonth,
   formatActivationDateTimePt,
   formatReferenceMonthLabelPt,
   startOfMonthCivil,
+  zonedDateTimeFromDatetimeLocal,
   zonedDateTimeFromFormParts,
 } from "../src/domain/finance/cycleDates";
 import { netCashCents } from "../src/domain/finance/cashBalance";
+import { resolveFinanceSetupState } from "../src/domain/finance/setupState";
 import { categorizeAuditAction } from "../src/domain/audit/catalog";
 import { ADMIN_SUBNAV } from "../src/domain/nav/admin-subnav";
 import {
@@ -246,6 +249,75 @@ function domainChecks() {
 
   const parts = activationInputPartsInZone(decCut, "America/Recife");
   check("input date parts", parts.date === "2026-12-04" && parts.time === "08:00");
+
+  // datetime-local: valor e parse sempre no fuso do grupo (nunca toISOString / new Date(string)).
+  const paidInstant = new Date("2026-11-17T21:26:00.000Z"); // 18:26 America/Recife
+  const paidLocal = datetimeLocalValueInZone(paidInstant, "America/Recife");
+  check(
+    "datetime-local valor Recife (não UTC)",
+    paidLocal === "2026-11-17T18:26",
+    paidLocal,
+  );
+  check(
+    "datetime-local NÃO usa dígitos UTC de toISOString",
+    paidLocal !== paidInstant.toISOString().slice(0, 16),
+    paidInstant.toISOString().slice(0, 16),
+  );
+  const paidParsed = zonedDateTimeFromDatetimeLocal(paidLocal, "America/Recife");
+  check(
+    "datetime-local → instante UTC correto",
+    paidParsed?.toISOString() === "2026-11-17T21:26:00.000Z",
+    paidParsed?.toISOString(),
+  );
+  // Bug histórico: UI gravava toISOString().slice(0,16) (UTC) e o servidor lia como Recife.
+  const buggyUtcDigits = paidInstant.toISOString().slice(0, 16);
+  const buggyAsRecife = zonedDateTimeFromDatetimeLocal(buggyUtcDigits, "America/Recife");
+  check(
+    "bug histórico: dígitos UTC como Recife ≈ +3h",
+    buggyAsRecife != null &&
+      buggyAsRecife.getTime() - paidInstant.getTime() === 3 * 60 * 60 * 1000,
+    String(buggyAsRecife && buggyAsRecife.getTime() - paidInstant.getTime()),
+  );
+  const prevTzPaid = process.env.TZ;
+  process.env.TZ = "America/Los_Angeles";
+  const paidFromLa = zonedDateTimeFromDatetimeLocal("2026-11-17T18:26", "America/Recife");
+  check(
+    "Admin em outro fuso: paidAt ainda Recife",
+    paidFromLa?.toISOString() === "2026-11-17T21:26:00.000Z",
+    paidFromLa?.toISOString(),
+  );
+  if (prevTzPaid === undefined) delete process.env.TZ;
+  else process.env.TZ = prevTzPaid;
+
+  const receiptReviewSrc = readFileSync(
+    path.resolve("src/app/(app)/admin/financeiro/receipt-review.tsx"),
+    "utf8",
+  );
+  check(
+    "UI aprovação sem toISOString em paidAt",
+    !receiptReviewSrc.includes("toISOString().slice(0, 16)"),
+  );
+  check(
+    "UI aprovação usa datetimeLocalValueInZone",
+    receiptReviewSrc.includes("datetimeLocalValueInZone"),
+  );
+  const financeFormsSrc = readFileSync(
+    path.resolve("src/app/(app)/admin/financeiro/finance-forms.tsx"),
+    "utf8",
+  );
+  check(
+    "movimentações sem toISOString em datetime-local",
+    !financeFormsSrc.includes("toISOString().slice(0, 16)"),
+  );
+  const formActionsSrc = readFileSync(
+    path.resolve("src/server/modules/finance/form-actions.ts"),
+    "utf8",
+  );
+  check(
+    "form-actions parseia paidAt no fuso do grupo",
+    formActionsSrc.includes("zonedDateTimeFromDatetimeLocal") &&
+      formActionsSrc.includes("parseGroupDatetimeLocal"),
+  );
 
   const formSrc = readFileSync(
     path.resolve("src/app/(app)/admin/configuracoes/finance-settings-form.tsx"),
@@ -484,7 +556,48 @@ function domainChecks() {
   check("receipt mime jpeg ok", assertReceiptUploadMeta({ mimeType: "image/jpeg", byteSize: 100, originalFilename: "a.jpg" }) == null);
   check("receipt mime exe rejected", assertReceiptUploadMeta({ mimeType: "text/plain", byteSize: 100, originalFilename: "a.txt" }) != null);
   check("receipt too big", assertReceiptUploadMeta({ mimeType: "image/png", byteSize: RECEIPT_MAX_BYTES + 1, originalFilename: "a.png" }) != null);
+  check(
+    "receipt just under 10 MB ok",
+    assertReceiptUploadMeta({
+      mimeType: "image/jpeg",
+      byteSize: RECEIPT_MAX_BYTES,
+      originalFilename: "a.jpg",
+    }) == null,
+  );
+  check(
+    "receipt 1 MB ok",
+    assertReceiptUploadMeta({
+      mimeType: "image/png",
+      byteSize: 1024 * 1024,
+      originalFilename: "a.png",
+    }) == null,
+  );
+  check(
+    "receipt between 1–10 MB ok",
+    assertReceiptUploadMeta({
+      mimeType: "application/pdf",
+      byteSize: 5 * 1024 * 1024,
+      originalFilename: "a.pdf",
+    }) == null,
+  );
   check("receipt allowlist has pdf", RECEIPT_ALLOWED_MIME.has("application/pdf"));
+  const nextConfigSrc = readFileSync(path.resolve("next.config.ts"), "utf8");
+  check(
+    "Server Actions bodySizeLimit cobre comprovantes 10 MB",
+    nextConfigSrc.includes("bodySizeLimit") &&
+      nextConfigSrc.includes('"11mb"') &&
+      nextConfigSrc.includes("serverActions"),
+  );
+  const receiptFormSrc = readFileSync(
+    path.resolve("src/app/(app)/pagamentos/receipt-upload-form.tsx"),
+    "utf8",
+  );
+  check(
+    "UI valida comprovante no cliente antes do Server Action",
+    receiptFormSrc.includes("assertReceiptUploadMeta") &&
+      receiptFormSrc.includes("validateOptionalReceiptFile") &&
+      receiptFormSrc.includes("onSubmit={onSubmit}"),
+  );
   check(
     "declaração sem arquivo detectada",
     isDeclarationWithoutReceipt({
@@ -587,11 +700,77 @@ function domainChecks() {
       "Financeiro ainda não configurado",
     ),
   );
+  const adminFinancePage = readFileSync(
+    path.resolve("src/app/(app)/admin/financeiro/page.tsx"),
+    "utf8",
+  );
   check(
     "UI admin financeiro pré-init",
-    readFileSync(path.resolve("src/app/(app)/admin/financeiro/page.tsx"), "utf8").includes(
-      "Financeiro ainda não configurado",
-    ),
+    adminFinancePage.includes("Financeiro ainda não configurado"),
+  );
+  check(
+    "UI admin orphan state warning",
+    adminFinancePage.includes("Dados financeiros de teste anteriores à implantação") &&
+      adminFinancePage.includes('setup === "orphan"'),
+  );
+  check(
+    "UI admin orphan esconde implantação",
+    adminFinancePage.includes("InitializeFinanceCard") &&
+      adminFinancePage.includes("{uninitialized ? (") &&
+      !adminFinancePage.includes("{!financeInitialized && ("),
+  );
+  check(
+    "setupState: limpo",
+    resolveFinanceSetupState({
+      hasOpeningCycle: false,
+      cycleCount: 0,
+      chargeCount: 0,
+      cashTransactionCount: 0,
+    }) === "uninitialized",
+  );
+  check(
+    "setupState: implantado",
+    resolveFinanceSetupState({
+      hasOpeningCycle: true,
+      cycleCount: 2,
+      chargeCount: 1,
+      cashTransactionCount: 1,
+    }) === "initialized",
+  );
+  check(
+    "setupState: órfão com ciclos",
+    resolveFinanceSetupState({
+      hasOpeningCycle: false,
+      cycleCount: 1,
+      chargeCount: 0,
+      cashTransactionCount: 0,
+    }) === "orphan",
+  );
+  check(
+    "setupState: órfão só com caixa",
+    resolveFinanceSetupState({
+      hasOpeningCycle: false,
+      cycleCount: 0,
+      chargeCount: 0,
+      cashTransactionCount: 1,
+    }) === "orphan",
+  );
+  check(
+    "seed finance-lab script local-only",
+    readFileSync(path.resolve("scripts/seed-finance-lab.ts"), "utf8").includes(
+      "requireLocalDatabaseUrl",
+    ) &&
+      readFileSync(path.resolve("scripts/seed-finance-lab.ts"), "utf8").includes("finance-lab") &&
+      readFileSync(path.resolve("scripts/seed-finance-lab.ts"), "utf8").includes(
+        "SMV_DEV_GROUP_SLUG",
+      ),
+  );
+  check(
+    "getCurrentGroup override só com pelada_dev",
+    readFileSync(path.resolve("src/server/group.ts"), "utf8").includes(
+      "assertLocalDevConnectionString",
+    ) &&
+      readFileSync(path.resolve("src/server/group.ts"), "utf8").includes("SMV_DEV_GROUP_SLUG"),
   );
 
   check(
@@ -991,6 +1170,7 @@ async function scenario(tx: Tx) {
   const queries = await import("../src/server/modules/finance/queries");
   const transparency = await import("../src/server/modules/finance/transparency");
   const playerQueries = await import("../src/server/modules/finance/player-queries");
+  const lock = await import("../src/server/modules/finance/lock");
   const { UserFacingError } = await import("../src/server/errors");
 
   const ctx = await seedFinanceGroup(tx);
@@ -1724,6 +1904,53 @@ async function scenario(tx: Tx) {
     String(freezeCredit.monthlyFeeCents),
   );
 
+  // --- Regressão: confirmedAt via dbNow vs paidAt do formulário (fuso do grupo) ---
+  // Falha real: `$queryRaw` + `clock_timestamp()` como Date deslocava ~−3h com TimeZone
+  // de sessão America/Cayenne → paidAt (agora Recife) > confirmedAt → "depois da confirmação".
+  {
+    const nodeBefore = Date.now();
+    const financeNow = await lock.dbNow(tx);
+    const nodeAfter = Date.now();
+    check(
+      "dbNow alinhado ao relógio do processo (±2s)",
+      financeNow.getTime() >= nodeBefore - 2_000 && financeNow.getTime() <= nodeAfter + 2_000,
+      `dbNow=${financeNow.toISOString()} node=${new Date(nodeAfter).toISOString()}`,
+    );
+
+    const rawClock = await tx.$queryRaw<{ now: Date }[]>`SELECT clock_timestamp() AS now`;
+    const rawDate = rawClock[0]?.now;
+    const rawMs =
+      rawDate instanceof Date ? rawDate.getTime() : new Date(String(rawDate)).getTime();
+    // Documenta o bug do adapter: se raw estiver >60s atrás de dbNow, validação antiga quebrava.
+    const rawSkewMs = rawMs - financeNow.getTime();
+    if (Math.abs(rawSkewMs) > 60_000) {
+      check(
+        "raw clock_timestamp Date desalinhado (bug adapter; dbNow usa epoch)",
+        true,
+        `rawSkewMs=${rawSkewMs}`,
+      );
+    } else {
+      check("raw clock_timestamp Date próximo do epoch (sem skew de sessão)", true);
+    }
+
+    const tz = ctx.group.timezone;
+    const paidAtLocal = datetimeLocalValueInZone(new Date(), tz);
+    const paidAtNow = zonedDateTimeFromDatetimeLocal(paidAtLocal, tz);
+    check("paidAt formulário (agora) parseável no fuso do grupo", paidAtNow != null, paidAtLocal);
+
+    // Reproduz a comparação que falhava: paidAt de "agora" civil vs confirmedAt torto.
+    if (paidAtNow && Math.abs(rawSkewMs) > 60_000) {
+      const wouldFail =
+        paidAtNow.getTime() > rawMs + 60_000 &&
+        paidAtNow.getTime() <= Date.now() + 60_000;
+      check(
+        "repro: paidAt=agora passaria futuro mas falharia vs raw confirmedAt",
+        wouldFail,
+        `paidAt=${paidAtNow.toISOString()} rawConfirmed=${new Date(rawMs).toISOString()}`,
+      );
+    }
+  }
+
   // Partial payments on OPENING charge
   const openingCharge = await tx.charge.findFirstOrThrow({
     where: { billingCycleId: init.openingCycleId, memberId: ctx.payer1.id, status: "PENDING" },
@@ -1737,6 +1964,52 @@ async function scenario(tx: Tx) {
   });
   check("parcial 2000", part1.amountCents === 2_000 && part1.remainingCents === 3_000);
   check("parcial mantém PENDING", part1.chargeStatus === "PENDING");
+
+  // Aprovação com paidAt = agora no fuso do grupo (fluxo Admin do datetime-local).
+  const openingChargeNow = await tx.charge.findFirstOrThrow({
+    where: { billingCycleId: init.openingCycleId, memberId: ctx.payer2.id, status: "PENDING" },
+  });
+  const paidAtLocalNow = datetimeLocalValueInZone(new Date(), ctx.group.timezone);
+  const paidAtFromForm = zonedDateTimeFromDatetimeLocal(paidAtLocalNow, ctx.group.timezone)!;
+  const payNow = await payments.confirmPayment(adminViewer, {
+    chargeId: openingChargeNow.id,
+    paidAt: paidAtFromForm,
+    amountCents: 1_000,
+    method: "PIX",
+    operationId: randomUUID(),
+  });
+  check(
+    "aprovação com paidAt=agora no fuso do grupo",
+    payNow.amountCents === 1_000 && payNow.chargeStatus === "PENDING",
+    paidAtLocalNow,
+  );
+
+  let futurePayBlocked = false;
+  let futurePayMsg = "";
+  try {
+    await payments.confirmPayment(adminViewer, {
+      chargeId: openingChargeNow.id,
+      paidAt: new Date(Date.now() + 3 * 60 * 60_000),
+      amountCents: 500,
+      method: "PIX",
+      operationId: randomUUID(),
+    });
+  } catch (error) {
+    futurePayBlocked = error instanceof UserFacingError;
+    futurePayMsg = error instanceof Error ? error.message : "";
+  }
+  check(
+    "paidAt no futuro continua rejeitado",
+    futurePayBlocked && futurePayMsg.includes("futuro"),
+    futurePayMsg,
+  );
+
+  // Estorna o pagamento de regressão para não alterar saldos dos testes seguintes.
+  await payments.reversePayment(adminViewer, {
+    paymentId: payNow.paymentId,
+    reason: "limpa regressão paidAt=agora",
+    operationId: randomUUID(),
+  });
 
   const part2 = await payments.confirmPayment(adminViewer, {
     chargeId: openingCharge.id,

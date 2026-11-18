@@ -1,6 +1,17 @@
 import type { NextConfig } from "next";
 
+/**
+ * Comprovantes: app valida ≤ 10 MB (RECEIPT_MAX_BYTES).
+ * Server Actions default = 1 MB — insuficiente para anexos.
+ * 11 MB cobre 10 MB de arquivo + overhead multipart (limites/campos).
+ * @see https://nextjs.org/docs/app/api-reference/config/next-config-js/serverActions
+ */
 const nextConfig: NextConfig = {
+  experimental: {
+    serverActions: {
+      bodySizeLimit: "11mb",
+    },
+  },
   async redirects() {
     return [{ source: "/rankings", destination: "/stats", permanent: true }];
   },

@@ -1,7 +1,10 @@
 "use server";
 
 import { randomUUID } from "node:crypto";
-import { zonedDateTimeFromFormParts } from "@/domain/finance/cycleDates";
+import {
+  zonedDateTimeFromDatetimeLocal,
+  zonedDateTimeFromFormParts,
+} from "@/domain/finance/cycleDates";
 import { requireAdminAction } from "@/server/auth/dal";
 import { UserFacingError } from "@/server/errors";
 import { confirmPayment, reversePayment } from "./payments";
@@ -13,6 +16,11 @@ import { setMemberFeeExempt, updateFinanceSettings } from "./settings";
 
 function formText(formData: FormData, key: string): string {
   return String(formData.get(key) ?? "").trim();
+}
+
+function parseGroupDatetimeLocal(raw: string, timeZone: string): Date | null {
+  if (!raw) return null;
+  return zonedDateTimeFromDatetimeLocal(raw, timeZone);
 }
 
 function formInt(formData: FormData, key: string): number | null {
@@ -103,7 +111,13 @@ export async function confirmPaymentAction(formData: FormData) {
   try {
     const viewer = await requireAdminAction();
     const chargeId = formText(formData, "chargeId");
-    const paidAt = new Date(formText(formData, "paidAt") || Date.now());
+    const paidAtRaw = formText(formData, "paidAt");
+    const paidAt = paidAtRaw
+      ? parseGroupDatetimeLocal(paidAtRaw, viewer.group.timezone)
+      : new Date();
+    if (!paidAt || Number.isNaN(paidAt.getTime())) {
+      throw new UserFacingError("Data do pagamento inválida.");
+    }
     const amountCents = formInt(formData, "amountCents") ?? undefined;
     const methodRaw = formText(formData, "method");
     const method =
@@ -159,10 +173,17 @@ export async function recordFieldCostAction(formData: FormData) {
     const viewer = await requireAdminAction();
     const amountCents = formInt(formData, "amountCents");
     if (amountCents == null) throw new UserFacingError("Valor inválido.");
+    const occurredRaw = formText(formData, "occurredAt");
+    const occurredAt = occurredRaw
+      ? parseGroupDatetimeLocal(occurredRaw, viewer.group.timezone)
+      : new Date();
+    if (!occurredAt || Number.isNaN(occurredAt.getTime())) {
+      throw new UserFacingError("Data inválida.");
+    }
     const result = await recordFieldCost(viewer, {
       billingCycleId: formText(formData, "billingCycleId"),
       amountCents,
-      occurredAt: new Date(formText(formData, "occurredAt") || Date.now()),
+      occurredAt,
       notes: formText(formData, "notes") || null,
       operationId: operationIdOf(formData),
     });
@@ -215,10 +236,17 @@ export async function recordOtherExpenseAction(formData: FormData) {
     const viewer = await requireAdminAction();
     const amountCents = formInt(formData, "amountCents");
     if (amountCents == null) throw new UserFacingError("Valor inválido.");
+    const occurredRaw = formText(formData, "occurredAt");
+    const occurredAt = occurredRaw
+      ? parseGroupDatetimeLocal(occurredRaw, viewer.group.timezone)
+      : new Date();
+    if (!occurredAt || Number.isNaN(occurredAt.getTime())) {
+      throw new UserFacingError("Data inválida.");
+    }
     const result = await recordOtherExpense(viewer, {
       billingCycleId: formText(formData, "billingCycleId"),
       amountCents,
-      occurredAt: new Date(formText(formData, "occurredAt") || Date.now()),
+      occurredAt,
       reason: formText(formData, "reason"),
       notes: formText(formData, "notes") || null,
       operationId: operationIdOf(formData),
@@ -238,11 +266,18 @@ export async function recordCashAdjustmentAction(formData: FormData) {
     if (directionRaw !== "IN" && directionRaw !== "OUT") {
       throw new UserFacingError("Direção do ajuste inválida.");
     }
+    const occurredRaw = formText(formData, "occurredAt");
+    const occurredAt = occurredRaw
+      ? parseGroupDatetimeLocal(occurredRaw, viewer.group.timezone)
+      : new Date();
+    if (!occurredAt || Number.isNaN(occurredAt.getTime())) {
+      throw new UserFacingError("Data inválida.");
+    }
     const result = await recordCashAdjustment(viewer, {
       billingCycleId: formText(formData, "billingCycleId"),
       direction: directionRaw,
       amountCents,
-      occurredAt: new Date(formText(formData, "occurredAt") || Date.now()),
+      occurredAt,
       reason: formText(formData, "reason"),
       operationId: operationIdOf(formData),
     });

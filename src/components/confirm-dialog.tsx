@@ -115,10 +115,12 @@ export function useConfirmSubmit() {
           return;
         }
         event.preventDefault();
+        // Capture before await — React nulls currentTarget after the handler yields.
+        const form = event.currentTarget;
         const ok = await confirm(options);
         if (!ok) return;
         bypassRef.current = true;
-        event.currentTarget.requestSubmit();
+        form.requestSubmit();
       },
     [confirm],
   );

@@ -112,7 +112,8 @@ async function confirmPaymentInTx(
     confirmedAt = target.recordedAt;
   }
 
-  if (input.paidAt > confirmedAt) {
+  // datetime-local tem precisão de minuto; tolera até 60s além de confirmedAt (mesmo critério do futuro).
+  if (input.paidAt.getTime() > confirmedAt.getTime() + 60_000) {
     throw new UserFacingError("A data do pagamento não pode ser depois da confirmação.");
   }
 

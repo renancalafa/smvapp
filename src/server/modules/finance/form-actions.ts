@@ -4,7 +4,10 @@ import { randomUUID } from "node:crypto";
 import { refresh } from "next/cache";
 import { requireAdminAction } from "@/server/auth/dal";
 import { UserFacingError } from "@/server/errors";
-import { zonedDateTimeFromFormParts } from "@/domain/finance/cycleDates";
+import {
+  zonedDateTimeFromDatetimeLocal,
+  zonedDateTimeFromFormParts,
+} from "@/domain/finance/cycleDates";
 import { parseBRLToCents } from "@/lib/money";
 import { confirmPayment, reversePayment } from "./payments";
 import { freezeBillingCycle, overrideCycleActivation } from "./cycles";
@@ -25,6 +28,15 @@ export type FinanceFormState =
 
 function formText(formData: FormData, key: string): string {
   return String(formData.get(key) ?? "").trim();
+}
+
+/** `datetime-local` no fuso do grupo — nunca `new Date(string)` (fuso do processo). */
+function parseGroupDatetimeLocal(
+  raw: string,
+  timeZone: string,
+): Date | null {
+  if (!raw) return null;
+  return zonedDateTimeFromDatetimeLocal(raw, timeZone);
 }
 
 function moneyCents(formData: FormData, key: string): number | null {
@@ -162,9 +174,16 @@ export async function confirmPaymentForm(
       methodRaw === "CASH" || methodRaw === "PIX" || methodRaw === "BANK_TRANSFER" || methodRaw === "OTHER"
         ? methodRaw
         : null;
+    const paidAtRaw = formText(formData, "paidAt");
+    const paidAt = paidAtRaw
+      ? parseGroupDatetimeLocal(paidAtRaw, viewer.group.timezone)
+      : new Date();
+    if (!paidAt || Number.isNaN(paidAt.getTime())) {
+      return { status: "error", error: "Data do pagamento inválida." };
+    }
     const result = await confirmPayment(viewer, {
       chargeId: formText(formData, "chargeId"),
-      paidAt: new Date(formText(formData, "paidAt") || Date.now()),
+      paidAt,
       amountCents,
       method,
       notes: formText(formData, "notes") || null,
@@ -210,10 +229,17 @@ export async function recordFieldCostForm(
     const viewer = await requireAdminAction();
     const amountCents = moneyCents(formData, "amountCents");
     if (amountCents == null) return { status: "error", error: "Valor inválido." };
+    const occurredRaw = formText(formData, "occurredAt");
+    const occurredAt = occurredRaw
+      ? parseGroupDatetimeLocal(occurredRaw, viewer.group.timezone)
+      : new Date();
+    if (!occurredAt || Number.isNaN(occurredAt.getTime())) {
+      return { status: "error", error: "Data inválida." };
+    }
     await recordFieldCost(viewer, {
       billingCycleId: formText(formData, "billingCycleId"),
       amountCents,
-      occurredAt: new Date(formText(formData, "occurredAt") || Date.now()),
+      occurredAt,
       notes: formText(formData, "notes") || null,
       operationId: opId(formData),
     });
@@ -232,10 +258,17 @@ export async function recordOtherExpenseForm(
     const viewer = await requireAdminAction();
     const amountCents = moneyCents(formData, "amountCents");
     if (amountCents == null) return { status: "error", error: "Valor inválido." };
+    const occurredRaw = formText(formData, "occurredAt");
+    const occurredAt = occurredRaw
+      ? parseGroupDatetimeLocal(occurredRaw, viewer.group.timezone)
+      : new Date();
+    if (!occurredAt || Number.isNaN(occurredAt.getTime())) {
+      return { status: "error", error: "Data inválida." };
+    }
     await recordOtherExpense(viewer, {
       billingCycleId: formText(formData, "billingCycleId"),
       amountCents,
-      occurredAt: new Date(formText(formData, "occurredAt") || Date.now()),
+      occurredAt,
       reason: formText(formData, "reason"),
       notes: formText(formData, "notes") || null,
       operationId: opId(formData),
@@ -259,11 +292,18 @@ export async function recordAdjustmentForm(
     if (direction !== "IN" && direction !== "OUT") {
       return { status: "error", error: "Direção inválida." };
     }
+    const occurredRaw = formText(formData, "occurredAt");
+    const occurredAt = occurredRaw
+      ? parseGroupDatetimeLocal(occurredRaw, viewer.group.timezone)
+      : new Date();
+    if (!occurredAt || Number.isNaN(occurredAt.getTime())) {
+      return { status: "error", error: "Data inválida." };
+    }
     await recordCashAdjustment(viewer, {
       billingCycleId: formText(formData, "billingCycleId"),
       direction,
       amountCents,
-      occurredAt: new Date(formText(formData, "occurredAt") || Date.now()),
+      occurredAt,
       reason: formText(formData, "reason"),
       operationId: opId(formData),
     });
@@ -323,8 +363,10 @@ export async function approveReceiptForm(
     const { approvePaymentReceipt } = await import("./receipts");
     const amount = moneyCents(formData, "amountCents") ?? undefined;
     const paidAtRaw = formText(formData, "paidAt");
-    const paidAt = paidAtRaw ? new Date(paidAtRaw) : new Date();
-    if (Number.isNaN(paidAt.getTime())) {
+    const paidAt = paidAtRaw
+      ? parseGroupDatetimeLocal(paidAtRaw, viewer.group.timezone)
+      : new Date();
+    if (!paidAt || Number.isNaN(paidAt.getTime())) {
       return { status: "error", error: "Data do pagamento inválida." };
     }
     const result = await approvePaymentReceipt(viewer, {

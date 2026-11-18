@@ -5,6 +5,7 @@ import { useConfirmSubmit } from "@/components/confirm-dialog";
 import { CurrencyCentsField } from "@/components/currency-cents-field";
 import { FormError, SubmitButton, TextField } from "@/components/form-fields";
 import { ActionToast } from "@/components/toast/action-toast";
+import { datetimeLocalValueInZone } from "@/domain/finance/cycleDates";
 import { isDeclarationWithoutReceipt } from "@/domain/finance/receiptUpload";
 import { formatCentsBRL } from "@/lib/money";
 import {
@@ -56,7 +57,13 @@ export type ReceiptQueueItem = {
   periodLabel: string;
 };
 
-export function ReceiptReviewQueue({ items }: { items: ReceiptQueueItem[] }) {
+export function ReceiptReviewQueue({
+  items,
+  timeZone,
+}: {
+  items: ReceiptQueueItem[];
+  timeZone: string;
+}) {
   const [expandedId, setExpandedId] = useState<string | null>(null);
 
   if (items.length === 0) {
@@ -84,6 +91,7 @@ export function ReceiptReviewQueue({ items }: { items: ReceiptQueueItem[] }) {
               <ReceiptReviewAccordionItem
                 item={item}
                 open={open}
+                timeZone={timeZone}
                 onToggle={() => setExpandedId(open ? null : item.id)}
               />
             </li>
@@ -98,10 +106,12 @@ function ReceiptReviewAccordionItem({
   item,
   open,
   onToggle,
+  timeZone,
 }: {
   item: ReceiptQueueItem;
   open: boolean;
   onToggle: () => void;
+  timeZone: string;
 }) {
   const panelId = useId();
   const withoutReceipt = isDeclarationWithoutReceipt(item);
@@ -151,7 +161,11 @@ function ReceiptReviewAccordionItem({
           role="region"
           aria-label={`Revisar pagamento de ${item.playerName}`}
         >
-          <ReceiptReviewExpanded item={item} withoutReceipt={withoutReceipt} />
+          <ReceiptReviewExpanded
+            item={item}
+            withoutReceipt={withoutReceipt}
+            timeZone={timeZone}
+          />
         </div>
       ) : null}
     </article>
@@ -161,14 +175,20 @@ function ReceiptReviewAccordionItem({
 function ReceiptReviewExpanded({
   item,
   withoutReceipt,
+  timeZone,
 }: {
   item: ReceiptQueueItem;
   withoutReceipt: boolean;
+  timeZone: string;
 }) {
   const [approveState, approveAction, approvePending] = useActionState(approveReceiptForm, undefined);
   const [rejectState, rejectAction, rejectPending] = useActionState(rejectReceiptForm, undefined);
   const [grantState, grantAction, grantPending] = useActionState(grantAccessForm, undefined);
   const [showGrant, setShowGrant] = useState(false);
+  // Remonta o painel ao abrir → horário fresco no fuso do grupo (não UTC via toISOString).
+  const [paidAtLocal, setPaidAtLocal] = useState(() =>
+    datetimeLocalValueInZone(new Date(), timeZone),
+  );
   const confirmSubmit = useConfirmSubmit();
   const defaultAmount = item.claimedAmountCents ?? item.remainingCents;
   const chargeKind = item.chargeType === "MONTHLY_FEE" ? "Mensalidade" : "Diária";
@@ -216,7 +236,9 @@ function ReceiptReviewExpanded({
           label="Data do pagamento"
           name="paidAt"
           type="datetime-local"
-          defaultValue={new Date().toISOString().slice(0, 16)}
+          value={paidAtLocal}
+          onChange={(e) => setPaidAtLocal(e.target.value)}
+          hint="Horário no fuso do grupo. Datas históricas ok; futuro é rejeitado."
           required
         />
         <TextField label="Observação (opcional)" name="notes" />

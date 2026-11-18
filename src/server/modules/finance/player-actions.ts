@@ -50,6 +50,13 @@ export async function declarePaymentForm(
     };
   } catch (error) {
     if (error instanceof UserFacingError) return { status: "error", error: error.message };
+    const message = error instanceof Error ? error.message : "";
+    if (/body exceeded|bodySizeLimit|1\s*mb limit/i.test(message)) {
+      return {
+        status: "error",
+        error: "Arquivo grande demais. Envie um comprovante de até 10 MB (JPEG, PNG, WebP ou PDF).",
+      };
+    }
     console.error(error);
     return { status: "error", error: "Não foi possível informar o pagamento." };
   }
@@ -83,6 +90,13 @@ export async function attachReceiptForm(
     };
   } catch (error) {
     if (error instanceof UserFacingError) return { status: "error", error: error.message };
+    const message = error instanceof Error ? error.message : "";
+    if (/body exceeded|bodySizeLimit|1\s*mb limit/i.test(message)) {
+      return {
+        status: "error",
+        error: "Arquivo grande demais. Envie um comprovante de até 10 MB (JPEG, PNG, WebP ou PDF).",
+      };
+    }
     console.error(error);
     return { status: "error", error: "Não foi possível anexar o comprovante." };
   }

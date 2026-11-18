@@ -5,6 +5,7 @@ import { useConfirmSubmit } from "@/components/confirm-dialog";
 import { CurrencyCentsField } from "@/components/currency-cents-field";
 import { FormError, SelectField, SubmitButton, TextField } from "@/components/form-fields";
 import { ActionToast } from "@/components/toast/action-toast";
+import { datetimeLocalValueInZone } from "@/domain/finance/cycleDates";
 import { formatCentsBRL } from "@/lib/money";
 import {
   darkCardPad,
@@ -38,8 +39,9 @@ function Banner({
   );
 }
 
-function nowLocalDatetime(): string {
-  return new Date().toISOString().slice(0, 16);
+/** Agora civil no fuso do grupo — não usar toISOString (UTC) em datetime-local. */
+function nowGroupDatetime(timeZone: string): string {
+  return datetimeLocalValueInZone(new Date(), timeZone);
 }
 
 const OP_OPTIONS = [
@@ -122,8 +124,10 @@ export function CreditApprovalCard(props: {
 
 function ReceivePaymentForm({
   charges,
+  timeZone,
 }: {
   charges: Array<{ id: string; label: string; remainingCents: number }>;
+  timeZone: string;
 }) {
   const [state, action, pending] = useActionState(confirmPaymentForm, undefined);
   if (charges.length === 0) {
@@ -167,7 +171,8 @@ function ReceivePaymentForm({
           label="Data do pagamento"
           name="paidAt"
           type="datetime-local"
-          defaultValue={nowLocalDatetime()}
+          defaultValue={nowGroupDatetime(timeZone)}
+          hint="Horário no fuso do grupo."
           required
         />
         <TextField label="Observação (opcional)" name="notes" />
@@ -179,8 +184,10 @@ function ReceivePaymentForm({
 
 function FieldCostForm({
   cycleOptions,
+  timeZone,
 }: {
   cycleOptions: Array<{ value: string; label: string }>;
+  timeZone: string;
 }) {
   const [state, action, pending] = useActionState(recordFieldCostForm, undefined);
   return (
@@ -204,7 +211,8 @@ function FieldCostForm({
           label="Data"
           name="occurredAt"
           type="datetime-local"
-          defaultValue={nowLocalDatetime()}
+          defaultValue={nowGroupDatetime(timeZone)}
+          hint="Horário no fuso do grupo."
           required
         />
         <TextField label="Observação (opcional)" name="notes" />
@@ -216,8 +224,10 @@ function FieldCostForm({
 
 function OtherExpenseForm({
   cycleOptions,
+  timeZone,
 }: {
   cycleOptions: Array<{ value: string; label: string }>;
+  timeZone: string;
 }) {
   const [state, action, pending] = useActionState(recordOtherExpenseForm, undefined);
   return (
@@ -240,7 +250,8 @@ function OtherExpenseForm({
           label="Data"
           name="occurredAt"
           type="datetime-local"
-          defaultValue={nowLocalDatetime()}
+          defaultValue={nowGroupDatetime(timeZone)}
+          hint="Horário no fuso do grupo."
           required
         />
       </div>
@@ -314,6 +325,7 @@ function ReverseCashForm() {
 export function FinancialMovementsPanel(props: {
   charges: Array<{ id: string; label: string; remainingCents: number }>;
   cycleOptions: Array<{ value: string; label: string }>;
+  timeZone: string;
 }) {
   const [op, setOp] = useState<MovementOp>("receive");
   const [showReverse, setShowReverse] = useState(false);
@@ -353,17 +365,19 @@ export function FinancialMovementsPanel(props: {
       </div>
 
       <div role="tabpanel" className="pt-1">
-        {op === "receive" ? <ReceivePaymentForm charges={props.charges} /> : null}
+        {op === "receive" ? (
+          <ReceivePaymentForm charges={props.charges} timeZone={props.timeZone} />
+        ) : null}
         {op === "field" ? (
           hasCycles ? (
-            <FieldCostForm cycleOptions={props.cycleOptions} />
+            <FieldCostForm cycleOptions={props.cycleOptions} timeZone={props.timeZone} />
           ) : (
             <p className={darkMuted}>Implante o financeiro ou aguarde ciclos para pagar a quadra.</p>
           )
         ) : null}
         {op === "other" ? (
           hasCycles ? (
-            <OtherExpenseForm cycleOptions={props.cycleOptions} />
+            <OtherExpenseForm cycleOptions={props.cycleOptions} timeZone={props.timeZone} />
           ) : (
             <p className={darkMuted}>Implante o financeiro ou aguarde ciclos para registrar despesas.</p>
           )
@@ -395,15 +409,29 @@ export function FinancialMovementsPanel(props: {
 /** @deprecated Prefer FinancialMovementsPanel */
 export function RecordPaymentCard(props: {
   charges: Array<{ id: string; label: string; remainingCents: number }>;
+  timeZone?: string;
 }) {
-  return <FinancialMovementsPanel charges={props.charges} cycleOptions={[]} />;
+  return (
+    <FinancialMovementsPanel
+      charges={props.charges}
+      cycleOptions={[]}
+      timeZone={props.timeZone ?? "America/Recife"}
+    />
+  );
 }
 
 /** @deprecated Prefer FinancialMovementsPanel */
 export function ExpenseCards(props: {
   cycleOptions: Array<{ value: string; label: string }>;
+  timeZone?: string;
 }) {
-  return <FinancialMovementsPanel charges={[]} cycleOptions={props.cycleOptions} />;
+  return (
+    <FinancialMovementsPanel
+      charges={[]}
+      cycleOptions={props.cycleOptions}
+      timeZone={props.timeZone ?? "America/Recife"}
+    />
+  );
 }
 
 export function FreezeCycleCard({ cycleId, label }: { cycleId: string; label: string }) {

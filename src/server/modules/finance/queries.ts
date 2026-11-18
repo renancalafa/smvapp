@@ -4,8 +4,9 @@ import { defaultFreezesAt, civilFromReferenceMonth } from "@/domain/finance/cycl
 import { db } from "@/server/db";
 import { computeAvailableCreditForCycleInTx } from "./credits";
 import { ensureFinanceState, previewNextMonthlyFee } from "./cycles";
-import { isFinanceInitialized } from "./initialized";
+import { getFinanceSetupState, isFinanceInitialized } from "./initialized";
 import { withFinanceTransaction } from "./lock";
+import type { FinanceSetupState } from "@/domain/finance/setupState";
 
 export async function getCashBalanceCents(groupId: string): Promise<number> {
   await ensureFinanceState(groupId);
@@ -18,6 +19,8 @@ export async function getCashBalanceCents(groupId: string): Promise<number> {
 
 export type AdminFinanceDashboard = {
   financeInitialized: boolean;
+  /** initialized | uninitialized (limpo) | orphan (ledger sem OPENING). */
+  financeSetupState: FinanceSetupState;
   balanceCents: number;
   confirmedIncomeCents: number;
   recordedExpenseCents: number;
@@ -111,7 +114,10 @@ export async function getAdminFinanceDashboard(
   groupId: string,
   timeZone: string,
 ): Promise<AdminFinanceDashboard> {
-  const financeInitialized = await isFinanceInitialized(groupId);
+  const [financeInitialized, financeSetupState] = await Promise.all([
+    isFinanceInitialized(groupId),
+    getFinanceSetupState(groupId),
+  ]);
   await ensureFinanceState(groupId);
 
   const [rows, forecast, cycles, settings, group, charges, recentCash, members] = await Promise.all([
@@ -230,6 +236,7 @@ export async function getAdminFinanceDashboard(
 
   return {
     financeInitialized,
+    financeSetupState,
     balanceCents,
     confirmedIncomeCents,
     recordedExpenseCents,
