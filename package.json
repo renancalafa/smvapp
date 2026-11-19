@@ -48,6 +48,7 @@
     "seed:finance-lab-payment-fixture": "tsx scripts/seed-finance-lab-payment-fixture.ts",
     "check:member-rating": "tsx scripts/check-member-rating.ts",
     "check:member-evaluation": "tsx scripts/check-member-evaluation.ts",
+    "check:evaluation-dialog-focus": "tsx scripts/check-evaluation-dialog-focus.tsx",
     "check:rating-foundation": "tsx scripts/check-rating-foundation.ts",
     "check:rating-ui": "tsx scripts/check-rating-ui.ts",
     "check:rating-voting-rules": "tsx scripts/check-rating-voting-rules.ts",
@@ -75,6 +76,7 @@
     "web-push": "3.6.7"
   },
   "devDependencies": {
+    "@happy-dom/global-registrator": "^20.14.6",
     "@tailwindcss/postcss": "^4",
     "@types/node": "^20",
     "@types/react": "^19",
@@ -83,6 +85,7 @@
     "dotenv": "17.4.2",
     "eslint": "^9",
     "eslint-config-next": "16.3.8",
+    "happy-dom": "^20.14.6",
     "prisma": "7.10.0",
     "tailwindcss": "^4",
     "tsx": "^4.23.15",

@@ -26,12 +26,20 @@ export function ResponsiveDialog({
 }) {
   const titleId = useId();
   const panelRef = useRef<HTMLDivElement>(null);
+  // Keep latest onClose without re-running the open effect on parent re-renders.
+  // Inline `onClose={() => ...}` identities change every render and used to steal focus
+  // back to the first focusable (Fechar) after each Motivo keystroke.
+  const onCloseRef = useRef(onClose);
+  useEffect(() => {
+    onCloseRef.current = onClose;
+  }, [onClose]);
 
   useEffect(() => {
     if (!open) return;
 
     const previousOverflow = document.body.style.overflow;
     document.body.style.overflow = "hidden";
+    // triggerRef is a stable RefObject from the parent; only .current mutates.
     const returnFocusNode = triggerRef.current;
 
     const panel = panelRef.current;
@@ -42,12 +50,13 @@ export function ResponsiveDialog({
           )
         : [];
 
+    // Autofocus only when the dialog opens — not on every parent state update.
     focusables()[0]?.focus();
 
     const onKeyDown = (event: KeyboardEvent) => {
       if (event.key === "Escape") {
         event.preventDefault();
-        onClose();
+        onCloseRef.current();
         return;
       }
       if (event.key !== "Tab" || !panel) return;
@@ -70,7 +79,9 @@ export function ResponsiveDialog({
       document.removeEventListener("keydown", onKeyDown);
       returnFocusNode?.focus();
     };
-  }, [open, onClose, triggerRef]);
+    // Intentionally depend only on `open` (and the stable triggerRef object).
+    // onClose is read through onCloseRef so parent re-renders do not re-autofocus.
+  }, [open, triggerRef]);
 
   if (!open) return null;
 

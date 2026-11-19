@@ -1,6 +1,13 @@
 "use client";
 
-import { useActionState, useMemo, useRef, useState, type FormEvent } from "react";
+import {
+  useActionState,
+  useCallback,
+  useMemo,
+  useRef,
+  useState,
+  type FormEvent,
+} from "react";
 import { useConfirm } from "@/components/confirm-dialog";
 import { FormError, SubmitButton, TextField } from "@/components/form-fields";
 import { ActionToast } from "@/components/toast/action-toast";
@@ -49,6 +56,7 @@ export function EditEvaluationDialog({
   const [role, setRole] = useState<PreferredRole | null>(preferredRole);
   const [reason, setReason] = useState("");
   const triggerRef = useRef<HTMLButtonElement>(null);
+  const closeDialog = useCallback(() => setOpen(false), []);
   const confirm = useConfirm();
 
   const [state, formAction, pending] = useActionState(
@@ -131,7 +139,7 @@ export function EditEvaluationDialog({
 
       <ResponsiveDialog
         open={open}
-        onClose={() => setOpen(false)}
+        onClose={closeDialog}
         title="Editar avaliação"
         description={`Ajuste as notas e o papel de ${username}. Um motivo cobre todas as mudanças.`}
         triggerRef={triggerRef}
@@ -157,7 +165,7 @@ export function EditEvaluationDialog({
             <button
               type="button"
               className={`${darkBtnGhost} w-full sm:w-auto`}
-              onClick={() => setOpen(false)}
+              onClick={closeDialog}
             >
               Cancelar
             </button>
