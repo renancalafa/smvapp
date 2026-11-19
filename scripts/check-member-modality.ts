@@ -456,10 +456,10 @@ async function scenario(
       adminDailyAfter.modality === "MONTHLY",
   );
 
-  // Política financeira (OPENING existe → bloqueio atual).
+  // Pós-implantação: sem janela de dia 1–7; promoção permanece permitida.
   await clearOpeningCycle(tx, group.id);
   await insertOpeningCycle(tx, group.id);
-  const blockedTarget = await tx.groupMember.findFirst({
+  const postGoLiveTarget = await tx.groupMember.findFirst({
     where: {
       groupId: group.id,
       modality: "DAILY",
@@ -468,24 +468,30 @@ async function scenario(
     },
     select: { id: true },
   });
-  let policyTargetId = blockedTarget?.id;
+  let policyTargetId = postGoLiveTarget?.id;
   if (!policyTargetId) {
     await tx.groupMember.update({
       where: { id: inactiveTarget.id },
-      data: { modality: "DAILY", role: "PLAYER" },
+      data: { modality: "DAILY", role: "PLAYER", status: "ACTIVE" },
     });
     policyTargetId = inactiveTarget.id;
+  } else {
+    await tx.groupMember.update({
+      where: { id: policyTargetId },
+      data: { modality: "DAILY", status: "ACTIVE" },
+    });
   }
-  try {
-    await membersMod.promoteMemberToMonthly(adminViewer, policyTargetId);
-    check("bloqueia após implantação financeira", false);
-  } catch (error) {
-    check(
-      "bloqueia após implantação financeira",
-      error instanceof UserFacingError &&
-        (error.message.includes("cobranças") || error.message.includes("Mensalistas só podem")),
-    );
-  }
+  const afterGoLive = await membersMod.promoteMemberToMonthly(adminViewer, policyTargetId);
+  const afterGoLiveRow = await tx.groupMember.findUniqueOrThrow({
+    where: { id: policyTargetId },
+    select: { modality: true },
+  });
+  check(
+    "permite promoção após implantação financeira (sem janela de dia)",
+    afterGoLive.previousModality === "DAILY" &&
+      afterGoLive.newModality === "MONTHLY" &&
+      afterGoLiveRow.modality === "MONTHLY",
+  );
 }
 
 /**
@@ -537,7 +543,7 @@ async function concurrencyScenario(
     data: { modality: "DAILY" },
   });
 
-  // Remove OPENING se existir (senão a promoção fica bloqueada de verdade).
+  // Snapshot/restore do OPENING para isolar a corrida de promoção do estado financeiro.
   const opening = await prisma.billingCycle.findFirst({
     where: { groupId: group.id, kind: "OPENING" },
     select: { id: true },

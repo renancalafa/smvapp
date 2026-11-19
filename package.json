@@ -40,6 +40,7 @@
     "check:dev-reset": "tsx scripts/check-dev-reset.ts",
     "check:member-role": "tsx scripts/check-member-role.ts",
     "check:member-modality": "tsx scripts/check-member-modality.ts",
+    "check:monthly-join": "tsx scripts/check-monthly-join-window.ts",
     "check:finance": "tsx scripts/check-finance.ts",
     "check:app-feedback": "tsx scripts/check-app-feedback.ts",
     "seed:finance-phase3": "tsx scripts/seed-finance-phase3-scenarios.ts",

@@ -1,36 +1,15 @@
-// Janela de entrada de mensalistas (PROJECT.md, seção 31.8): do dia 1 ao dia
-// monthlyFeeDueDay do mês, no fuso do grupo. Vale para novos mensalistas e para a
-// reativação de mensalistas inativos, só depois da implantação financeira.
-import { civilDateInZone } from "@/domain/time/zoned";
-
-export function isMonthlyJoinWindowOpen(
-  instant: Date,
-  timeZone: string,
-  monthlyFeeDueDay: number,
-): boolean {
-  return civilDateInZone(instant, timeZone).day <= monthlyFeeDueDay;
-}
+// Entrada/reativação de mensalistas: sem restrição de dia do mês.
+// Financeiro: ensureLateJoinMonthlyChargeInTx nunca cobra o ciclo CLOSED corrente;
+// a 1ª mensalidade nova sai no próximo freeze elegível (membro ACTIVE MONTHLY).
 
 export type MonthlyJoinPolicy =
   | { allowed: true }
   | { allowed: false; reason: string };
 
 /**
- * Antes da implantação, mensalistas entram livremente. Depois, só na janela; e mesmo na
- * janela a entrada exige a cobrança LATE_JOIN do ciclo, que depende do módulo financeiro.
+ * Sempre permite cadastro, promoção DAILY→MONTHLY e reativação de mensalista.
+ * `monthlyFeeDueDay` continua valendo só como vencimento de pagamento.
  */
-export function monthlyJoinPolicy(input: {
-  financialGoLiveDone: boolean;
-  now: Date;
-  timeZone: string;
-  monthlyFeeDueDay: number;
-}): MonthlyJoinPolicy {
-  if (!input.financialGoLiveDone) return { allowed: true };
-  if (!isMonthlyJoinWindowOpen(input.now, input.timeZone, input.monthlyFeeDueDay)) {
-    return {
-      allowed: false,
-      reason: `Mensalistas só podem entrar ou ser reativados do dia 1 ao dia ${input.monthlyFeeDueDay} do mês.`,
-    };
-  }
+export function monthlyJoinPolicy(): MonthlyJoinPolicy {
   return { allowed: true };
 }

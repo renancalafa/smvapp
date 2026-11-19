@@ -1,9 +1,5 @@
 import "server-only";
-import { monthlyJoinPolicy, type MonthlyJoinPolicy } from "@/domain/members/monthlyJoinWindow";
-import type { Prisma } from "@/generated/prisma/client";
 import { db } from "@/server/db";
-
-type DbClient = typeof db | Prisma.TransactionClient;
 
 /** Dados editáveis na Conta do próprio jogador. */
 export async function getOwnAccountProfile(groupId: string, memberId: string, userId: string) {
@@ -78,22 +74,4 @@ export async function getGroupMemberDetail(groupId: string, memberId: string) {
   ]);
   const lastAccessAt = lastSession ? (lastSession.lastUsedAt ?? lastSession.createdAt) : null;
   return { ...member, activeSessions, lastAccessAt };
-}
-
-/** A implantação financeira cria o ciclo OPENING do grupo (PROJECT.md, seção 31.12). */
-export async function getMonthlyJoinPolicy(
-  client: DbClient,
-  group: { id: string; timezone: string },
-  now = new Date(),
-): Promise<MonthlyJoinPolicy> {
-  const [opening, settings] = await Promise.all([
-    client.billingCycle.findFirst({ where: { groupId: group.id, kind: "OPENING" }, select: { id: true } }),
-    client.groupSettings.findUnique({ where: { groupId: group.id }, select: { monthlyFeeDueDay: true } }),
-  ]);
-  return monthlyJoinPolicy({
-    financialGoLiveDone: opening !== null,
-    now,
-    timeZone: group.timezone,
-    monthlyFeeDueDay: settings?.monthlyFeeDueDay ?? 7,
-  });
 }

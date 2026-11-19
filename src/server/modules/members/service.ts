@@ -8,7 +8,6 @@ import { db } from "@/server/db";
 import { UserFacingError } from "@/server/errors";
 import { ensureLateJoinMonthlyChargeInTx } from "@/server/modules/finance/late-join";
 import { releaseMemberFromUpcomingSessions } from "@/server/modules/sessions/service";
-import { getMonthlyJoinPolicy } from "./queries";
 import type { CreatePlayerInput, OwnProfileInput } from "./validation";
 
 const LAST_ADMIN_MESSAGE =
@@ -31,10 +30,6 @@ export async function createPlayer(viewer: Viewer, input: CreatePlayerInput): Pr
 
   try {
     return await db.$transaction(async (tx) => {
-      if (input.modality === "MONTHLY") {
-        const policy = await getMonthlyJoinPolicy(tx, viewer.group);
-        if (!policy.allowed) throw new UserFacingError(policy.reason);
-      }
       const existing = await tx.user.findUnique({ where: { username: input.username }, select: { id: true } });
       if (existing) throw new UserFacingError(DUPLICATE_USERNAME);
 
@@ -111,7 +106,7 @@ async function findManagedPlayer(tx: Prisma.TransactionClient, viewer: Viewer, m
  * Ativa ou desativa a participação do jogador no grupo. O login continua permitido
  * (conta desativada é outro conceito: User.disabledAt).
  * - Desativar tira o jogador das sessões futuras ainda abertas a mudanças.
- * - Reativar mensalista segue a mesma janela de entrada de novos mensalistas.
+ * - Reativar mensalista: sem cobrança no ciclo CLOSED; entra no próximo freeze elegível.
  */
 export async function setMemberStatus(
   viewer: Viewer,
@@ -121,11 +116,6 @@ export async function setMemberStatus(
   return db.$transaction(async (tx) => {
     const member = await findManagedPlayer(tx, viewer, memberId);
     if (member.status === status) return { changed: false, releasedSessions: 0 };
-
-    if (status === "ACTIVE" && member.modality === "MONTHLY") {
-      const policy = await getMonthlyJoinPolicy(tx, viewer.group);
-      if (!policy.allowed) throw new UserFacingError(policy.reason);
-    }
 
     const updated = await tx.groupMember.updateMany({
       where: { id: member.id, status: member.status },
@@ -252,9 +242,9 @@ export async function changeMemberRole(
 
 /**
  * Promove diarista ACTIVE → mensalista (DAILY → MONTHLY).
- * Não altera papel, isenção, sessões existentes (snapshots/priorityTier/fila) nem financeiro.
+ * Não altera papel, isenção, sessões existentes (snapshots/priorityTier/fila).
  * Confirmações futuras leem GroupMember.modality e aplicam prioridade de mensalista.
- * Reusa getMonthlyJoinPolicy (bloqueio pós-implantação até existir LATE_JOIN).
+ * Pós-implantação: sem cobrança no ciclo CLOSED; entra no próximo freeze elegível.
  */
 export async function promoteMemberToMonthly(
   viewer: Viewer,
@@ -294,9 +284,6 @@ export async function promoteMemberToMonthly(
       if (member.modality !== "DAILY") {
         throw new UserFacingError("Só diaristas podem ser promovidos a mensalista.");
       }
-
-      const policy = await getMonthlyJoinPolicy(tx, viewer.group);
-      if (!policy.allowed) throw new UserFacingError(policy.reason);
 
       const updated = await tx.groupMember.updateMany({
         where: { id: member.id, modality: "DAILY", status: "ACTIVE" },

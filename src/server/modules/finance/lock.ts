@@ -19,7 +19,7 @@ export async function lockBillingCycleForUpdate(tx: Tx, cycleId: string): Promis
   if (rows.length === 0) throw new UserFacingError("Ciclo financeiro não encontrado.");
 }
 
-/** Trava o ciclo FOR SHARE (confirmação de diária / LATE_JOIN). */
+/** Trava o ciclo FOR SHARE (confirmação de diária / admissão financeira). */
 export async function lockBillingCycleForShare(tx: Tx, cycleId: string): Promise<void> {
   const rows = await tx.$queryRaw<{ id: string }[]>`
     SELECT "id" FROM "BillingCycle" WHERE "id" = ${cycleId}::uuid FOR SHARE`;

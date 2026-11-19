@@ -12,10 +12,9 @@ import { createPlayerAction } from "@/server/modules/members/actions";
 import { NAME_MAX_LENGTH, NICKNAME_MAX_LENGTH } from "@/server/modules/members/validation";
 import { TemporaryPassword } from "../temporary-password";
 
-export function CreatePlayerForm({ monthlyBlockedReason }: { monthlyBlockedReason: string | null }) {
+export function CreatePlayerForm() {
   const [state, formAction, pending] = useActionState(createPlayerAction, undefined);
   const values = state?.status === "error" ? state.values : undefined;
-  const defaultModality = monthlyBlockedReason ? "DAILY" : "MONTHLY";
 
   return (
     <div className="flex flex-col gap-4">
@@ -59,12 +58,11 @@ export function CreatePlayerForm({ monthlyBlockedReason }: { monthlyBlockedReaso
         <SelectField
           label="Modalidade"
           name="modality"
-          defaultValue={values?.modality ?? defaultModality}
+          defaultValue={values?.modality ?? "MONTHLY"}
           options={[
-            { value: "MONTHLY", label: "Mensalista", disabled: monthlyBlockedReason !== null },
+            { value: "MONTHLY", label: "Mensalista" },
             { value: "DAILY", label: "Diarista" },
           ]}
-          hint={monthlyBlockedReason ?? undefined}
         />
         <SelectField
           label="Nota base"

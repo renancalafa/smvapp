@@ -1640,7 +1640,7 @@ async function scenario(tx: Tx) {
     })) === 4,
   );
 
-  // OPENING com devedores reais: LATE_JOIN no mês corrente permanece permitido.
+  // OPENING CLOSED com devedores: admissão NÃO cria LATE_JOIN; dívida existente permanece.
   const debtCtx = await seedFinanceGroup(tx);
   const debtAdmin = viewerOf(debtCtx.group, debtCtx.admin);
   const debtInit = await finance.initializeFinance(debtAdmin, {
@@ -1650,6 +1650,21 @@ async function scenario(tx: Tx) {
     debtorMemberIds: [debtCtx.payer1.id],
     reason: "Implantação com dívida prévia",
     operationId: randomUUID(),
+  });
+  const openingDebtBefore = await tx.charge.count({
+    where: {
+      billingCycleId: debtInit.openingCycleId,
+      type: "MONTHLY_FEE",
+      status: { in: ["PENDING", "PAID"] },
+    },
+  });
+  const payer1OpeningBefore = await tx.charge.findFirst({
+    where: {
+      billingCycleId: debtInit.openingCycleId,
+      memberId: debtCtx.payer1.id,
+      type: "MONTHLY_FEE",
+    },
+    select: { id: true, amountCents: true, status: true },
   });
   const debtJoinerUser = await tx.user.create({
     data: {
@@ -1676,20 +1691,269 @@ async function scenario(tx: Tx) {
     actorUserId: debtCtx.admin.user.id,
   });
   check(
-    "OPENING com devedores: LATE_JOIN ainda cria cobrança",
-    lateWithDebt.chargeId != null && lateWithDebt.deferredToFreeze === false,
+    "OPENING CLOSED: admissão não cria LATE_JOIN",
+    lateWithDebt.chargeId == null && lateWithDebt.deferredToFreeze === true,
   );
   check(
-    "OPENING com devedores: charge LATE_JOIN no ciclo de abertura",
+    "OPENING CLOSED: joiner sem MONTHLY_FEE no ciclo fechado",
     (await tx.charge.count({
       where: {
         billingCycleId: debtInit.openingCycleId,
         memberId: debtJoiner.id,
         type: "MONTHLY_FEE",
-        monthlyFeeOrigin: "LATE_JOIN",
+      },
+    })) === 0,
+  );
+  check(
+    "OPENING CLOSED: histórico de cobranças do ciclo intacto",
+    (await tx.charge.count({
+      where: {
+        billingCycleId: debtInit.openingCycleId,
+        type: "MONTHLY_FEE",
+        status: { in: ["PENDING", "PAID"] },
+      },
+    })) === openingDebtBefore,
+  );
+  const payer1OpeningAfter = await tx.charge.findFirst({
+    where: {
+      billingCycleId: debtInit.openingCycleId,
+      memberId: debtCtx.payer1.id,
+      type: "MONTHLY_FEE",
+    },
+    select: { id: true, amountCents: true, status: true },
+  });
+  check(
+    "OPENING CLOSED: dívida prévia do payer1 preservada",
+    payer1OpeningBefore != null &&
+      payer1OpeningAfter != null &&
+      payer1OpeningAfter.id === payer1OpeningBefore.id &&
+      payer1OpeningAfter.amountCents === payer1OpeningBefore.amountCents &&
+      payer1OpeningAfter.status === payer1OpeningBefore.status,
+  );
+
+  // Acesso: joiner sem cobrança própria permanece full mesmo com locks on.
+  await tx.groupSettings.update({
+    where: { groupId: debtCtx.group.id },
+    data: { financeAccessLocksEnabled: true },
+  });
+  const joinerAccess = await accessMod.getFinancialAccessForViewer(
+    viewerOf(debtCtx.group, {
+      id: debtJoiner.id,
+      role: "PLAYER",
+      modality: "MONTHLY",
+      status: "ACTIVE",
+      user: {
+        id: debtJoinerUser.id,
+        username: debtJoinerUser.username,
+        name: debtJoinerUser.name,
+      },
+    }),
+  );
+  check(
+    "acesso após admissão sem dívida própria: full",
+    joinerAccess.mode === "full",
+    joinerAccess.reason,
+  );
+  await tx.groupSettings.update({
+    where: { groupId: debtCtx.group.id },
+    data: { financeAccessLocksEnabled: false },
+  });
+
+  // Próximo REGULAR: joiner entra no freeze; sem LATE_JOIN duplicado.
+  const debtNext = await tx.billingCycle.findUniqueOrThrow({ where: { id: debtInit.nextCycleId } });
+  await cycles.overrideCycleActivation(
+    debtAdmin,
+    debtNext.id,
+    new Date("2020-01-01T03:00:00.000Z"),
+  );
+  const debtFreeze = await cycles.freezeBillingCycle(debtAdmin, debtNext.id, randomUUID());
+  check(
+    "OPENING CLOSED: joiner entra no 1º REGULAR (divisor)",
+    (await tx.charge.count({
+      where: {
+        billingCycleId: debtNext.id,
+        memberId: debtJoiner.id,
+        type: "MONTHLY_FEE",
+        monthlyFeeOrigin: "CYCLE_FREEZE",
       },
     })) === 1,
   );
+  check(
+    "OPENING CLOSED: freeze sem LATE_JOIN para o joiner",
+    (await tx.charge.count({
+      where: {
+        groupId: debtCtx.group.id,
+        memberId: debtJoiner.id,
+        monthlyFeeOrigin: "LATE_JOIN",
+      },
+    })) === 0,
+  );
+  check(
+    "OPENING CLOSED: joiner com exatamente 1 MONTHLY_FEE",
+    (await tx.charge.count({
+      where: {
+        groupId: debtCtx.group.id,
+        memberId: debtJoiner.id,
+        type: "MONTHLY_FEE",
+      },
+    })) === 1,
+  );
+  // freezeBillingCycle roda freezeDue primeiro; after override o ciclo pode já vir CLOSED.
+  check(
+    "OPENING CLOSED: divisor do 1º REGULAR inclui joiner",
+    debtFreeze.payingMonthlyCount >= 2,
+    String(debtFreeze.payingMonthlyCount),
+  );
+
+  // REGULAR já CLOSED: create / promote / reativação sem cobrança no ciclo fechado.
+  const membersMod = await import("../src/server/modules/members/service");
+  const closedRegular = debtNext;
+  const stamp = randomUUID().slice(0, 8);
+  const createdAfterClose = await membersMod.createPlayer(debtAdmin, {
+    name: `After Close ${stamp}`,
+    username: `fin_ac_${stamp}`,
+    nickname: null,
+    birthDate: null,
+    modality: "MONTHLY",
+    baseRating: 3,
+  });
+  check(
+    "REGULAR CLOSED: create MONTHLY sem charge no ciclo fechado",
+    (await tx.charge.count({
+      where: {
+        billingCycleId: closedRegular.id,
+        memberId: createdAfterClose.memberId,
+        type: "MONTHLY_FEE",
+      },
+    })) === 0,
+  );
+  check(
+    "REGULAR CLOSED: create MONTHLY sem LATE_JOIN",
+    (await tx.charge.count({
+      where: { memberId: createdAfterClose.memberId, monthlyFeeOrigin: "LATE_JOIN" },
+    })) === 0,
+  );
+
+  const dailyAfterClose = await membersMod.createPlayer(debtAdmin, {
+    name: `Daily After Close ${stamp}`,
+    username: `fin_dac_${stamp}`,
+    nickname: null,
+    birthDate: null,
+    modality: "DAILY",
+    baseRating: 3,
+  });
+  const chargesBeforePromote = await tx.charge.count({
+    where: { memberId: dailyAfterClose.memberId },
+  });
+  await membersMod.promoteMemberToMonthly(debtAdmin, dailyAfterClose.memberId);
+  check(
+    "REGULAR CLOSED: promote não cria cobranças novas no ato",
+    (await tx.charge.count({ where: { memberId: dailyAfterClose.memberId } })) ===
+      chargesBeforePromote,
+  );
+  check(
+    "REGULAR CLOSED: promote sem MONTHLY_FEE no ciclo fechado",
+    (await tx.charge.count({
+      where: {
+        billingCycleId: closedRegular.id,
+        memberId: dailyAfterClose.memberId,
+        type: "MONTHLY_FEE",
+      },
+    })) === 0,
+  );
+
+  await membersMod.setMemberStatus(debtAdmin, createdAfterClose.memberId, "INACTIVE");
+  const overdueBeforeReactivate = await tx.charge.create({
+    data: {
+      groupId: debtCtx.group.id,
+      memberId: createdAfterClose.memberId,
+      billingCycleId: closedRegular.id,
+      type: "MONTHLY_FEE",
+      monthlyFeeOrigin: "CYCLE_FREEZE",
+      amountCents: 100,
+      status: "PENDING",
+      createdByUserId: debtCtx.admin.user.id,
+    },
+    select: { id: true, status: true, amountCents: true },
+  });
+  await membersMod.setMemberStatus(debtAdmin, createdAfterClose.memberId, "ACTIVE");
+  const overdueAfter = await tx.charge.findUniqueOrThrow({
+    where: { id: overdueBeforeReactivate.id },
+    select: { status: true, amountCents: true },
+  });
+  check(
+    "REGULAR CLOSED: reativação preserva dívida PENDING prévia",
+    overdueAfter.status === "PENDING" &&
+      overdueAfter.amountCents === overdueBeforeReactivate.amountCents,
+  );
+  check(
+    "REGULAR CLOSED: reativação não cria LATE_JOIN extra",
+    (await tx.charge.count({
+      where: {
+        memberId: createdAfterClose.memberId,
+        type: "MONTHLY_FEE",
+        monthlyFeeOrigin: "LATE_JOIN",
+      },
+    })) === 0,
+  );
+
+  // Próximo ciclo após o REGULAR fechado: create + promote entram no freeze.
+  await cycles.ensureFinanceState(debtCtx.group.id);
+  const debtFollowing = await tx.billingCycle.findFirst({
+    where: {
+      groupId: debtCtx.group.id,
+      referenceMonth: { gt: closedRegular.referenceMonth },
+      status: "OPEN",
+      kind: "REGULAR",
+    },
+    orderBy: { referenceMonth: "asc" },
+  });
+  check("REGULAR CLOSED: ciclo seguinte OPEN existe", debtFollowing != null);
+  if (debtFollowing) {
+    await cycles.overrideCycleActivation(
+      debtAdmin,
+      debtFollowing.id,
+      new Date("2020-01-01T03:00:00.000Z"),
+    );
+    const debtFollowingFreeze = await cycles.freezeBillingCycle(
+      debtAdmin,
+      debtFollowing.id,
+      randomUUID(),
+    );
+    check(
+      "REGULAR CLOSED: create entra no próximo freeze",
+      (await tx.charge.count({
+        where: {
+          billingCycleId: debtFollowing.id,
+          memberId: createdAfterClose.memberId,
+          type: "MONTHLY_FEE",
+          monthlyFeeOrigin: "CYCLE_FREEZE",
+        },
+      })) === 1,
+    );
+    check(
+      "REGULAR CLOSED: promote entra no próximo freeze",
+      (await tx.charge.count({
+        where: {
+          billingCycleId: debtFollowing.id,
+          memberId: dailyAfterClose.memberId,
+          type: "MONTHLY_FEE",
+          monthlyFeeOrigin: "CYCLE_FREEZE",
+        },
+      })) === 1,
+    );
+    check(
+      "REGULAR CLOSED: sem cobrança duplicada no create",
+      (await tx.charge.count({
+        where: {
+          memberId: createdAfterClose.memberId,
+          type: "MONTHLY_FEE",
+          status: { in: ["PENDING", "PAID"] },
+        },
+      })) === 2, // dívida artificial + CYCLE_FREEZE do following
+    );
+    void debtFollowingFreeze;
+  }
 
   const next = await tx.billingCycle.findUniqueOrThrow({ where: { id: init.nextCycleId } });
   const expectedCut = defaultFreezesAt(

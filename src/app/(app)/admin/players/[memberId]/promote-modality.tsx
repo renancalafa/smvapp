@@ -15,7 +15,7 @@ import { MODALITY_LABEL } from "../../../labels";
 
 const PROMOTE_DESCRIPTION =
   "A modalidade passa a Mensalista imediatamente. Inscrições já feitas, papel, estatísticas e histórico não mudam. " +
-  "Se a implantação financeira já ocorreu, a promoção pode ser bloqueada pela regra de entrada de novos mensalistas.";
+  "Se o ciclo do mês já estiver fechado, a mensalidade do mês corrente não é gerada; a cobrança começa no próximo ciclo.";
 
 export function PromoteModality({
   memberId,
