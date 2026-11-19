@@ -73,13 +73,21 @@ export function NightAwareBottomNav({
   items,
   initialNight,
   showAdminInMore,
+  showNiveisInMore = false,
 }: {
   items: NavItem[];
   initialNight: NightSlot;
   showAdminInMore: boolean;
+  showNiveisInMore?: boolean;
 }) {
   const night = useLiveNightSlot(initialNight);
-  return <BottomNav items={withNightSlot(items, night)} showAdminInMore={showAdminInMore} />;
+  return (
+    <BottomNav
+      items={withNightSlot(items, night)}
+      showAdminInMore={showAdminInMore}
+      showNiveisInMore={showNiveisInMore}
+    />
+  );
 }
 
 export function NightAwareSideNav({

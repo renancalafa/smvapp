@@ -11,11 +11,27 @@ import {
   planDraw,
   type DrawPlayer,
 } from "@/domain/draw/balance";
+import {
+  DRAW_ALGORITHM_VERSION_V3,
+  DrawGenerationErrorV3,
+  generateDrawOptionsV3,
+  type BalanceMetricsV3,
+  type DrawPlayerV3,
+} from "@/domain/draw/balance-v3";
+import {
+  assessRatingCompleteness,
+  formatMissingRatingsDiagnostic,
+} from "@/domain/draw/rating-completeness";
 import { createRng } from "@/domain/draw/random";
-import { playerStrength } from "@/domain/draw/strength";
+import { playerStrength, toDrawPlayerV3 } from "@/domain/draw/strength";
 import { isAwaitingKickoff } from "@/domain/match/kickoff";
 import { drawTeamIdentity } from "@/domain/team/colors";
-import type { DrawDecisionMethod, OverflowMode, Prisma } from "@/generated/prisma/client";
+import type {
+  DrawDecisionMethod,
+  OverflowMode,
+  PreferredRole,
+  Prisma,
+} from "@/generated/prisma/client";
 import { writeAuditLog } from "@/server/audit";
 import type { Viewer } from "@/server/auth/dal";
 import { UserFacingError } from "@/server/errors";
@@ -60,9 +76,50 @@ function findActiveDraw(tx: Tx, sessionId: string) {
 function loadParticipants(tx: Tx, sessionId: string) {
   return tx.sessionRegistration.findMany({
     where: { gameSessionId: sessionId, status: "PARTICIPANT" },
-    select: { id: true, memberId: true, isRotating: true, member: { select: { baseRating: true } } },
+    select: {
+      id: true,
+      memberId: true,
+      isRotating: true,
+      member: {
+        select: {
+          baseRating: true,
+          attackRating: true,
+          defenseRating: true,
+          physicalRating: true,
+          preferredRole: true,
+          nickname: true,
+          user: { select: { name: true } },
+        },
+      },
+    },
   });
 }
+
+type ParticipantRow = Awaited<ReturnType<typeof loadParticipants>>[number];
+
+type PersistedPlayer = {
+  id: string;
+  strength: number;
+  attackSnapshot: number | null;
+  defenseSnapshot: number | null;
+  physicalSnapshot: number | null;
+  preferredRoleSnapshot: PreferredRole | null;
+};
+
+type GeneratedOptionPersist = {
+  teams: PersistedPlayer[][];
+  balanceScore: number;
+  balanceMetrics: BalanceMetricsV3 | null;
+};
+
+type DrawBalanceDiagnostics = {
+  requestedAlgorithm: "balance-v2" | "balance-v3";
+  usedAlgorithm: "balance-v2" | "balance-v3";
+  advancedFlagEnabled: boolean;
+  ratingsComplete: boolean;
+  fallbackReason: string | null;
+  missingRatings: Array<{ memberId: string; missing: string[] }>;
+};
 
 /** Votam só mensalistas participantes que não foram marcados ausentes (seção 16). */
 async function eligibleVoterIds(tx: Tx, sessionId: string): Promise<Set<string>> {
@@ -95,6 +152,12 @@ async function createDrawLocked(
     throw new UserFacingError(`No máximo ${OPTION_LABELS.length} opções de sorteio são suportadas.`);
   }
 
+  const settings = await tx.groupSettings.findUnique({
+    where: { groupId: session.groupId },
+    select: { advancedDrawBalancingEnabled: true },
+  });
+  const advancedEnabled = settings?.advancedDrawBalancingEnabled === true;
+
   const participants = await loadParticipants(tx, session.id);
   // Antes do prazo, só com a sessão cheia; a contagem é feita com a sessão travada, então
   // nenhuma confirmação ou desistência concorrente a altera. A formação segue planDraw.
@@ -115,53 +178,155 @@ async function createDrawLocked(
     );
   }
   const rotatorIds = new Set(rotators.map((registration) => registration.memberId));
-  const toPlayer = (registration: (typeof participants)[number]): DrawPlayer => ({
+  const allocated = participants.filter((registration) => !rotatorIds.has(registration.memberId));
+
+  const toV2Player = (registration: ParticipantRow): DrawPlayer => ({
     id: registration.memberId,
     strength: playerStrength(registration.member),
   });
+  const toPersistedV2 = (registration: ParticipantRow): PersistedPlayer => ({
+    id: registration.memberId,
+    strength: playerStrength(registration.member),
+    attackSnapshot: null,
+    defenseSnapshot: null,
+    physicalSnapshot: null,
+    preferredRoleSnapshot: null,
+  });
+  const toPersistedV3 = (player: DrawPlayerV3): PersistedPlayer => ({
+    id: player.id,
+    strength: player.strength,
+    attackSnapshot: player.attack,
+    defenseSnapshot: player.defense,
+    physicalSnapshot: player.physical,
+    preferredRoleSnapshot: player.preferredRole,
+  });
+
+  // Completeness only for players who enter team allocation (not rotation pool).
+  const completeness = assessRatingCompleteness(
+    allocated.map((registration) => ({
+      memberId: registration.memberId,
+      displayName: registration.member.nickname?.trim() || registration.member.user.name,
+      baseRating: registration.member.baseRating,
+      attackRating: registration.member.attackRating,
+      defenseRating: registration.member.defenseRating,
+      physicalRating: registration.member.physicalRating,
+    })),
+  );
 
   const seed = randomBytes(16).toString("hex");
-  let generated;
+  let algorithmVersion: string = DRAW_ALGORITHM_VERSION;
+  let optionDistance: number | null = null;
+  let options: GeneratedOptionPersist[] = [];
+  let diagnostics: DrawBalanceDiagnostics = {
+    requestedAlgorithm: advancedEnabled ? "balance-v3" : "balance-v2",
+    usedAlgorithm: "balance-v2",
+    advancedFlagEnabled: advancedEnabled,
+    ratingsComplete: completeness.complete,
+    fallbackReason: null,
+    missingRatings: completeness.missing.map((row) => ({
+      memberId: row.memberId,
+      missing: row.missing,
+    })),
+  };
+
   try {
-    generated = generateDrawOptions({
-      players: participants.filter((registration) => !rotatorIds.has(registration.memberId)).map(toPlayer),
-      teamCount: plan.teamCount,
-      teamSize: session.teamSize,
-      optionsCount: config.drawOptionsCount,
-      minDifference: config.drawMinOptionDifference,
-      rng: createRng(seed),
-    });
+    if (advancedEnabled && completeness.complete) {
+      const v3Players = allocated.map((registration) =>
+        toDrawPlayerV3({
+          id: registration.memberId,
+          baseRating: registration.member.baseRating,
+          attackRating: registration.member.attackRating!,
+          defenseRating: registration.member.defenseRating!,
+          physicalRating: registration.member.physicalRating!,
+          preferredRole: registration.member.preferredRole,
+        }),
+      );
+      const generated = generateDrawOptionsV3({
+        players: v3Players,
+        teamCount: plan.teamCount,
+        teamSize: session.teamSize,
+        optionsCount: config.drawOptionsCount,
+        minDifference: config.drawMinOptionDifference,
+        rng: createRng(seed),
+      });
+      algorithmVersion = DRAW_ALGORITHM_VERSION_V3;
+      optionDistance = generated.optionDistance;
+      options = generated.options.map((option) => ({
+        teams: option.teams.map((team) => team.map(toPersistedV3)),
+        balanceScore: option.balanceScore,
+        balanceMetrics: option.metrics,
+      }));
+      diagnostics = {
+        ...diagnostics,
+        usedAlgorithm: "balance-v3",
+        fallbackReason: null,
+      };
+    } else {
+      if (advancedEnabled && !completeness.complete) {
+        diagnostics.fallbackReason = formatMissingRatingsDiagnostic(completeness);
+      }
+      const generated = generateDrawOptions({
+        players: allocated.map(toV2Player),
+        teamCount: plan.teamCount,
+        teamSize: session.teamSize,
+        optionsCount: config.drawOptionsCount,
+        minDifference: config.drawMinOptionDifference,
+        rng: createRng(seed),
+      });
+      algorithmVersion = DRAW_ALGORITHM_VERSION;
+      optionDistance = generated.optionDistance;
+      const byId = new Map(allocated.map((row) => [row.memberId, row]));
+      options = generated.options.map((option) => ({
+        teams: option.teams.map((team) =>
+          team.map((player) => toPersistedV2(byId.get(player.id)!)),
+        ),
+        balanceScore: option.balanceScore,
+        balanceMetrics: null,
+      }));
+    }
   } catch (error) {
-    if (error instanceof DrawGenerationError) throw new UserFacingError(error.message);
+    if (error instanceof DrawGenerationError || error instanceof DrawGenerationErrorV3) {
+      throw new UserFacingError(error.message);
+    }
     throw error;
   }
 
-  const rotationPool = rotators.map(toPlayer);
-  const total = (players: DrawPlayer[]) => players.reduce((sum, player) => sum + player.strength, 0);
-  const teamRows = (players: DrawPlayer[]) =>
-    players.map((player) => ({ memberId: player.id, strengthSnapshot: player.strength }));
+  const rotationPool = rotators.map(toPersistedV2);
+  const total = (players: PersistedPlayer[]) =>
+    players.reduce((sum, player) => sum + player.strength, 0);
+  const teamRows = (players: PersistedPlayer[]) =>
+    players.map((player) => ({
+      memberId: player.id,
+      strengthSnapshot: player.strength,
+      attackSnapshot: player.attackSnapshot,
+      defenseSnapshot: player.defenseSnapshot,
+      physicalSnapshot: player.physicalSnapshot,
+      preferredRoleSnapshot: player.preferredRoleSnapshot,
+    }));
 
   const last = await tx.draw.findFirst({
     where: { gameSessionId: session.id },
     orderBy: { sequence: "desc" },
     select: { sequence: true },
   });
-  const single = generated.options.length === 1;
+  const single = options.length === 1;
   const draw = await tx.draw.create({
     data: {
       gameSessionId: session.id,
       sequence: (last?.sequence ?? 0) + 1,
       status: "VOTING",
       seed,
-      algorithmVersion: DRAW_ALGORITHM_VERSION,
+      algorithmVersion,
       minOptionDifference: config.drawMinOptionDifference,
-      optionDistance: generated.optionDistance,
+      optionDistance,
+      balanceDiagnostics: diagnostics,
       createdByUserId: input.actorUserId,
       replacesDrawId: input.replacesDrawId,
       options: {
-        create: generated.options.map((option, optionIndex) => ({
-          label: OPTION_LABELS[optionIndex],
+        create: options.map((option, optionIndex) => ({
+          label: OPTION_LABELS[optionIndex]!,
           balanceScore: option.balanceScore,
+          balanceMetrics: option.balanceMetrics ?? undefined,
           teams: {
             create: [
               ...option.teams.map((team, teamIndex) => {
@@ -204,12 +369,13 @@ async function createDrawLocked(
     gameSessionId: session.id,
     after: {
       sequence: draw.sequence,
-      options: generated.options.length,
+      options: options.length,
       teamCount: plan.teamCount,
       rotators: rotationPool.length,
-      optionDistance: generated.optionDistance,
+      optionDistance,
       minOptionDifference: config.drawMinOptionDifference,
-      algorithmVersion: DRAW_ALGORITHM_VERSION,
+      algorithmVersion,
+      balanceDiagnostics: diagnostics,
       seed,
       replacesDrawId: input.replacesDrawId,
       earlyDraw,
@@ -219,7 +385,7 @@ async function createDrawLocked(
   if (single) {
     await decideLocked(tx, session, now, {
       drawId: draw.id,
-      optionId: draw.options[0].id,
+      optionId: draw.options[0]!.id,
       method: "SINGLE_OPTION",
       actorUserId: input.actorUserId,
     });

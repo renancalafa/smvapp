@@ -62,11 +62,15 @@ export function SubmitButton({
   label,
   pendingLabel,
   variant = "primary",
+  form,
+  className,
 }: {
   pending: boolean;
   label: string;
   pendingLabel: string;
   variant?: "primary" | "secondary" | "danger";
+  form?: string;
+  className?: string;
 }) {
   const variantClass = {
     primary: darkBtnPrimary,
@@ -74,7 +78,12 @@ export function SubmitButton({
     danger: darkBtnDanger,
   }[variant];
   return (
-    <button type="submit" disabled={pending} className={`w-full ${variantClass}`}>
+    <button
+      type="submit"
+      form={form}
+      disabled={pending}
+      className={`w-full ${variantClass}${className ? ` ${className}` : ""}`}
+    >
       {pending ? pendingLabel : label}
     </button>
   );

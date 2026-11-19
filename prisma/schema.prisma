@@ -174,6 +174,43 @@ enum MatchEventType {
   TACKLE
 }
 
+/// Papel preferido em campo (A/D/V). Opcional; não inventar no seed.
+enum PreferredRole {
+  ATTACKER
+  DEFENDER
+  VERSATILE
+}
+
+/// Atributo de nota sujeito a proposta comunitária (um por proposta).
+enum RatingAttribute {
+  OVERALL
+  ATTACK
+  DEFENSE
+  PHYSICAL
+}
+
+enum RatingProposalStatus {
+  PENDING_ADMIN_REVIEW
+  REJECTED_INITIAL
+  OPEN_FOR_VOTING
+  VOTING_CLOSED
+  APPLIED
+  REJECTED_FINAL
+  SUPERSEDED_STALE
+}
+
+enum RatingVoteChoice {
+  FOR
+  AGAINST
+}
+
+/// Origem de uma linha em MemberRatingHistory.
+enum MemberRatingChangeSource {
+  ADMIN_DIRECT
+  ADMIN_INITIAL_ASSIGN
+  PROPOSAL_APPLIED
+}
+
 /// OPEN: acumula receitas de diaristas; a mensalidade é previsão.
 /// CLOSED: mensalidade congelada. O ciclo continua recebendo pagamentos de mensalidade e
 /// o pagamento do campo; só os valores do cálculo ficam imutáveis.
@@ -344,6 +381,10 @@ model User {
   sessionScouts           SessionScout[]         @relation("SessionScoutUser")
   sessionScoutsAssigned   SessionScout[]         @relation("SessionScoutAssignedBy")
   sessionScoutsRevoked    SessionScout[]         @relation("SessionScoutRevokedBy")
+  ratingProposalsInitialReviewed RatingChangeProposal[] @relation("RatingProposalInitialReviewedBy")
+  ratingProposalsVotingClosed    RatingChangeProposal[] @relation("RatingProposalVotingClosedBy")
+  ratingProposalsFinalDecided    RatingChangeProposal[] @relation("RatingProposalFinalDecidedBy")
+  memberRatingHistoryActed       MemberRatingHistory[]  @relation("MemberRatingHistoryActor")
 }
 
 /// Sessão de login própria, referenciada por cookie HttpOnly (Secure em produção).
@@ -402,6 +443,8 @@ model Group {
   notifications             Notification[]
   auditLogs                 AuditLog[]
   idempotentOperations      IdempotentOperation[]
+  ratingChangeProposals     RatingChangeProposal[]
+  memberRatingHistory       MemberRatingHistory[]
 }
 
 /// Valores padrão usados para gerar novas sessões e ciclos. Sem @default de negócio:
@@ -461,6 +504,13 @@ model GroupSettings {
   /// Quando false (padrão), dívidas NÃO restringem navegação — seguro até ativação explícita.
   financeAccessLocksEnabled Boolean @default(false)
 
+  /// Fase 1 ratings: votação comunitária de notas. Padrão OFF — não ativar sem aprovação.
+  ratingVotingEnabled Boolean @default(false)
+  /// Fase 1 ratings: balanceamento multi-atributo. Padrão OFF — não ativa balance-v3.
+  /// Quando true E o elenco alocado tem Overall/Ataque/Defesa/Físico completos, o sorteio usa balance-v3.
+  /// Default false — não ativa em produção. Atributos incompletos → fallback explícito para balance-v2.
+  advancedDrawBalancingEnabled Boolean @default(false)
+
   // Local
   venueName    String?
   venueAddress String?
@@ -473,15 +523,20 @@ model GroupSettings {
 }
 
 /// O jogador dentro de uma pelada. Referências de domínio apontam para cá, nunca para User.
-/// CHECK (SQL): baseRating entre 1 e 5.
+/// CHECK (SQL): baseRating entre 1 e 5; attack/defense/physical NULL ou 1–5.
 model GroupMember {
   id                       String         @id @default(uuid(7)) @db.Uuid
   groupId                  String         @db.Uuid
   userId                   String         @db.Uuid
   role                     MemberRole
   modality                 PlayerModality
-  /// Somente ADMIN lê ou escreve.
+  /// Overall Skill (1–5). Histórico: visível só a ADMIN; votação comunitária altera a política na Fase 2+.
   baseRating               Int
+  /// Atributos opcionais — não popular automaticamente.
+  attackRating             Int?
+  defenseRating            Int?
+  physicalRating           Int?
+  preferredRole            PreferredRole?
   nickname                 String?
   status                   MemberStatus   @default(ACTIVE)
   feeExempt                Boolean        @default(false)
@@ -510,6 +565,10 @@ model GroupMember {
   payments                  Payment[]
   paymentReceipts           PaymentReceipt[]
   financialAccessGrants     FinancialAccessGrant[]
+  ratingProposalsTargeted   RatingChangeProposal[]   @relation("RatingProposalTarget")
+  ratingProposalsProposed   RatingChangeProposal[]   @relation("RatingProposalProposer")
+  ratingChangeVotes         RatingChangeVote[]
+  ratingHistory             MemberRatingHistory[]
 
   @@unique([groupId, userId])
   @@index([groupId, status, modality])
@@ -834,6 +893,8 @@ model Draw {
   minOptionDifference  Int
   /// Distância entre as opções A e B; nula com uma única opção.
   optionDistance       Int?
+  /// Diagnóstico da geração (v3 metrics summary, fallback reason, missing attrs). Null em draws históricos v2.
+  balanceDiagnostics   Json?
   birthdayDraftId      String?             @db.Uuid
   birthdayDraftVersion Int?
   createdByUserId      String?             @db.Uuid
@@ -871,8 +932,10 @@ model DrawOption {
   drawId       String @db.Uuid
   /// A, B, ...
   label        String
-  /// Somente ADMIN.
+  /// Somente ADMIN. Em v2/v3 = spread de Overall (compatível).
   balanceScore Float
+  /// Métricas multi-eixo da opção (balance-v3). Null em draws v2.
+  balanceMetrics Json?
 
   draw     Draw       @relation("DrawOptions", fields: [drawId], references: [id])
   winnerOf Draw?      @relation("DrawWinningOption")
@@ -914,8 +977,13 @@ model DrawTeamPlayer {
   /// Cópia de drawTeam.drawOptionId, amarrada pela FK composta.
   drawOptionId     String @db.Uuid
   memberId         String @db.Uuid
-  /// Somente ADMIN.
+  /// Somente ADMIN. Snapshot de Overall / força v2 na geração.
   strengthSnapshot Float
+  /// Snapshots multi-atributo na geração (balance-v3). Null em draws v2 / rotativos sem attrs.
+  attackSnapshot       Int?
+  defenseSnapshot      Int?
+  physicalSnapshot     Int?
+  preferredRoleSnapshot PreferredRole?
 
   drawTeam DrawTeam    @relation(fields: [drawTeamId, drawOptionId], references: [id, drawOptionId])
   member   GroupMember @relation(fields: [memberId], references: [id])
@@ -1626,4 +1694,104 @@ model AuditLog {
   @@index([groupId, actorUserId, createdAt])
   @@index([groupId, outcome, createdAt])
   @@index([correlationId])
+}
+
+// ============================================================================
+// Notas comunitárias (Fase 1 — fundação; flags OFF)
+// ============================================================================
+
+/// Proposta de alteração de UM atributo de nota.
+/// CHECK (SQL): toValue 1–5; fromValue NULL ou 1–5; motivos não vazios quando exigidos pelo status.
+/// PARCIAL: no máximo uma proposta com blocksDuplicate=true por (group, target, attribute).
+model RatingChangeProposal {
+  id              String               @id @default(uuid(7)) @db.Uuid
+  groupId         String               @db.Uuid
+  targetMemberId  String               @db.Uuid
+  attribute       RatingAttribute
+  /// Snapshot no momento da sugestão (null = atributo ainda sem nota).
+  fromValue       Int?
+  toValue         Int
+  reason          String
+  status          RatingProposalStatus @default(PENDING_ADMIN_REVIEW)
+  /// true enquanto PENDING_ADMIN_REVIEW | OPEN_FOR_VOTING | VOTING_CLOSED.
+  blocksDuplicate Boolean              @default(true)
+
+  proposedByMemberId String   @db.Uuid
+  proposedAt         DateTime @default(now()) @db.Timestamptz(3)
+
+  initialReviewedByUserId String?   @db.Uuid
+  initialReviewedAt       DateTime? @db.Timestamptz(3)
+  initialReviewReason     String?
+
+  votingClosedByUserId String?   @db.Uuid
+  votingClosedAt       DateTime? @db.Timestamptz(3)
+
+  finalDecidedByUserId String?   @db.Uuid
+  finalDecidedAt       DateTime? @db.Timestamptz(3)
+  finalDecisionReason  String?
+
+  /// Congelados ao fechar a votação.
+  forCount     Int @default(0)
+  againstCount Int @default(0)
+
+  appliedPreviousValue Int?
+  appliedNewValue      Int?
+  appliedAt            DateTime? @db.Timestamptz(3)
+
+  createdAt DateTime @default(now()) @db.Timestamptz(3)
+  updatedAt DateTime @updatedAt @db.Timestamptz(3)
+
+  group         Group       @relation(fields: [groupId], references: [id])
+  targetMember  GroupMember @relation("RatingProposalTarget", fields: [targetMemberId], references: [id])
+  proposedBy    GroupMember @relation("RatingProposalProposer", fields: [proposedByMemberId], references: [id])
+  initialReviewedBy User?   @relation("RatingProposalInitialReviewedBy", fields: [initialReviewedByUserId], references: [id], onDelete: Restrict)
+  votingClosedBy    User?   @relation("RatingProposalVotingClosedBy", fields: [votingClosedByUserId], references: [id], onDelete: Restrict)
+  finalDecidedBy    User?   @relation("RatingProposalFinalDecidedBy", fields: [finalDecidedByUserId], references: [id], onDelete: Restrict)
+
+  votes   RatingChangeVote[]
+  history MemberRatingHistory[]
+
+  @@unique([groupId, targetMemberId, attribute], map: "RatingChangeProposal_active_attr_key", where: { blocksDuplicate: true })
+  @@index([groupId, status, proposedAt])
+  @@index([groupId, targetMemberId, status])
+  @@index([proposedByMemberId])
+}
+
+model RatingChangeVote {
+  id             String           @id @default(uuid(7)) @db.Uuid
+  proposalId     String           @db.Uuid
+  voterMemberId  String           @db.Uuid
+  choice         RatingVoteChoice
+  createdAt      DateTime         @default(now()) @db.Timestamptz(3)
+  updatedAt      DateTime         @updatedAt @db.Timestamptz(3)
+
+  proposal RatingChangeProposal @relation(fields: [proposalId], references: [id], onDelete: Cascade)
+  voter    GroupMember          @relation(fields: [voterMemberId], references: [id])
+
+  @@unique([proposalId, voterMemberId])
+  @@index([voterMemberId])
+}
+
+model MemberRatingHistory {
+  id           String                   @id @default(uuid(7)) @db.Uuid
+  groupId      String                   @db.Uuid
+  memberId     String                   @db.Uuid
+  attribute    RatingAttribute
+  previousValue Int?
+  /// Null = atributo opcional limpo (Attack/Defense/Physical). Overall nunca é null.
+  newValue      Int?
+  source        MemberRatingChangeSource
+  actorUserId   String                   @db.Uuid
+  reason        String?
+  proposalId    String?                  @db.Uuid
+  createdAt     DateTime                 @default(now()) @db.Timestamptz(3)
+
+  group    Group                 @relation(fields: [groupId], references: [id])
+  member   GroupMember           @relation(fields: [memberId], references: [id])
+  actor    User                  @relation("MemberRatingHistoryActor", fields: [actorUserId], references: [id], onDelete: Restrict)
+  proposal RatingChangeProposal? @relation(fields: [proposalId], references: [id], onDelete: Restrict)
+
+  @@index([groupId, memberId, createdAt])
+  @@index([memberId, attribute, createdAt])
+  @@index([proposalId])
 }

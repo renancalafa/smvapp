@@ -160,7 +160,7 @@ async function scenario(
   const roleBefore = target.role;
 
   try {
-    await membersMod.changeMemberRating(playerViewer, target.id, nextRating);
+    await membersMod.changeMemberRating(playerViewer, target.id, nextRating, "teste");
     check("não-ADMIN não altera nota", false);
   } catch (error) {
     check(
@@ -170,7 +170,7 @@ async function scenario(
   }
 
   try {
-    await membersMod.changeMemberRating(adminViewer, target.id, 0);
+    await membersMod.changeMemberRating(adminViewer, target.id, 0, "teste");
     check("rejeita nota 0", false);
   } catch (error) {
     check(
@@ -180,7 +180,7 @@ async function scenario(
   }
 
   try {
-    await membersMod.changeMemberRating(adminViewer, target.id, 6);
+    await membersMod.changeMemberRating(adminViewer, target.id, 6, "teste");
     check("rejeita nota 6", false);
   } catch (error) {
     check(
@@ -190,7 +190,7 @@ async function scenario(
   }
 
   try {
-    await membersMod.changeMemberRating(adminViewer, target.id, 3.5);
+    await membersMod.changeMemberRating(adminViewer, target.id, 3.5, "teste");
     check("rejeita nota não inteira", false);
   } catch (error) {
     check(
@@ -200,7 +200,12 @@ async function scenario(
   }
 
   try {
-    await membersMod.changeMemberRating(adminViewer, "00000000-0000-0000-0000-000000000000", 3);
+    await membersMod.changeMemberRating(
+      adminViewer,
+      "00000000-0000-0000-0000-000000000000",
+      3,
+      "teste",
+    );
     check("rejeita membro inexistente", false);
   } catch (error) {
     check(
@@ -282,7 +287,22 @@ async function scenario(
   });
   check("pré: strengthSnapshot = nota antiga", snapshotRow.strengthSnapshot === ratingBefore);
 
-  const changed = await membersMod.changeMemberRating(adminViewer, target.id, nextRating);
+  try {
+    await membersMod.changeMemberRating(adminViewer, target.id, nextRating, "   ");
+    check("exige motivo", false);
+  } catch (error) {
+    check(
+      "exige motivo",
+      error instanceof UserFacingError && error.message.toLowerCase().includes("motivo"),
+    );
+  }
+
+  const changed = await membersMod.changeMemberRating(
+    adminViewer,
+    target.id,
+    nextRating,
+    "Ajuste de equilíbrio (check-member-rating)",
+  );
   check(
     "ADMIN altera nota",
     changed.previousRating === ratingBefore && changed.newRating === nextRating,
@@ -331,7 +351,27 @@ async function scenario(
     playerStrength({ baseRating: after.baseRating }) === nextRating,
   );
 
-  const same = await membersMod.changeMemberRating(adminViewer, target.id, nextRating);
+  const history = await tx.memberRatingHistory.findFirst({
+    where: { memberId: target.id, attribute: "OVERALL" },
+    orderBy: { createdAt: "desc" },
+  });
+  check(
+    "MemberRatingHistory registrado",
+    Boolean(
+      history &&
+        history.previousValue === ratingBefore &&
+        history.newValue === nextRating &&
+        history.source === "ADMIN_DIRECT" &&
+        history.reason?.includes("check-member-rating"),
+    ),
+  );
+
+  const same = await membersMod.changeMemberRating(
+    adminViewer,
+    target.id,
+    nextRating,
+    "idempotente",
+  );
   check(
     "idempotente quando a nota já é a desejada",
     same.previousRating === nextRating && same.newRating === nextRating,

@@ -19,6 +19,7 @@ export type NavIcon =
   | "rodada"
   | "historico"
   | "stats"
+  | "levels"
   | "admin"
   | "account"
   | "finance"
@@ -31,6 +32,7 @@ const ICON_PATHS: Record<NavIcon, string> = {
   rodada: "M8 21h8M12 17v4M7 4h10l1 5H6zm1 5v3a4 4 0 0 0 8 0V9",
   historico: "M4 5h16M4 12h16M4 19h10",
   stats: "M4 19V9m5 10V5m5 14v-6m5 6V3",
+  levels: "M12 3l2.2 4.5 5 .7-3.6 3.5.9 5.1L12 14.8 7.5 16.8l.9-5.1L4.8 8.2l5-.7z",
   admin: "M12 3 4 6v6c0 4.5 3.4 8.3 8 9 4.6-.7 8-4.5 8-9V6zm0 6v4m0 3h.01",
   account: "M12 12a4 4 0 1 0 0-8 4 4 0 0 0 0 8zm-8 9a8 8 0 0 1 16 0",
   finance: "M12 3v18M7 8h8a3 3 0 0 1 0 6H9a3 3 0 0 0 0 6h8",
@@ -75,10 +77,12 @@ function useHydratedPathname(): string | null {
 export function BottomNav({
   items,
   showAdminInMore,
+  showNiveisInMore = false,
 }: {
   /** Início, Rodada/Ao Vivo, Histórico, Estatísticas — Mais é local. */
   items: NavItem[];
   showAdminInMore: boolean;
+  showNiveisInMore?: boolean;
 }) {
   const pathname = useHydratedPathname();
   const [moreOpen, setMoreOpen] = useState(false);
@@ -91,6 +95,7 @@ export function BottomNav({
         open={moreOpen}
         onClose={closeMore}
         showAdmin={showAdminInMore}
+        showNiveis={showNiveisInMore}
         returnFocusRef={moreButtonRef}
       />
       <nav

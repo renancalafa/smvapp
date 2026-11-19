@@ -189,11 +189,15 @@ export async function changeMemberRatingAction(
   const viewer = await requireAdminAction();
   const memberId = formText(formData, "memberId");
   const baseRating = parseBaseRating(formText(formData, "baseRating"));
+  const reason = formText(formData, "reason").trim();
   if (!isUuid(memberId) || baseRating === null) {
     return { status: "error", error: "Escolha uma nota de 1 a 5." };
   }
+  if (!reason) {
+    return { status: "error", error: "Informe o motivo da alteração." };
+  }
   try {
-    const result = await changeMemberRating(viewer, memberId, baseRating);
+    const result = await changeMemberRating(viewer, memberId, baseRating, reason);
     refresh();
     if (result.previousRating === result.newRating) {
       return { status: "done", message: "A nota já estava atualizada." };

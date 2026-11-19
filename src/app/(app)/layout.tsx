@@ -9,6 +9,8 @@ import {
   restrictedMobileNavItems,
   shouldUseRestrictedNav,
 } from "@/domain/nav/restricted-nav";
+import { isRatingVotingEnabled } from "@/server/modules/ratings/queries";
+import { canSuggestOrVoteRatings } from "@/domain/ratings/eligibility";
 import type { NavItem } from "./app-nav";
 import { NightAwareBottomNav, NightAwareSideNav } from "./night-mode-nav";
 
@@ -30,6 +32,12 @@ export default async function AppLayout({ children }: { children: React.ReactNod
   // Admin/Conta/Sair ficam no sheet "Mais". Desktop mantém a lateral completa.
   // Admin nas páginas ainda exige requireAdmin() — ocultar no UI não é a fronteira.
   const isAdmin = viewer.member.role === "ADMIN";
+  const ratingVotingOn = await isRatingVotingEnabled(viewer.group.id);
+  const showNiveis =
+    !paymentRestricted &&
+    ratingVotingOn &&
+    (isAdmin || canSuggestOrVoteRatings(viewer.member));
+  const niveisItem: NavItem = { href: "/niveis", label: "Níveis", icon: "levels" };
   const mobileItemsFull: NavItem[] = [
     { href: "/", label: "Início", icon: "home" },
     nightNav,
@@ -41,6 +49,7 @@ export default async function AppLayout({ children }: { children: React.ReactNod
     nightNav,
     { href: "/historico", label: "Histórico", icon: "historico" },
     { href: "/stats", label: "Estatísticas", icon: "stats" },
+    ...(showNiveis ? [niveisItem] : []),
     { href: "/financeiro", label: "Financeiro", icon: "finance" },
     { href: "/pagamentos", label: "Pagamentos", icon: "account" },
     { href: "/account", label: "Conta", icon: "account" },
@@ -135,6 +144,7 @@ export default async function AppLayout({ children }: { children: React.ReactNod
       <NightAwareBottomNav
         items={mobileItems}
         showAdminInMore={isAdmin && !paymentRestricted}
+        showNiveisInMore={showNiveis}
         initialNight={{
           href: nightItem.href,
           label: nightItem.label,

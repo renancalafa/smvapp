@@ -73,11 +73,13 @@ export function MobileMoreSheet({
   open,
   onClose,
   showAdmin,
+  showNiveis = false,
   returnFocusRef,
 }: {
   open: boolean;
   onClose: () => void;
   showAdmin: boolean;
+  showNiveis?: boolean;
   returnFocusRef: RefObject<HTMLButtonElement | null>;
 }) {
   const titleId = useId();
@@ -168,6 +170,20 @@ export function MobileMoreSheet({
               itemClass={itemClass}
               onNavigate={onClose}
             />
+          ) : null}
+          {showNiveis ? (
+            <li>
+              <Link
+                href="/niveis"
+                className={itemClass}
+                onClick={onClose}
+                {...(pathname === "/niveis" || pathname.startsWith("/niveis/")
+                  ? { "aria-current": "page" as const }
+                  : {})}
+              >
+                Níveis dos jogadores
+              </Link>
+            </li>
           ) : null}
           <li>
             <Link href="/financeiro" className={itemClass} onClick={onClose}>
