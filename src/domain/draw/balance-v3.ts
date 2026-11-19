@@ -5,8 +5,7 @@
  * participant has complete ratings. Does not replace balance-v2.
  *
  * Scoring is multi-axis (lexicographic spreads), NOT a weighted sum of attributes.
- * That avoids Overall double-counting and prevents one strong axis from masking
- * a severe weakness on another.
+ * Admin selects strategy A or C; both share the same candidate engine.
  */
 import {
   canonicalKey,
@@ -17,6 +16,63 @@ import {
 import { shuffle, type Rng } from "./random";
 
 export const DRAW_ALGORITHM_VERSION_V3 = "balance-v3";
+
+/** Admin-selectable advanced scoring strategies (not the two vote options). */
+export type BalanceV3Strategy = "A" | "C";
+
+export const BALANCE_V3_STRATEGY_A = "A" as const satisfies BalanceV3Strategy;
+export const BALANCE_V3_STRATEGY_C = "C" as const satisfies BalanceV3Strategy;
+
+export const BALANCE_V3_STRATEGIES: readonly BalanceV3Strategy[] = [
+  BALANCE_V3_STRATEGY_A,
+  BALANCE_V3_STRATEGY_C,
+];
+
+export function isBalanceV3Strategy(value: unknown): value is BalanceV3Strategy {
+  return value === "A" || value === "C";
+}
+
+/**
+ * A — physical equilibrium first among soft axes:
+ *   Overall → Attack → Defense → Physical → High-rated → Roles…
+ * C — high-rated distribution before Physical:
+ *   Overall → Attack → Defense → High-rated → Physical → Roles…
+ */
+export type CostAxis =
+  | "overall"
+  | "attack"
+  | "defense"
+  | "physical"
+  | "tops"
+  | "role"
+  | "attackerSpread"
+  | "defenderSpread"
+  | "overallVariance";
+
+export const STRATEGY_COST_ORDER: Record<BalanceV3Strategy, readonly CostAxis[]> = {
+  A: [
+    "overall",
+    "attack",
+    "defense",
+    "physical",
+    "tops",
+    "role",
+    "attackerSpread",
+    "defenderSpread",
+    "overallVariance",
+  ],
+  C: [
+    "overall",
+    "attack",
+    "defense",
+    "tops",
+    "physical",
+    "role",
+    "attackerSpread",
+    "defenderSpread",
+    "overallVariance",
+  ],
+};
 
 export type PreferredRoleValue = "ATTACKER" | "DEFENDER" | "VERSATILE";
 
@@ -63,6 +119,7 @@ export type GeneratedDrawV3 = {
   optionDistance: number | null;
   maxTeamOverlap: number | null;
   algorithmVersion: typeof DRAW_ALGORITHM_VERSION_V3;
+  strategy: BalanceV3Strategy;
 };
 
 export class DrawGenerationErrorV3 extends Error {}
@@ -70,21 +127,9 @@ export class DrawGenerationErrorV3 extends Error {}
 const TOP_OVERALL = 4;
 const CANDIDATE_RESTARTS = 1200;
 
-/**
- * Lexicographic multi-axis cost. Order matters: a large Overall imbalance cannot be
- * offset by perfect Attack; a large Attack imbalance cannot be offset by Physical, etc.
- */
-type Cost = [
-  overallSpread: number,
-  attackSpread: number,
-  defenseSpread: number,
-  physicalSpread: number,
-  topSpread: number,
-  rolePenalty: number,
-  attackerSpread: number,
-  defenderSpread: number,
-  overallVariance: number,
-];
+type Cost = number[];
+
+type RawAxes = Record<CostAxis, number>;
 
 function sum(team: DrawPlayerV3[], pick: (p: DrawPlayerV3) => number): number {
   return team.reduce((acc, p) => acc + pick(p), 0);
@@ -120,7 +165,7 @@ function roleCounts(team: DrawPlayerV3[]): {
 
 /**
  * Soft role penalty: discourage attack-heavy / defender-starved teams.
- * Versatile + unset count as flexible fillers (half weight toward covering gaps).
+ * Versatile + unset count as flexible fillers.
  * Not an absolute constraint — missing preferred roles never invalidate a roster.
  */
 function rolePenaltyOf(teams: DrawPlayerV3[][]): number {
@@ -128,16 +173,13 @@ function rolePenaltyOf(teams: DrawPlayerV3[][]): number {
   for (const team of teams) {
     const r = roleCounts(team);
     const flexible = r.versatile + r.unset;
-    // Too many dedicated attackers with no dedicated defender.
     if (r.attackers >= 3 && r.defenders === 0) {
       penalty += 2 + Math.max(0, r.attackers - 2);
     }
-    // Attack-heavy relative to defensive cover (dedicated + flexible).
     const defensiveCover = r.defenders + flexible;
     if (r.attackers > defensiveCover + 1) {
       penalty += r.attackers - defensiveCover;
     }
-    // Defender pile-up with zero attackers (mirror imbalance).
     if (r.defenders >= 3 && r.attackers === 0 && flexible === 0) {
       penalty += 2;
     }
@@ -145,7 +187,7 @@ function rolePenaltyOf(teams: DrawPlayerV3[][]): number {
   return penalty;
 }
 
-function costOf(teams: DrawPlayerV3[][]): Cost {
+function rawAxesOf(teams: DrawPlayerV3[][]): RawAxes {
   const overalls = teams.map((t) => sum(t, (p) => p.overall));
   const attacks = teams.map((t) => sum(t, (p) => p.attack));
   const defenses = teams.map((t) => sum(t, (p) => p.defense));
@@ -153,17 +195,22 @@ function costOf(teams: DrawPlayerV3[][]): Cost {
   const tops = teams.map((t) => t.filter((p) => p.overall >= TOP_OVERALL).length);
   const attackers = teams.map((t) => roleCounts(t).attackers);
   const defenders = teams.map((t) => roleCounts(t).defenders);
-  return [
-    spread(overalls),
-    spread(attacks),
-    spread(defenses),
-    spread(physicals),
-    spread(tops),
-    rolePenaltyOf(teams),
-    spread(attackers),
-    spread(defenders),
-    variance(overalls),
-  ];
+  return {
+    overall: spread(overalls),
+    attack: spread(attacks),
+    defense: spread(defenses),
+    physical: spread(physicals),
+    tops: spread(tops),
+    role: rolePenaltyOf(teams),
+    attackerSpread: spread(attackers),
+    defenderSpread: spread(defenders),
+    overallVariance: variance(overalls),
+  };
+}
+
+function costOf(teams: DrawPlayerV3[][], strategy: BalanceV3Strategy): Cost {
+  const raw = rawAxesOf(teams);
+  return STRATEGY_COST_ORDER[strategy].map((axis) => raw[axis]);
 }
 
 function compareCost(a: Cost, b: Cost): number {
@@ -174,20 +221,20 @@ function compareCost(a: Cost, b: Cost): number {
   return 0;
 }
 
-function metricsFromCost(cost: Cost): BalanceMetricsV3 {
+function metricsFromRaw(raw: RawAxes): BalanceMetricsV3 {
   return {
     spreads: {
-      overall: cost[0],
-      attack: cost[1],
-      defense: cost[2],
-      physical: cost[3],
-      topPlayers: cost[4],
-      roleAttackers: cost[6],
-      roleDefenders: cost[7],
+      overall: raw.overall,
+      attack: raw.attack,
+      defense: raw.defense,
+      physical: raw.physical,
+      topPlayers: raw.tops,
+      roleAttackers: raw.attackerSpread,
+      roleDefenders: raw.defenderSpread,
     },
-    rolePenalty: cost[5],
-    overallVariance: cost[8],
-    balanceScore: cost[0],
+    rolePenalty: raw.role,
+    overallVariance: raw.overallVariance,
+    balanceScore: raw.overall,
   };
 }
 
@@ -202,8 +249,8 @@ function sameFootprint(a: DrawPlayerV3, b: DrawPlayerV3): boolean {
 }
 
 /** Local search via pairwise swaps; accept only strict multi-axis cost improvements. */
-function improve(teams: DrawPlayerV3[][]): Cost {
-  let cost = costOf(teams);
+function improve(teams: DrawPlayerV3[][], strategy: BalanceV3Strategy): Cost {
+  let cost = costOf(teams, strategy);
   let improved = true;
   while (improved) {
     improved = false;
@@ -213,7 +260,7 @@ function improve(teams: DrawPlayerV3[][]): Cost {
           for (let j = 0; j < teams[b]!.length; j++) {
             if (sameFootprint(teams[a]![i]!, teams[b]![j]!)) continue;
             [teams[a]![i], teams[b]![j]] = [teams[b]![j]!, teams[a]![i]!];
-            const next = costOf(teams);
+            const next = costOf(teams, strategy);
             if (compareCost(next, cost) < 0) {
               cost = next;
               improved = true;
@@ -246,6 +293,7 @@ function optionsCompatible(
 /**
  * Generate `optionsCount` multi-axis-balanced options under the same hard diversity
  * constraints as balance-v2 (minDifference + maxTeamOverlap ≤ 40%).
+ * Both vote options use the same Admin-selected strategy.
  */
 export function generateDrawOptionsV3(input: {
   players: DrawPlayerV3[];
@@ -254,8 +302,13 @@ export function generateDrawOptionsV3(input: {
   optionsCount: number;
   minDifference: number;
   rng: Rng;
+  /** Required — never silently default to avoid swapping A/C. */
+  strategy: BalanceV3Strategy;
 }): GeneratedDrawV3 {
-  const { players, teamCount, teamSize, optionsCount, minDifference, rng } = input;
+  const { players, teamCount, teamSize, optionsCount, minDifference, rng, strategy } = input;
+  if (!isBalanceV3Strategy(strategy)) {
+    throw new DrawGenerationErrorV3("Estratégia de equilíbrio avançado inválida.");
+  }
   if (players.length !== teamCount * teamSize) {
     throw new DrawGenerationErrorV3(
       `São necessários ${teamCount * teamSize} jogadores para ${teamCount} times de ${teamSize}.`,
@@ -282,7 +335,7 @@ export function generateDrawOptionsV3(input: {
     const teams = Array.from({ length: teamCount }, (_, index) =>
       order.slice(index * teamSize, (index + 1) * teamSize),
     );
-    const cost = improve(teams);
+    const cost = improve(teams, strategy);
     const key = canonicalKey(ids(teams));
     if (!candidates.has(key)) candidates.set(key, { teams, cost });
   }
@@ -339,8 +392,9 @@ export function generateDrawOptionsV3(input: {
 
   return {
     algorithmVersion: DRAW_ALGORITHM_VERSION_V3,
+    strategy,
     options: chosen.map((option) => {
-      const metrics = metricsFromCost(option.cost);
+      const metrics = metricsFromRaw(rawAxesOf(option.teams));
       return {
         teams: option.teams,
         balanceScore: metrics.balanceScore,
@@ -352,7 +406,21 @@ export function generateDrawOptionsV3(input: {
   };
 }
 
-/** Exported for simulations / tests — evaluate a finished partition without regenerating. */
-export function evaluatePartitionV3(teams: DrawPlayerV3[][]): BalanceMetricsV3 {
-  return metricsFromCost(costOf(teams));
+/** Exported for simulations / tests — evaluate a finished partition under a strategy. */
+export function evaluatePartitionV3(
+  teams: DrawPlayerV3[][],
+  strategy: BalanceV3Strategy = BALANCE_V3_STRATEGY_A,
+): BalanceMetricsV3 {
+  // Metrics are strategy-independent raw spreads; strategy only affects search ranking.
+  void strategy;
+  return metricsFromRaw(rawAxesOf(teams));
+}
+
+/** Compare two partitions under a strategy (tests / diagnostics). */
+export function comparePartitionsV3(
+  left: DrawPlayerV3[][],
+  right: DrawPlayerV3[][],
+  strategy: BalanceV3Strategy,
+): number {
+  return compareCost(costOf(left, strategy), costOf(right, strategy));
 }

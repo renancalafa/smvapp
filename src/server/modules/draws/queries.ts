@@ -25,6 +25,16 @@ export type DrawOptionView = {
   votes: number;
   voterNames: string[] | null;
 };
+export type DrawBalanceDiagnosticsView = {
+  requestedAlgorithm: "balance-v2" | "balance-v3" | string;
+  usedAlgorithm: "balance-v2" | "balance-v3" | string;
+  requestedStrategy: "A" | "C" | null;
+  usedStrategy: "A" | "C" | null;
+  advancedFlagEnabled: boolean;
+  ratingsComplete: boolean;
+  fallbackReason: string | null;
+};
+
 export type DrawView = {
   id: string;
   sequence: number;
@@ -33,6 +43,10 @@ export type DrawView = {
   winningOptionId: string | null;
   optionDistance: number | null;
   minOptionDifference: number;
+  /** Admin-only generation metadata. */
+  algorithmVersion: string | null;
+  balancingStrategy: string | null;
+  balanceDiagnostics: DrawBalanceDiagnosticsView | null;
   createdAt: Date;
   decidedAt: Date | null;
   invalidatedAt: Date | null;
@@ -59,6 +73,9 @@ async function loadDraws(where: { gameSessionId: string; invalidatedAt?: null | 
       winningOptionId: true,
       optionDistance: true,
       minOptionDifference: true,
+      algorithmVersion: true,
+      balancingStrategy: true,
+      balanceDiagnostics: true,
       createdAt: true,
       decidedAt: true,
       invalidatedAt: true,
@@ -143,6 +160,21 @@ function toView(draw: DrawRow, eligible: Set<string>, admin: boolean, viewerMemb
       }),
     };
   });
+  const diagnosticsRaw = draw.balanceDiagnostics;
+  let balanceDiagnostics: DrawBalanceDiagnosticsView | null = null;
+  if (admin && diagnosticsRaw && typeof diagnosticsRaw === "object" && !Array.isArray(diagnosticsRaw)) {
+    const d = diagnosticsRaw as Record<string, unknown>;
+    balanceDiagnostics = {
+      requestedAlgorithm: typeof d.requestedAlgorithm === "string" ? d.requestedAlgorithm : "balance-v2",
+      usedAlgorithm: typeof d.usedAlgorithm === "string" ? d.usedAlgorithm : "balance-v2",
+      requestedStrategy: d.requestedStrategy === "A" || d.requestedStrategy === "C" ? d.requestedStrategy : null,
+      usedStrategy: d.usedStrategy === "A" || d.usedStrategy === "C" ? d.usedStrategy : null,
+      advancedFlagEnabled: d.advancedFlagEnabled === true,
+      ratingsComplete: d.ratingsComplete === true,
+      fallbackReason: typeof d.fallbackReason === "string" ? d.fallbackReason : null,
+    };
+  }
+
   return {
     id: draw.id,
     sequence: draw.sequence,
@@ -151,6 +183,9 @@ function toView(draw: DrawRow, eligible: Set<string>, admin: boolean, viewerMemb
     winningOptionId: draw.winningOptionId,
     optionDistance: admin ? draw.optionDistance : null,
     minOptionDifference: draw.minOptionDifference,
+    algorithmVersion: admin ? draw.algorithmVersion : null,
+    balancingStrategy: admin ? draw.balancingStrategy : null,
+    balanceDiagnostics,
     createdAt: draw.createdAt,
     decidedAt: draw.decidedAt,
     invalidatedAt: draw.invalidatedAt,
@@ -208,6 +243,7 @@ export async function getFormation(sessionId: string) {
     db.gameSession.findUniqueOrThrow({
       where: { id: sessionId },
       select: {
+        groupId: true,
         teamSize: true,
         maxPlayers: true,
         overflowMode: true,
@@ -224,19 +260,37 @@ export async function getFormation(sessionId: string) {
         id: true,
         isRotating: true,
         modalitySnapshot: true,
-        member: { select: { nickname: true, user: { select: { name: true } } } },
+        member: {
+          select: {
+            nickname: true,
+            user: { select: { name: true } },
+            baseRating: true,
+            attackRating: true,
+            defenseRating: true,
+            physicalRating: true,
+          },
+        },
       },
     }),
     db.match.count({ where: { gameSessionId: sessionId } }),
   ]);
+  const groupSettings = await db.groupSettings.findUnique({
+    where: { groupId: session.groupId },
+    select: { advancedDrawBalancingEnabled: true },
+  });
   return {
     ...session,
     hasMatches: matches > 0,
+    advancedDrawBalancingEnabled: groupSettings?.advancedDrawBalancingEnabled === true,
     participants: participants.map((registration) => ({
       id: registration.id,
       isRotating: registration.isRotating,
       modality: registration.modalitySnapshot,
       name: memberName(registration.member),
+      baseRating: registration.member.baseRating,
+      attackRating: registration.member.attackRating,
+      defenseRating: registration.member.defenseRating,
+      physicalRating: registration.member.physicalRating,
     })),
   };
 }

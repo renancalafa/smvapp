@@ -15,7 +15,9 @@ import {
   DRAW_ALGORITHM_VERSION_V3,
   DrawGenerationErrorV3,
   generateDrawOptionsV3,
+  isBalanceV3Strategy,
   type BalanceMetricsV3,
+  type BalanceV3Strategy,
   type DrawPlayerV3,
 } from "@/domain/draw/balance-v3";
 import {
@@ -115,10 +117,21 @@ type GeneratedOptionPersist = {
 type DrawBalanceDiagnostics = {
   requestedAlgorithm: "balance-v2" | "balance-v3";
   usedAlgorithm: "balance-v2" | "balance-v3";
+  /** Admin-requested advanced strategy (A/C). Null when flag off. */
+  requestedStrategy: BalanceV3Strategy | null;
+  /** Strategy actually executed. Null when v2 ran (flag off or incomplete ratings). */
+  usedStrategy: BalanceV3Strategy | null;
   advancedFlagEnabled: boolean;
   ratingsComplete: boolean;
   fallbackReason: string | null;
   missingRatings: Array<{ memberId: string; missing: string[] }>;
+};
+
+export type CreateDrawInput = {
+  actorUserId: string;
+  replacesDrawId: string | null;
+  /** Required when advanced balancing is enabled; ignored when flag is OFF. */
+  balancingStrategy?: BalanceV3Strategy | null;
 };
 
 /** Votam só mensalistas participantes que não foram marcados ausentes (seção 16). */
@@ -139,7 +152,7 @@ async function createDrawLocked(
   tx: Tx,
   session: LockedSession,
   now: Date,
-  input: { actorUserId: string; replacesDrawId: string | null },
+  input: CreateDrawInput,
 ): Promise<{ drawId: string; status: "VOTING" | "DECIDED" }> {
   const config = await tx.gameSession.findUniqueOrThrow({
     where: { id: session.id },
@@ -213,13 +226,30 @@ async function createDrawLocked(
     })),
   );
 
+  let requestedStrategy: BalanceV3Strategy | null = null;
+  if (advancedEnabled && completeness.complete) {
+    const raw = input.balancingStrategy;
+    if (!isBalanceV3Strategy(raw)) {
+      throw new UserFacingError(
+        "Escolha a estratégia de equilíbrio avançado: Equilíbrio físico (A) ou Distribuição de craques (C).",
+      );
+    }
+    requestedStrategy = raw;
+  } else if (advancedEnabled && isBalanceV3Strategy(input.balancingStrategy)) {
+    // Incomplete ratings: record intent but do not execute A/C.
+    requestedStrategy = input.balancingStrategy;
+  }
+
   const seed = randomBytes(16).toString("hex");
   let algorithmVersion: string = DRAW_ALGORITHM_VERSION;
+  let balancingStrategy: string | null = null;
   let optionDistance: number | null = null;
   let options: GeneratedOptionPersist[] = [];
   let diagnostics: DrawBalanceDiagnostics = {
     requestedAlgorithm: advancedEnabled ? "balance-v3" : "balance-v2",
     usedAlgorithm: "balance-v2",
+    requestedStrategy,
+    usedStrategy: null,
     advancedFlagEnabled: advancedEnabled,
     ratingsComplete: completeness.complete,
     fallbackReason: null,
@@ -230,7 +260,7 @@ async function createDrawLocked(
   };
 
   try {
-    if (advancedEnabled && completeness.complete) {
+    if (advancedEnabled && completeness.complete && requestedStrategy) {
       const v3Players = allocated.map((registration) =>
         toDrawPlayerV3({
           id: registration.memberId,
@@ -248,8 +278,10 @@ async function createDrawLocked(
         optionsCount: config.drawOptionsCount,
         minDifference: config.drawMinOptionDifference,
         rng: createRng(seed),
+        strategy: requestedStrategy,
       });
       algorithmVersion = DRAW_ALGORITHM_VERSION_V3;
+      balancingStrategy = generated.strategy;
       optionDistance = generated.optionDistance;
       options = generated.options.map((option) => ({
         teams: option.teams.map((team) => team.map(toPersistedV3)),
@@ -259,12 +291,14 @@ async function createDrawLocked(
       diagnostics = {
         ...diagnostics,
         usedAlgorithm: "balance-v3",
+        usedStrategy: generated.strategy,
         fallbackReason: null,
       };
     } else {
       if (advancedEnabled && !completeness.complete) {
         diagnostics.fallbackReason = formatMissingRatingsDiagnostic(completeness);
       }
+      // Flag OFF or incomplete ratings: always v2. Never claim A/C was used.
       const generated = generateDrawOptions({
         players: allocated.map(toV2Player),
         teamCount: plan.teamCount,
@@ -274,6 +308,7 @@ async function createDrawLocked(
         rng: createRng(seed),
       });
       algorithmVersion = DRAW_ALGORITHM_VERSION;
+      balancingStrategy = null;
       optionDistance = generated.optionDistance;
       const byId = new Map(allocated.map((row) => [row.memberId, row]));
       options = generated.options.map((option) => ({
@@ -283,6 +318,11 @@ async function createDrawLocked(
         balanceScore: option.balanceScore,
         balanceMetrics: null,
       }));
+      diagnostics = {
+        ...diagnostics,
+        usedAlgorithm: "balance-v2",
+        usedStrategy: null,
+      };
     }
   } catch (error) {
     if (error instanceof DrawGenerationError || error instanceof DrawGenerationErrorV3) {
@@ -317,6 +357,7 @@ async function createDrawLocked(
       status: "VOTING",
       seed,
       algorithmVersion,
+      balancingStrategy,
       minOptionDifference: config.drawMinOptionDifference,
       optionDistance,
       balanceDiagnostics: diagnostics,
@@ -375,6 +416,7 @@ async function createDrawLocked(
       optionDistance,
       minOptionDifference: config.drawMinOptionDifference,
       algorithmVersion,
+      balancingStrategy,
       balanceDiagnostics: diagnostics,
       seed,
       replacesDrawId: input.replacesDrawId,
@@ -558,7 +600,11 @@ export async function setRotating(
 // Sorteio
 // ---------------------------------------------------------------------------
 
-export async function generateDraw(viewer: Viewer, sessionId: string): Promise<{ status: "VOTING" | "DECIDED" }> {
+export async function generateDraw(
+  viewer: Viewer,
+  sessionId: string,
+  input: { balancingStrategy?: BalanceV3Strategy | null } = {},
+): Promise<{ status: "VOTING" | "DECIDED" }> {
   return withLockedSession(viewer.group.id, sessionId, async (tx, session, now) => {
     await assertDrawCommandsAllowed(tx, session, now);
     if (await findActiveDraw(tx, session.id)) {
@@ -573,6 +619,7 @@ export async function generateDraw(viewer: Viewer, sessionId: string): Promise<{
     const result = await createDrawLocked(tx, session, now, {
       actorUserId: viewer.user.id,
       replacesDrawId: pending?.id ?? null,
+      balancingStrategy: input.balancingStrategy ?? null,
     });
     return { status: result.status };
   });
@@ -696,7 +743,12 @@ export async function resolveTie(
 export async function invalidateDraw(
   viewer: Viewer,
   sessionId: string,
-  input: { drawId: string; reason: string; regenerate: boolean },
+  input: {
+    drawId: string;
+    reason: string;
+    regenerate: boolean;
+    balancingStrategy?: BalanceV3Strategy | null;
+  },
 ): Promise<{ newStatus: "VOTING" | "DECIDED" | null }> {
   return withLockedSession(viewer.group.id, sessionId, async (tx, session, now) => {
     await assertDrawCommandsAllowed(tx, session, now);
@@ -765,6 +817,7 @@ export async function invalidateDraw(
     const created = await createDrawLocked(tx, session, now, {
       actorUserId: viewer.user.id,
       replacesDrawId: draw.id,
+      balancingStrategy: input.balancingStrategy ?? null,
     });
     return { newStatus: created.status };
   });

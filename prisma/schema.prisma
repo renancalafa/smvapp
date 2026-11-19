@@ -889,6 +889,8 @@ model Draw {
   winningOptionId      String?             @db.Uuid
   seed                 String
   algorithmVersion     String
+  /// Estratégia avançada efetivamente usada: "A" | "C". Null em balance-v2 / histórico pré-estratégia.
+  balancingStrategy    String?
   /// Snapshot de drawMinOptionDifference.
   minOptionDifference  Int
   /// Distância entre as opções A e B; nula com uma única opção.

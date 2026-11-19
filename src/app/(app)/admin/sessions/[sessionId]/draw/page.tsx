@@ -2,6 +2,8 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { EARLY_DRAW_REQUIREMENT, earlyDrawAllowed, planDraw } from "@/domain/draw/balance";
+import { assessRatingCompleteness } from "@/domain/draw/rating-completeness";
+import { balancingStrategyLabel } from "@/domain/draw/balance-v3-labels";
 import {
   darkAlertWarn,
   darkBody,
@@ -33,6 +35,7 @@ import {
   OverflowModeForm,
   ResolveTieForm,
   RotatorToggle,
+  type AdvancedDrawUi,
 } from "./draw-admin-forms";
 
 export const metadata: Metadata = { title: "Sorteio" };
@@ -63,6 +66,26 @@ export default async function AdminDrawPage({ params }: { params: Promise<{ sess
   const earlyAllowed = beforeDeadline && earlyDrawAllowed({ participants, capacity: effectiveCapacity(formation) });
   const rotatorsMarked = formation.participants.filter((participant) => participant.isRotating).length;
   const showRotators = formation.overflowMode === "FLEXIBLE_ROTATION" && plan.ok && plan.rotatorsRequired > 0;
+
+  const allocatedForRatings = formation.participants.filter((participant) => !participant.isRotating);
+  const completeness = assessRatingCompleteness(
+    allocatedForRatings.map((participant) => ({
+      memberId: participant.id,
+      displayName: participant.name,
+      baseRating: participant.baseRating,
+      attackRating: participant.attackRating,
+      defenseRating: participant.defenseRating,
+      physicalRating: participant.physicalRating,
+    })),
+  );
+  const advancedUi: AdvancedDrawUi = {
+    flagEnabled: formation.advancedDrawBalancingEnabled,
+    ratingsComplete: completeness.complete,
+    missingLabels: completeness.missing.map((row) => {
+      const who = row.displayName ?? row.memberId;
+      return `${who} (${row.missing.join(", ")})`;
+    }),
+  };
 
   return (
     <section className="flex flex-col gap-4">
@@ -127,12 +150,18 @@ export default async function AdminDrawPage({ params }: { params: Promise<{ sess
           </div>
         )}
         {!draw && canCommand && (!beforeDeadline || earlyAllowed) && plan.ok && (
-          <GenerateDrawForm sessionId={sessionId} early={beforeDeadline} />
+          <GenerateDrawForm sessionId={sessionId} early={beforeDeadline} advanced={advancedUi} />
         )}
       </section>
 
       {draw ? (
-        <ActiveDraw draw={draw} sessionId={sessionId} canCommand={canCommand} timeZone={timeZone} />
+        <ActiveDraw
+          draw={draw}
+          sessionId={sessionId}
+          canCommand={canCommand}
+          timeZone={timeZone}
+          advanced={advancedUi}
+        />
       ) : (
         <p className={shellMuted}>Nenhum sorteio ativo.</p>
       )}
@@ -177,13 +206,19 @@ function ActiveDraw({
   sessionId,
   canCommand,
   timeZone,
+  advanced,
 }: {
   draw: DrawView;
   sessionId: string;
   canCommand: boolean;
   timeZone: string;
+  advanced: AdvancedDrawUi;
 }) {
   const totalVotes = draw.options.reduce((sum, option) => sum + option.votes, 0);
+  const usedStrategy =
+    balancingStrategyLabel(draw.balancingStrategy) ??
+    balancingStrategyLabel(draw.balanceDiagnostics?.usedStrategy ?? null);
+  const diag = draw.balanceDiagnostics;
   return (
     <section className="flex flex-col gap-3">
       <div>
@@ -192,11 +227,23 @@ function ActiveDraw({
         <p className={shellMutedXs}>
           Gerado {formatDateTime(draw.createdAt, timeZone)}
           {draw.optionDistance !== null &&
-            ` · diferença entre as opções: ${draw.optionDistance} jogadores (mínimo ${draw.minOptionDifference})`}
+            ` · diferença entre as opções de votação: ${draw.optionDistance} jogadores (mínimo ${draw.minOptionDifference})`}
         </p>
+        {draw.algorithmVersion && (
+          <p className={`mt-1 ${shellMutedXs}`}>
+            Algoritmo: {draw.algorithmVersion}
+            {usedStrategy ? ` · estratégia de equilíbrio: ${usedStrategy}` : ""}
+            {diag?.usedAlgorithm === "balance-v2" && diag.advancedFlagEnabled
+              ? " · equilíbrio avançado não aplicado"
+              : ""}
+          </p>
+        )}
+        {diag?.fallbackReason && (
+          <p className={`mt-1 text-sm text-amber-100/90`}>{diag.fallbackReason}</p>
+        )}
         {draw.status === "VOTING" && (
           <p className={`mt-1 ${shellSubtext}`}>
-            {totalVotes} de {draw.eligibleVoters} mensalistas elegíveis votaram
+            {totalVotes} de {draw.eligibleVoters} mensalistas elegíveis votaram nas opções de times
             {draw.ignoredVotes > 0 ? ` (${draw.ignoredVotes} voto(s) de quem deixou de ser elegível não contam)` : ""}.
           </p>
         )}
@@ -226,7 +273,12 @@ function ActiveDraw({
       </div>
 
       {canCommand && (
-        <InvalidateDrawForm sessionId={sessionId} drawId={draw.id} decided={draw.status === "DECIDED"} />
+        <InvalidateDrawForm
+          sessionId={sessionId}
+          drawId={draw.id}
+          decided={draw.status === "DECIDED"}
+          advanced={advanced}
+        />
       )}
     </section>
   );

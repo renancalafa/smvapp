@@ -86,6 +86,8 @@ const ACTION_LABELS: Record<string, string> = {
   PAYMENT_RECEIPT_UPLOADED: "Pagamento informado",
   PAYMENT_RECEIPT_APPROVED: "Pagamento aprovado",
   PAYMENT_RECEIPT_REJECTED: "Pagamento rejeitado",
+  PAYMENT_RECEIPT_DELETE_MARKED: "Exclusão de comprovante marcada",
+  PAYMENT_RECEIPT_DELETED: "Comprovante excluído",
   FINANCIAL_ACCESS_GRANTED: "Acesso financeiro liberado excepcionalmente",
   FINANCIAL_ACCESS_REVOKED: "Liberação financeira revogada",
   OTHER_EXPENSE_RECORDED: "Despesa registrada",

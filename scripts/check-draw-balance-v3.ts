@@ -8,8 +8,11 @@ import {
 } from "../src/domain/draw/balance";
 import {
   DRAW_ALGORITHM_VERSION_V3,
+  STRATEGY_COST_ORDER,
+  comparePartitionsV3,
   evaluatePartitionV3,
   generateDrawOptionsV3,
+  isBalanceV3Strategy,
   type DrawPlayerV3,
   type PreferredRoleValue,
 } from "../src/domain/draw/balance-v3";
@@ -117,6 +120,7 @@ function assertGeneratedV3(teamCount: number, teamSize: number, roster: DrawPlay
     teamSize,
     optionsCount: 2,
     minDifference: 3,
+    strategy: "A",
     rng: createRng(seed),
   });
   check(`${teamCount}×${teamSize} v3 version`, generated.algorithmVersion === DRAW_ALGORITHM_VERSION_V3);
@@ -137,6 +141,17 @@ function domainChecks() {
   check("v2 version constant intact", DRAW_ALGORITHM_VERSION === "balance-v2");
   check("v3 version constant", DRAW_ALGORITHM_VERSION_V3 === "balance-v3");
   check("playerStrength still baseRating", playerStrength({ baseRating: 4 }) === 4);
+  check("strategy A valid", isBalanceV3Strategy("A"));
+  check("strategy C valid", isBalanceV3Strategy("C"));
+  check("strategy rejects junk", !isBalanceV3Strategy("B") && !isBalanceV3Strategy(null));
+  check(
+    "strategy A order: Physical before tops",
+    STRATEGY_COST_ORDER.A.indexOf("physical") < STRATEGY_COST_ORDER.A.indexOf("tops"),
+  );
+  check(
+    "strategy C order: tops before Physical",
+    STRATEGY_COST_ORDER.C.indexOf("tops") < STRATEGY_COST_ORDER.C.indexOf("physical"),
+  );
 
   // Completeness
   const incomplete = assessRatingCompleteness([
@@ -188,6 +203,7 @@ function domainChecks() {
     teamSize: 5,
     optionsCount: 1,
     minDifference: 3,
+    strategy: "A",
     rng: createRng("null-roles"),
   });
   check("null preferred roles still generate", nullRoles.options.length === 1);
@@ -204,6 +220,7 @@ function domainChecks() {
     teamSize: 5,
     optionsCount: 2,
     minDifference: 3,
+    strategy: "A",
     rng: createRng("one-five"),
   });
   check("one 5-star generates 2 options", gOne.options.length === 2);
@@ -217,6 +234,7 @@ function domainChecks() {
     teamSize: 5,
     optionsCount: 2,
     minDifference: 3,
+    strategy: "A",
     rng: createRng("multi-five"),
   });
   const topsPerTeam = gMulti.options[0]!.teams.map((t) => t.filter((p) => p.overall >= 5).length);
@@ -237,17 +255,19 @@ function domainChecks() {
     teamSize: 5,
     optionsCount: 2,
     minDifference: 3,
+    strategy: "A",
     rng: createRng("attack-heavy"),
   });
   check("attack-heavy pool still valid", gAttack.options.length === 2 && (gAttack.optionDistance ?? 0) >= 3);
 
-  // Seed reproducibility
+  // Seed reproducibility (per strategy)
   const a = generateDrawOptionsV3({
     players: roster15(),
     teamCount: 3,
     teamSize: 5,
     optionsCount: 2,
     minDifference: 3,
+    strategy: "A",
     rng: createRng("repro-seed"),
   });
   const b = generateDrawOptionsV3({
@@ -256,6 +276,7 @@ function domainChecks() {
     teamSize: 5,
     optionsCount: 2,
     minDifference: 3,
+    strategy: "A",
     rng: createRng("repro-seed"),
   });
   const key = (opt: typeof a) =>
@@ -267,7 +288,101 @@ function domainChecks() {
           .join("|"),
       )
       .join("||");
-  check("seed reproducibility", key(a) === key(b));
+  check("seed reproducibility strategy A", key(a) === key(b));
+  check("generated strategy A tagged", a.strategy === "A");
+
+  const cRepro1 = generateDrawOptionsV3({
+    players: roster15(),
+    teamCount: 3,
+    teamSize: 5,
+    optionsCount: 2,
+    minDifference: 3,
+    strategy: "C",
+    rng: createRng("repro-seed-c"),
+  });
+  const cRepro2 = generateDrawOptionsV3({
+    players: roster15(),
+    teamCount: 3,
+    teamSize: 5,
+    optionsCount: 2,
+    minDifference: 3,
+    strategy: "C",
+    rng: createRng("repro-seed-c"),
+  });
+  check("seed reproducibility strategy C", key(cRepro1) === key(cRepro2));
+  check("generated strategy C tagged", cRepro1.strategy === "C");
+
+  // Same seed + roster: A and C must not silently substitute (may or may not differ in teams)
+  const sameSeedA = generateDrawOptionsV3({
+    players: roster15(),
+    teamCount: 3,
+    teamSize: 5,
+    optionsCount: 2,
+    minDifference: 3,
+    strategy: "A",
+    rng: createRng("strategy-fork"),
+  });
+  const sameSeedC = generateDrawOptionsV3({
+    players: roster15(),
+    teamCount: 3,
+    teamSize: 5,
+    optionsCount: 2,
+    minDifference: 3,
+    strategy: "C",
+    rng: createRng("strategy-fork"),
+  });
+  check("A/C keep distinct strategy tags", sameSeedA.strategy === "A" && sameSeedC.strategy === "C");
+  check("A/C both diversity-ok", (sameSeedA.optionDistance ?? 0) >= 3 && (sameSeedC.optionDistance ?? 0) >= 3);
+
+  // Lexicographic preference: when O/A/D equal, C prefers lower topsSpread even if Physical worse.
+  const fourTopsLex = makeRoster([
+    { overall: 5, attack: 4, defense: 4, physical: 5, preferredRole: "ATTACKER" },
+    { overall: 4, attack: 4, defense: 4, physical: 2, preferredRole: "ATTACKER" },
+    { overall: 4, attack: 4, defense: 4, physical: 5, preferredRole: "VERSATILE" },
+    { overall: 4, attack: 4, defense: 4, physical: 2, preferredRole: "DEFENDER" },
+    { overall: 3, attack: 3, defense: 3, physical: 3, preferredRole: "VERSATILE" },
+    { overall: 3, attack: 3, defense: 3, physical: 3, preferredRole: "VERSATILE" },
+    { overall: 3, attack: 3, defense: 3, physical: 3, preferredRole: "DEFENDER" },
+    { overall: 2, attack: 2, defense: 2, physical: 2, preferredRole: "ATTACKER" },
+    { overall: 2, attack: 2, defense: 2, physical: 2, preferredRole: "DEFENDER" },
+    { overall: 2, attack: 2, defense: 2, physical: 2, preferredRole: null },
+    { overall: 2, attack: 2, defense: 2, physical: 2, preferredRole: null },
+    { overall: 1, attack: 1, defense: 1, physical: 1, preferredRole: "ATTACKER" },
+    { overall: 1, attack: 1, defense: 1, physical: 1, preferredRole: "DEFENDER" },
+    { overall: 1, attack: 1, defense: 1, physical: 1, preferredRole: "VERSATILE" },
+    { overall: 1, attack: 1, defense: 1, physical: 1, preferredRole: null },
+  ]);
+  const stackedLex = [
+    fourTopsLex.filter((_, i) => [0, 1, 2, 4, 7].includes(i)),
+    fourTopsLex.filter((_, i) => [3, 5, 8, 11, 12].includes(i)),
+    fourTopsLex.filter((_, i) => [6, 9, 10, 13, 14].includes(i)),
+  ];
+  const evenLex = [
+    fourTopsLex.filter((_, i) => [0, 1, 4, 7, 11].includes(i)),
+    fourTopsLex.filter((_, i) => [2, 5, 8, 12, 13].includes(i)),
+    fourTopsLex.filter((_, i) => [3, 6, 9, 10, 14].includes(i)),
+  ];
+  check(
+    "strategy C ranks even tops ahead of stacked when O/A/D allow",
+    comparePartitionsV3(evenLex, stackedLex, "C") < 0,
+  );
+  const gFourTopsC = generateDrawOptionsV3({
+    players: fourTopsLex,
+    teamCount: 3,
+    teamSize: 5,
+    optionsCount: 2,
+    minDifference: 3,
+    strategy: "C",
+    rng: createRng("four-tops-c"),
+  });
+  const fourTopsCCounts = gFourTopsC.options[0]!.teams.map(
+    (t) => t.filter((p) => p.overall >= 4).length,
+  );
+  check(
+    "strategy C: 4 tops max per team <= 2",
+    Math.max(...fourTopsCCounts) <= 2,
+    `tops=${fourTopsCCounts.join(",")}`,
+  );
 
   // Different seeds can differ
   const c = generateDrawOptionsV3({
@@ -276,6 +391,7 @@ function domainChecks() {
     teamSize: 5,
     optionsCount: 2,
     minDifference: 3,
+    strategy: "A",
     rng: createRng("other-seed"),
   });
   check("different seeds not always identical", key(a) !== key(c) || a.options[0]!.balanceScore === c.options[0]!.balanceScore);
@@ -306,6 +422,7 @@ function domainChecks() {
       teamSize: 5,
       optionsCount: 2,
       minDifference: 15,
+    strategy: "A",
       rng: createRng("impossible-v3"),
     });
   } catch {
@@ -321,6 +438,7 @@ function domainChecks() {
     teamSize: 5,
     optionsCount: 2,
     minDifference: 3,
+    strategy: "A",
     rng: createRng("perf-15"),
   });
   const ms15 = performance.now() - t0;
@@ -331,6 +449,7 @@ function domainChecks() {
     teamSize: 5,
     optionsCount: 2,
     minDifference: 3,
+    strategy: "A",
     rng: createRng("perf-20"),
   });
   const ms20 = performance.now() - t1;
@@ -389,6 +508,7 @@ function domainChecks() {
         teamSize: 5,
         optionsCount: 2,
         minDifference: 3,
+    strategy: "A",
         rng: createRng(`v3-${scenario.name}-${seed}`),
       });
       const msV3 = performance.now() - startV3;
@@ -455,6 +575,7 @@ function domainChecks() {
     teamSize: 5,
     optionsCount: 2,
     minDifference: 3,
+    strategy: "A",
     rng: createRng("overlap-sample"),
   });
   const aIds = sample.options[0]!.teams.map((t) => t.map((p) => p.id));

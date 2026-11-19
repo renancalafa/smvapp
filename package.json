@@ -36,6 +36,8 @@
     "check:draw-roster-order": "tsx scripts/check-draw-roster-order.ts",
     "check:draw-balance": "tsx scripts/check-draw-balance.ts",
     "check:draw-balance-v3": "tsx scripts/check-draw-balance-v3.ts",
+    "check:draw-balance-v3-wiring": "tsx scripts/check-draw-balance-v3-wiring.ts",
+    "advanced-draw:local": "tsx scripts/set-advanced-draw-balancing-local.ts",
     "check:login-throttle": "tsx scripts/check-login-throttle.ts",
     "check:dev-reset": "tsx scripts/check-dev-reset.ts",
     "check:member-role": "tsx scripts/check-member-role.ts",

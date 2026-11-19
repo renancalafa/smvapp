@@ -31,6 +31,7 @@ async function main() {
     const sample = await prisma.draw.findFirst({
       select: {
         algorithmVersion: true,
+        balancingStrategy: true,
         balanceDiagnostics: true,
         options: {
           take: 1,
@@ -56,7 +57,11 @@ async function main() {
         },
       },
     });
-    check("consulta draw com campos v3 ok", true);
+    check("consulta draw com campos v3+strategy ok", true);
+    check(
+      "balancingStrategy column selectable",
+      sample === null || sample.balancingStrategy === null || typeof sample.balancingStrategy === "string",
+    );
     if (sample) {
       // Historical draws keep whatever version they were generated with (v1/v2/...).
       check(

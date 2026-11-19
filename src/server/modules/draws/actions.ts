@@ -5,9 +5,16 @@ import { requireAdminAction, requireViewer } from "@/server/auth/dal";
 import { formText } from "@/server/auth/validation";
 import { UserFacingError } from "@/server/errors";
 import { isUuid } from "@/server/modules/members/validation";
+import { isBalanceV3Strategy, type BalanceV3Strategy } from "@/domain/draw/balance-v3";
 import { castVote, closeVoting, generateDraw, invalidateDraw, resolveTie, setOverflowMode, setRotating } from "./service";
 
 export type DrawActionState = { status: "error"; error: string } | { status: "done"; message: string } | undefined;
+
+function readBalancingStrategy(formData: FormData): BalanceV3Strategy | null {
+  const raw = formText(formData, "balancingStrategy").trim();
+  if (!raw) return null;
+  return isBalanceV3Strategy(raw) ? raw : null;
+}
 
 const UNEXPECTED_ERROR = "Não foi possível concluir agora. Tente novamente em instantes.";
 const REASON_MAX_LENGTH = 300;
@@ -45,8 +52,13 @@ export async function generateDrawAction(_previous: DrawActionState, formData: F
   const viewer = await requireAdminAction();
   const sessionId = formText(formData, "sessionId");
   if (!isUuid(sessionId)) return INVALID;
+  const balancingStrategy = readBalancingStrategy(formData);
+  const rawStrategy = formText(formData, "balancingStrategy").trim();
+  if (rawStrategy && !balancingStrategy) {
+    return { status: "error", error: "Estratégia de equilíbrio inválida." };
+  }
   try {
-    const result = await generateDraw(viewer, sessionId);
+    const result = await generateDraw(viewer, sessionId, { balancingStrategy });
     refresh();
     return {
       status: "done",
@@ -98,10 +110,20 @@ export async function invalidateDrawAction(_previous: DrawActionState, formData:
   const drawId = formText(formData, "drawId");
   const reason = readReason(formData);
   const regenerate = formText(formData, "regenerate") === "on";
+  const balancingStrategy = readBalancingStrategy(formData);
+  const rawStrategy = formText(formData, "balancingStrategy").trim();
+  if (rawStrategy && !balancingStrategy) {
+    return { status: "error", error: "Estratégia de equilíbrio inválida." };
+  }
   if (!isUuid(sessionId) || !isUuid(drawId)) return INVALID;
   if (!reason) return REASON_ERROR;
   try {
-    const result = await invalidateDraw(viewer, sessionId, { drawId, reason, regenerate });
+    const result = await invalidateDraw(viewer, sessionId, {
+      drawId,
+      reason,
+      regenerate,
+      balancingStrategy,
+    });
     refresh();
     return {
       status: "done",

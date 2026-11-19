@@ -1,9 +1,11 @@
 "use client";
 
-import { useActionState } from "react";
+import { useActionState, useState } from "react";
 import { useConfirmSubmit } from "@/components/confirm-dialog";
 import { FormError, SelectField, SubmitButton, TextField } from "@/components/form-fields";
 import { ActionToast } from "@/components/toast/action-toast";
+import type { BalanceV3Strategy } from "@/domain/draw/balance-v3";
+import { BALANCE_V3_STRATEGY_UI } from "@/domain/draw/balance-v3-labels";
 import {
   darkAlertError,
   darkAlertWarn,
@@ -31,9 +33,84 @@ function Feedback({ state }: { state: DrawActionState }) {
   );
 }
 
-export function GenerateDrawForm({ sessionId, early }: { sessionId: string; early: boolean }) {
+export type AdvancedDrawUi = {
+  flagEnabled: boolean;
+  ratingsComplete: boolean;
+  missingLabels: string[];
+};
+
+function BalancingStrategyPicker({
+  enabled,
+  value,
+  onChange,
+  name = "balancingStrategy",
+}: {
+  enabled: boolean;
+  value: BalanceV3Strategy;
+  onChange: (next: BalanceV3Strategy) => void;
+  name?: string;
+}) {
+  return (
+    <fieldset className="flex flex-col gap-2 rounded-lg border border-smv-gold/25 bg-smv-navy/40 p-3">
+      <legend className="px-1 text-sm font-medium text-smv-gold">Estratégia de equilíbrio (algoritmo)</legend>
+      <p className={darkMutedXs}>
+        Escolha como o algoritmo monta as equipes. Isso não é a votação: o sistema ainda gera as{" "}
+        <span className="text-white/80">duas opções de times</span> para os mensalistas votarem (Opção A / Opção B).
+      </p>
+      {!enabled && (
+        <p className="text-sm text-amber-100/90">
+          Equilíbrio avançado indisponível agora (flag desligada ou atributos incompletos). O sorteio usará o
+          equilíbrio clássico (balance-v2).
+        </p>
+      )}
+      <div className="grid gap-2 sm:grid-cols-2">
+        {(["A", "C"] as const).map((id) => {
+          const meta = BALANCE_V3_STRATEGY_UI[id];
+          const selected = value === id;
+          return (
+            <label
+              key={id}
+              className={`flex min-h-24 cursor-pointer flex-col gap-1 rounded-lg border px-3 py-2 text-left transition ${
+                selected
+                  ? "border-smv-gold/60 bg-smv-gold/15"
+                  : "border-white/15 bg-black/20 hover:border-white/30"
+              } ${!enabled ? "opacity-50" : ""}`}
+            >
+              <span className="flex items-center gap-2">
+                <input
+                  type="radio"
+                  name={name}
+                  value={id}
+                  checked={selected}
+                  disabled={!enabled}
+                  onChange={() => onChange(id)}
+                  className="accent-smv-gold"
+                />
+                <span className="font-medium text-white">{meta.title}</span>
+              </span>
+              <span className={`text-xs ${darkMutedXs}`}>Prioridade: {meta.priority}.</span>
+              <span className={`text-xs ${darkBody}`}>{meta.hint}</span>
+            </label>
+          );
+        })}
+      </div>
+    </fieldset>
+  );
+}
+
+export function GenerateDrawForm({
+  sessionId,
+  early,
+  advanced,
+}: {
+  sessionId: string;
+  early: boolean;
+  advanced: AdvancedDrawUi;
+}) {
   const [state, formAction, pending] = useActionState(generateDrawAction, undefined);
   const confirmSubmit = useConfirmSubmit();
+  const strategyEnabled = advanced.flagEnabled && advanced.ratingsComplete;
+  const [strategy, setStrategy] = useState<BalanceV3Strategy>("A");
   return (
     <form
       action={formAction}
@@ -44,15 +121,34 @@ export function GenerateDrawForm({ sessionId, early }: { sessionId: string; earl
           : "A votação abre neste passo. A partir daí só os administradores alteram a lista de presença.",
         confirmLabel: early ? "Antecipar" : "Gerar sorteio",
       })}
-      className="flex flex-col gap-2"
+      className="flex flex-col gap-3"
     >
       <input type="hidden" name="sessionId" value={sessionId} />
       <p className={darkBody}>
-        O sistema gera as opções e abre a votação no mesmo passo. Com a votação aberta, a lista fica travada para os
-        jogadores e a fila não promove automaticamente.
+        O sistema gera as <strong className="font-medium text-white">duas opções de times</strong> e abre a votação no
+        mesmo passo. Com a votação aberta, a lista fica travada para os jogadores e a fila não promove automaticamente.
         {early &&
           " Sorteio antecipado: até o prazo, mensalistas que ainda não confirmaram entram só na lista de espera."}
       </p>
+      {advanced.flagEnabled && (
+        <>
+          <BalancingStrategyPicker enabled={strategyEnabled} value={strategy} onChange={setStrategy} />
+          {!advanced.ratingsComplete && (
+            <div className={`rounded-lg border border-amber-300/30 px-3 py-2 ${darkAlertWarn}`}>
+              <p className="text-sm font-medium text-amber-50">Atributos incompletos — equilíbrio avançado não será usado</p>
+              <p className={`mt-1 ${darkMutedXs}`}>
+                O sorteio cairá no balance-v2 clássico. Jogadores com nota faltando:{" "}
+                {advanced.missingLabels.length > 0 ? advanced.missingLabels.join("; ") : "verifique o elenco."}
+              </p>
+            </div>
+          )}
+        </>
+      )}
+      {!advanced.flagEnabled && (
+        <p className={darkMutedXs}>
+          Equilíbrio avançado (estratégias A/C) está desligado nas configurações do grupo. O sorteio usará balance-v2.
+        </p>
+      )}
       <SubmitButton
         pending={pending}
         label={early ? "Antecipar sorteio" : "Gerar sorteio"}
@@ -118,13 +214,18 @@ export function InvalidateDrawForm({
   sessionId,
   drawId,
   decided,
+  advanced,
 }: {
   sessionId: string;
   drawId: string;
   decided: boolean;
+  advanced: AdvancedDrawUi;
 }) {
   const [state, formAction, pending] = useActionState(invalidateDrawAction, undefined);
   const confirmSubmit = useConfirmSubmit();
+  const strategyEnabled = advanced.flagEnabled && advanced.ratingsComplete;
+  const [strategy, setStrategy] = useState<BalanceV3Strategy>("A");
+  const [regenerate, setRegenerate] = useState(true);
   return (
     <details className={`border border-red-300/30 p-4 ${darkCardPad}`}>
       <summary className="cursor-pointer font-medium text-red-200">Refazer sorteio…</summary>
@@ -149,9 +250,18 @@ export function InvalidateDrawForm({
         <input type="hidden" name="drawId" value={drawId} />
         <TextField label="Motivo" name="reason" required maxLength={300} />
         <label className={`flex min-h-11 items-center gap-3 ${darkBody}`}>
-          <input type="checkbox" name="regenerate" defaultChecked className="size-5 accent-smv-gold" />
+          <input
+            type="checkbox"
+            name="regenerate"
+            checked={regenerate}
+            onChange={(event) => setRegenerate(event.target.checked)}
+            className="size-5 accent-smv-gold"
+          />
           Gerar o novo sorteio agora
         </label>
+        {regenerate && advanced.flagEnabled && (
+          <BalancingStrategyPicker enabled={strategyEnabled} value={strategy} onChange={setStrategy} />
+        )}
         <SubmitButton pending={pending} label="Invalidar sorteio" pendingLabel="Invalidando…" variant="danger" />
         <Feedback state={state} />
       </form>
